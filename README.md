@@ -1,8 +1,8 @@
 # KodexBar
 
-KodexBar is a KDE Plasma panel widget port of [CodexBar](https://github.com/steipete/codexbar). It displays CodexBar CLI usage, quota, and credit data in a Plasma panel popup.
+KodexBar is a native KDE Plasma panel widget inspired by [CodexBar](https://github.com/steipete/codexbar). It displays CodexBar CLI usage, quota, and credit data in a Plasma panel popup.
 
-This port intentionally uses the upstream `codexbar` CLI as its data source. The original project is a macOS Swift menu bar app, while the CLI has Linux release artifacts and a JSON interface suitable for Plasma.
+KodexBar intentionally uses the upstream `codexbar` CLI as its data source rather than reimplementing CodexBar's provider backends. The original project is a macOS Swift menu bar app, while the CLI has Linux release artifacts and a JSON interface suitable for Plasma.
 
 ## Requirements
 
