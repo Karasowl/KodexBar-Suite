@@ -1,0 +1,20 @@
+{
+  "KPlugin": {
+    "Authors": [
+      {
+        "Email": "",
+        "Name": "tylxr"
+      }
+    ],
+    "Category": "System Information",
+    "Description": "KDE Plasma panel widget for CodexBar usage, quotas, and credits.",
+    "Icon": "codex",
+    "Id": "org.kde.plasma.kodexbar",
+    "License": "MIT",
+    "Name": "KodexBar",
+    "Version": "0.1.0",
+    "Website": "https://github.com/tylxr59/KodexBar"
+  },
+  "KPackageStructure": "Plasma/Applet",
+  "X-Plasma-API-Minimum-Version": "6.0"
+}
