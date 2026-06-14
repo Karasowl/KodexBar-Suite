@@ -2,17 +2,22 @@ import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import org.kde.kcmutils as KCM
 import org.kde.plasma.components as PlasmaComponents
 
-ColumnLayout {
+KCM.SimpleKCM {
     id: page
-    spacing: 0
 
     property alias cfg_codexbarCommand: codexbarCommand.text
+    property string cfg_codexbarCommandDefault
     property string cfg_provider
+    property string cfg_providerDefault
     property string cfg_source
+    property string cfg_sourceDefault
     property alias cfg_refreshInterval: refreshInterval.value
+    property int cfg_refreshIntervalDefault
     property alias cfg_showCreditsInPanel: showCreditsInPanel.checked
+    property bool cfg_showCreditsInPanelDefault
 
     function indexForValue(model, value) {
         for (var i = 0; i < model.count; i++) {
@@ -25,7 +30,6 @@ ColumnLayout {
 
     ColumnLayout {
         Layout.fillWidth: true
-        Layout.alignment: Qt.AlignTop
         Layout.margins: Kirigami.Units.largeSpacing
         spacing: Kirigami.Units.largeSpacing
 
@@ -118,9 +122,5 @@ ColumnLayout {
                 text: i18n("Show credits in panel")
             }
         }
-    }
-
-    Item {
-        Layout.fillHeight: true
     }
 }
