@@ -44,6 +44,8 @@ Open the widget settings to choose:
 - provider (`Best available`, `All enabled`, or any current CodexBar provider ID exposed in the settings list)
 - source (`Best available`, `auto`, `web`, `cli`, `oauth`, `api`)
 - refresh interval
+- whether the provider name appears in the compact panel label
+- whether used percent appears in the compact panel label
 - whether credits appear in the compact panel label
 - whether provider status is fetched with `codexbar usage --status`
 

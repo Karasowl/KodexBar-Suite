@@ -18,6 +18,10 @@ KCM.SimpleKCM {
     property int cfg_refreshIntervalDefault
     property alias cfg_showCreditsInPanel: showCreditsInPanel.checked
     property bool cfg_showCreditsInPanelDefault
+    property alias cfg_showUsedPercentInPanel: showUsedPercentInPanel.checked
+    property bool cfg_showUsedPercentInPanelDefault
+    property alias cfg_showProviderInPanel: showProviderInPanel.checked
+    property bool cfg_showProviderInPanelDefault
     property alias cfg_includeStatus: includeStatus.checked
     property bool cfg_includeStatusDefault
 
@@ -162,6 +166,16 @@ KCM.SimpleKCM {
                 textFromValue: function(value) { return i18np("%1 second", "%1 seconds", value) }
                 valueFromText: function(text) { return Number(text.replace(/\D/g, "")) }
                 Layout.preferredWidth: Kirigami.Units.gridUnit * 10
+            }
+
+            QQC2.CheckBox {
+                id: showProviderInPanel
+                text: i18n("Show provider in panel")
+            }
+
+            QQC2.CheckBox {
+                id: showUsedPercentInPanel
+                text: i18n("Show used percent in panel")
             }
 
             QQC2.CheckBox {

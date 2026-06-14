@@ -22,6 +22,8 @@ PlasmoidItem {
     property var pendingCandidates: []
     property var failedCandidates: []
     property bool showCreditsInPanel: Plasmoid.configuration.showCreditsInPanel === undefined ? true : Plasmoid.configuration.showCreditsInPanel
+    property bool showUsedPercentInPanel: Plasmoid.configuration.showUsedPercentInPanel === undefined ? true : Plasmoid.configuration.showUsedPercentInPanel
+    property bool showProviderInPanel: Plasmoid.configuration.showProviderInPanel === undefined ? true : Plasmoid.configuration.showProviderInPanel
     property bool includeStatus: Plasmoid.configuration.includeStatus === undefined ? false : Plasmoid.configuration.includeStatus
     property int refreshSeconds: Math.max(10, Plasmoid.configuration.refreshInterval || 60)
 
@@ -43,13 +45,16 @@ PlasmoidItem {
         if (first === null) {
             first = entries[0]
         }
-        var parts = [first.name || "Codex"]
+        var parts = []
+        if (showProviderInPanel) {
+            parts.push(first.name || "Codex")
+        }
         if (first.errorMessage) {
             parts.push(i18n("Error"))
             return parts.join(" ")
         }
         var primaryUsed = usedPercent(first.primaryPercentLeft)
-        if (primaryUsed !== null) {
+        if (primaryUsed !== null && showUsedPercentInPanel) {
             parts.push(Math.round(primaryUsed) + "%")
         }
         if (first.creditsRemaining !== null && first.creditsRemaining !== undefined && showCreditsInPanel) {
@@ -682,6 +687,7 @@ PlasmoidItem {
 
             PlasmaComponents.Label {
                 text: root.panelText()
+                visible: text.length > 0
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
                 Layout.maximumWidth: Kirigami.Units.gridUnit * 8
@@ -1084,4 +1090,6 @@ PlasmoidItem {
     onSelectedProviderChanged: refresh()
     onSelectedSourceChanged: refresh()
     onShowCreditsInPanelChanged: panelText()
+    onShowUsedPercentInPanelChanged: panelText()
+    onShowProviderInPanelChanged: panelText()
 }
