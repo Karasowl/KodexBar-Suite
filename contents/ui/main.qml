@@ -58,7 +58,7 @@ PlasmoidItem {
             parts.push(Math.round(primaryUsed) + "%")
         }
         if (first.creditsRemaining !== null && first.creditsRemaining !== undefined && showCreditsInPanel) {
-            parts.push(formatNumber(first.creditsRemaining))
+            parts.push(formatCredits(first.creditsRemaining))
         }
         return parts.join(" ")
     }
@@ -79,6 +79,21 @@ PlasmoidItem {
         }
         var prefix = currencyCode === "USD" ? "$" : ((currencyCode || "") + " ")
         return prefix + Number(value).toLocaleString(Qt.locale(), "f", 2)
+    }
+
+    function formatCredits(value) {
+        if (value === null || value === undefined || isNaN(value)) {
+            return ""
+        }
+        var formatted = Number(value).toLocaleString(Qt.locale(), "f", 2)
+        var decimalPoint = Qt.locale().decimalPoint || "."
+        while (formatted.indexOf(decimalPoint) !== -1 && formatted.endsWith("0")) {
+            formatted = formatted.slice(0, -1)
+        }
+        if (formatted.endsWith(decimalPoint)) {
+            formatted = formatted.slice(0, -decimalPoint.length)
+        }
+        return formatted
     }
 
     function usedPercent(percentLeft) {
@@ -967,7 +982,7 @@ PlasmoidItem {
                                 }
 
                                 PlasmaComponents.Label {
-                                    text: root.formatNumber(modelData.creditsRemaining)
+                                    text: root.formatCredits(modelData.creditsRemaining)
                                     font.weight: Font.DemiBold
                                     font.pointSize: Kirigami.Theme.defaultFont.pointSize + 1
                                     Layout.alignment: Qt.AlignTop
