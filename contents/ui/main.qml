@@ -454,6 +454,8 @@ PlasmoidItem {
 
             Kirigami.Icon {
                 source: root.providerIconSource(root.entries.length > 0 ? root.entries[0].provider : "codex")
+                isMask: true
+                color: Kirigami.Theme.textColor
                 implicitWidth: Kirigami.Units.iconSizes.small
                 implicitHeight: Kirigami.Units.iconSizes.small
             }
@@ -513,6 +515,8 @@ PlasmoidItem {
 
                                     Kirigami.Icon {
                                         source: root.providerIconSource(modelData.provider)
+                                        isMask: true
+                                        color: index === 0 ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
                                         implicitWidth: Kirigami.Units.iconSizes.small
                                         implicitHeight: Kirigami.Units.iconSizes.small
                                     }
@@ -554,15 +558,6 @@ PlasmoidItem {
                     text: i18n("Refresh")
                     onClicked: root.refresh()
                 }
-            }
-
-            PlasmaComponents.Label {
-                visible: root.loading
-                text: i18n("Trying %1 / %2", root.activeProvider, root.activeSource)
-                color: Kirigami.Theme.disabledTextColor
-                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                elide: Text.ElideRight
-                Layout.fillWidth: true
             }
 
             PlasmaComponents.Label {
@@ -610,6 +605,8 @@ PlasmoidItem {
 
                                 Kirigami.Icon {
                                     source: root.providerIconSource(modelData.provider)
+                                    isMask: true
+                                    color: Kirigami.Theme.textColor
                                     implicitWidth: Kirigami.Units.iconSizes.medium
                                     implicitHeight: Kirigami.Units.iconSizes.medium
                                     Layout.alignment: Qt.AlignTop
