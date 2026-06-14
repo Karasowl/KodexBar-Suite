@@ -50,7 +50,8 @@ PlasmoidItem {
         }
         if (first.primaryPercentLeft !== null && first.primaryPercentLeft !== undefined) {
             parts.push(Math.round(first.primaryPercentLeft) + "%")
-        } else if (first.creditsRemaining !== null && first.creditsRemaining !== undefined && showCreditsInPanel) {
+        }
+        if (first.creditsRemaining !== null && first.creditsRemaining !== undefined && showCreditsInPanel) {
             parts.push(formatNumber(first.creditsRemaining))
         }
         return parts.join(" ")
