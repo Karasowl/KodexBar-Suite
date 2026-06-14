@@ -18,6 +18,8 @@ KCM.SimpleKCM {
     property int cfg_refreshIntervalDefault
     property alias cfg_showCreditsInPanel: showCreditsInPanel.checked
     property bool cfg_showCreditsInPanelDefault
+    property alias cfg_includeStatus: includeStatus.checked
+    property bool cfg_includeStatusDefault
 
     function indexForValue(model, value) {
         for (var i = 0; i < model.count; i++) {
@@ -74,11 +76,55 @@ KCM.SimpleKCM {
                 model: ListModel {
                     ListElement { text: "Best available"; value: "detect" }
                     ListElement { text: "All enabled"; value: "all" }
+                    ListElement { text: "Abacus AI"; value: "abacus" }
+                    ListElement { text: "Alibaba Coding Plan"; value: "alibaba" }
+                    ListElement { text: "Alibaba Token Plan"; value: "alibabatokenplan" }
+                    ListElement { text: "Amp"; value: "amp" }
+                    ListElement { text: "Antigravity"; value: "antigravity" }
+                    ListElement { text: "Augment"; value: "augment" }
+                    ListElement { text: "AWS Bedrock"; value: "bedrock" }
+                    ListElement { text: "Azure OpenAI"; value: "azureopenai" }
                     ListElement { text: "Codex"; value: "codex" }
                     ListElement { text: "Claude"; value: "claude" }
-                    ListElement { text: "OpenAI API"; value: "openai" }
+                    ListElement { text: "Codebuff"; value: "codebuff" }
+                    ListElement { text: "Command Code"; value: "commandcode" }
                     ListElement { text: "Copilot"; value: "copilot" }
+                    ListElement { text: "Crof"; value: "crof" }
+                    ListElement { text: "Cursor"; value: "cursor" }
+                    ListElement { text: "Deepgram"; value: "deepgram" }
+                    ListElement { text: "DeepSeek"; value: "deepseek" }
+                    ListElement { text: "Devin"; value: "devin" }
+                    ListElement { text: "Doubao"; value: "doubao" }
+                    ListElement { text: "Droid"; value: "factory" }
+                    ListElement { text: "ElevenLabs"; value: "elevenlabs" }
                     ListElement { text: "Gemini"; value: "gemini" }
+                    ListElement { text: "Grok"; value: "grok" }
+                    ListElement { text: "GroqCloud"; value: "groq" }
+                    ListElement { text: "JetBrains AI"; value: "jetbrains" }
+                    ListElement { text: "Kilo Code"; value: "kilo" }
+                    ListElement { text: "Kimi"; value: "kimi" }
+                    ListElement { text: "Kimi K2"; value: "kimik2" }
+                    ListElement { text: "Kiro"; value: "kiro" }
+                    ListElement { text: "LLM Proxy"; value: "llmproxy" }
+                    ListElement { text: "Manus"; value: "manus" }
+                    ListElement { text: "MiniMax"; value: "minimax" }
+                    ListElement { text: "Mistral"; value: "mistral" }
+                    ListElement { text: "Moonshot"; value: "moonshot" }
+                    ListElement { text: "Ollama"; value: "ollama" }
+                    ListElement { text: "OpenAI API"; value: "openai" }
+                    ListElement { text: "OpenCode"; value: "opencode" }
+                    ListElement { text: "OpenCode Go"; value: "opencodego" }
+                    ListElement { text: "OpenRouter"; value: "openrouter" }
+                    ListElement { text: "Perplexity"; value: "perplexity" }
+                    ListElement { text: "StepFun"; value: "stepfun" }
+                    ListElement { text: "Synthetic"; value: "synthetic" }
+                    ListElement { text: "T3 Chat"; value: "t3chat" }
+                    ListElement { text: "Venice"; value: "venice" }
+                    ListElement { text: "Vertex AI"; value: "vertexai" }
+                    ListElement { text: "Warp"; value: "warp" }
+                    ListElement { text: "Windsurf"; value: "windsurf" }
+                    ListElement { text: "Xiaomi MiMo"; value: "mimo" }
+                    ListElement { text: "z.ai"; value: "zai" }
                 }
                 currentIndex: page.indexForValue(model, page.cfg_provider || "detect")
                 Layout.preferredWidth: Kirigami.Units.gridUnit * 12
@@ -95,6 +141,7 @@ KCM.SimpleKCM {
                 model: ListModel {
                     ListElement { text: "Best available"; value: "detect" }
                     ListElement { text: "Auto"; value: "auto" }
+                    ListElement { text: "Web"; value: "web" }
                     ListElement { text: "CLI"; value: "cli" }
                     ListElement { text: "OAuth"; value: "oauth" }
                     ListElement { text: "API"; value: "api" }
@@ -120,6 +167,11 @@ KCM.SimpleKCM {
             QQC2.CheckBox {
                 id: showCreditsInPanel
                 text: i18n("Show credits in panel")
+            }
+
+            QQC2.CheckBox {
+                id: includeStatus
+                text: i18n("Fetch provider status")
             }
         }
     }

@@ -41,14 +41,17 @@ plasmashell --replace
 Open the widget settings to choose:
 
 - `codexbar` command path
-- provider (`Best available`, `all`, `codex`, `claude`, `openai`, `copilot`, `gemini`)
-- source (`Best available`, `auto`, `cli`, `oauth`, `api`)
+- provider (`Best available`, `All enabled`, or any current CodexBar provider ID exposed in the settings list)
+- source (`Best available`, `auto`, `web`, `cli`, `oauth`, `api`)
 - refresh interval
 - whether credits appear in the compact panel label
+- whether provider status is fetched with `codexbar usage --status`
 
 Provider credentials and toggles are still owned by CodexBar CLI in `~/.codexbar/config.json`.
 
-On Linux, many CodexBar providers cannot use the upstream macOS WebKit/web source. `Best available` avoids the noisy `all` + `auto` response by probing Linux-friendly combinations such as Codex CLI/OAuth/API, Claude CLI/OAuth/API, and common API-backed providers. If you already know the provider, choose it directly; leaving Source as `Auto` or `Best available` will still try CLI/OAuth/API before falling back to upstream `auto`.
+On Linux, many CodexBar providers cannot use the upstream macOS WebKit/web source. `Best available` first asks the CLI to use its configured defaults from `~/.codexbar/config.json`, then falls back to Linux-friendly combinations such as Codex CLI/OAuth/API, Claude CLI/OAuth/API, and common API-backed providers. If you already know the provider, choose it directly; leaving Source as `Auto` or `Best available` will still try CLI/OAuth/API before falling back to upstream `auto`.
+
+The popup renders the common CodexBar CLI JSON fields: primary/secondary/tertiary windows, extra named rate windows, provider spend/budget snapshots, credits, basic OpenAI dashboard summaries, provider status, and per-provider errors. Provider-specific charts, account management, cookies/API-key editing, notifications, and cost scans remain available through the upstream app/CLI rather than being reimplemented in the Plasma widget.
 
 ## Test The CLI
 

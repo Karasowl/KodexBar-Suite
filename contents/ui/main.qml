@@ -22,6 +22,7 @@ PlasmoidItem {
     property var pendingCandidates: []
     property var failedCandidates: []
     property bool showCreditsInPanel: Plasmoid.configuration.showCreditsInPanel === undefined ? true : Plasmoid.configuration.showCreditsInPanel
+    property bool includeStatus: Plasmoid.configuration.includeStatus === undefined ? false : Plasmoid.configuration.includeStatus
     property int refreshSeconds: Math.max(10, Plasmoid.configuration.refreshInterval || 60)
 
     preferredRepresentation: compactRepresentation
@@ -65,6 +66,14 @@ PlasmoidItem {
         return Number(value).toLocaleString(Qt.locale(), "f", 1)
     }
 
+    function formatCurrency(value, currencyCode) {
+        if (value === null || value === undefined || isNaN(value)) {
+            return ""
+        }
+        var prefix = currencyCode === "USD" ? "$" : ((currencyCode || "") + " ")
+        return prefix + Number(value).toLocaleString(Qt.locale(), "f", 2)
+    }
+
     function usedPercent(percentLeft) {
         if (percentLeft === null || percentLeft === undefined || isNaN(percentLeft)) {
             return null
@@ -72,7 +81,10 @@ PlasmoidItem {
         return Math.max(0, Math.min(100, 100 - percentLeft))
     }
 
-    function formatUsedPercent(percentLeft) {
+    function formatUsedPercent(percentLeft, usageKnown) {
+        if (usageKnown === false) {
+            return i18n("Reset only")
+        }
         var used = usedPercent(percentLeft)
         if (used === null) {
             return i18n("Unavailable")
@@ -157,9 +169,17 @@ PlasmoidItem {
     }
 
     function commandLine(provider, source) {
-        return shellQuote(codexbarCommand)
-            + " usage --format json --json-only --provider " + shellQuote(provider)
-            + " --source " + shellQuote(source)
+        var command = shellQuote(codexbarCommand) + " usage --format json --json-only"
+        if (provider && provider !== "detect") {
+            command += " --provider " + shellQuote(provider)
+        }
+        if (source && source !== "detect") {
+            command += " --source " + shellQuote(source)
+        }
+        if (includeStatus) {
+            command += " --status"
+        }
+        return command
     }
 
     function shellQuote(value) {
@@ -181,6 +201,10 @@ PlasmoidItem {
         var source = selectedSource || "detect"
         var sources = source === "detect" || source === "auto" ? ["cli", "oauth", "api", "auto"] : [source]
         var result = []
+
+        if (provider === "detect" && source === "detect") {
+            result.push({ provider: "", source: "" })
+        }
 
         if (provider !== "detect" && provider !== "all") {
             for (var i = 0; i < sources.length; i++) {
@@ -205,8 +229,26 @@ PlasmoidItem {
             { provider: "copilot", source: "api" },
             { provider: "kilo", source: "cli" },
             { provider: "kilo", source: "api" },
+            { provider: "kimi", source: "api" },
+            { provider: "kimik2", source: "api" },
+            { provider: "zai", source: "api" },
+            { provider: "minimax", source: "api" },
+            { provider: "kiro", source: "cli" },
+            { provider: "vertexai", source: "oauth" },
+            { provider: "warp", source: "api" },
             { provider: "openrouter", source: "api" },
-            { provider: "ollama", source: "api" }
+            { provider: "elevenlabs", source: "api" },
+            { provider: "ollama", source: "api" },
+            { provider: "deepseek", source: "api" },
+            { provider: "moonshot", source: "api" },
+            { provider: "doubao", source: "api" },
+            { provider: "codebuff", source: "api" },
+            { provider: "crof", source: "api" },
+            { provider: "venice", source: "api" },
+            { provider: "bedrock", source: "api" },
+            { provider: "groq", source: "api" },
+            { provider: "llmproxy", source: "api" },
+            { provider: "deepgram", source: "api" }
         ]
     }
 
@@ -285,20 +327,48 @@ PlasmoidItem {
     function providerName(raw) {
         var key = String(raw || "").toLowerCase()
         var names = {
+            "abacus": "Abacus AI",
+            "alibaba": "Alibaba Coding Plan",
+            "alibabatokenplan": "Alibaba Token Plan",
+            "amp": "Amp",
+            "antigravity": "Antigravity",
+            "augment": "Augment",
+            "bedrock": "AWS Bedrock",
             "codex": "Codex",
             "claude": "Claude",
             "openai": "OpenAI API",
             "azureopenai": "Azure OpenAI",
+            "cursor": "Cursor",
             "opencode": "OpenCode",
             "opencodego": "OpenCode Go",
-            "alibabatokenplan": "Alibaba Token Plan",
+            "factory": "Droid",
+            "devin": "Devin",
+            "zai": "z.ai",
+            "minimax": "MiniMax",
+            "manus": "Manus",
+            "kimi": "Kimi",
+            "kiro": "Kiro",
             "vertexai": "Vertex AI",
+            "jetbrains": "JetBrains AI",
             "kimik2": "Kimi K2",
+            "moonshot": "Moonshot",
+            "synthetic": "Synthetic",
             "t3chat": "T3 Chat",
+            "warp": "Warp",
+            "elevenlabs": "ElevenLabs",
+            "windsurf": "Windsurf",
+            "perplexity": "Perplexity",
+            "mimo": "Xiaomi MiMo",
+            "doubao": "Doubao",
+            "mistral": "Mistral",
             "deepseek": "DeepSeek",
             "codebuff": "Codebuff",
+            "crof": "Crof",
+            "venice": "Venice",
             "commandcode": "Command Code",
             "stepfun": "StepFun",
+            "grok": "Grok",
+            "groq": "GroqCloud",
             "openrouter": "OpenRouter",
             "deepgram": "Deepgram",
             "llmproxy": "LLM Proxy",
@@ -313,20 +383,48 @@ PlasmoidItem {
     function providerIconSource(raw) {
         var key = String(raw || "").toLowerCase()
         var icons = {
+            "abacus": "abacus",
+            "alibaba": "alibaba",
+            "alibabatokenplan": "alibabatokenplan",
+            "amp": "amp",
+            "antigravity": "antigravity",
+            "augment": "augment",
+            "bedrock": "bedrock",
             "codex": "codex",
             "claude": "claude",
             "openai": "openai",
             "azureopenai": "azureopenai",
+            "cursor": "cursor",
             "opencode": "opencode",
             "opencodego": "opencodego",
-            "alibabatokenplan": "alibabatokenplan",
+            "factory": "factory",
+            "devin": "devin",
+            "zai": "zai",
+            "minimax": "minimax",
+            "manus": "manus",
+            "kimi": "kimi",
+            "kiro": "kiro",
             "vertexai": "vertexai",
+            "jetbrains": "jetbrains",
             "kimik2": "kimik2",
+            "moonshot": "moonshot",
+            "synthetic": "synthetic",
             "t3chat": "t3chat",
+            "warp": "warp",
+            "elevenlabs": "elevenlabs",
+            "windsurf": "windsurf",
+            "perplexity": "perplexity",
+            "mimo": "mimo",
+            "doubao": "doubao",
+            "mistral": "mistral",
             "deepseek": "deepseek",
             "codebuff": "codebuff",
+            "crof": "crof",
+            "venice": "venice",
             "commandcode": "commandcode",
             "stepfun": "stepfun",
+            "grok": "grok",
+            "groq": "groq",
             "openrouter": "openrouter",
             "deepgram": "deepgram",
             "llmproxy": "llmproxy",
@@ -373,6 +471,64 @@ PlasmoidItem {
         return resetTimeFromDescription(window.resetDescription || window.resetsIn || "")
     }
 
+    function windowDetail(window, usageKnown) {
+        if (!window || typeof window !== "object") {
+            return ""
+        }
+        var parts = []
+        if (usageKnown === false) {
+            parts.push(i18n("Usage not reported"))
+        }
+        if (window.resetDescription) {
+            parts.push(window.resetDescription)
+        }
+        if (typeof window.nextRegenPercent === "number" && window.nextRegenPercent > 0) {
+            parts.push(i18n("+%1% next regen", Math.round(window.nextRegenPercent)))
+        }
+        return parts.join(" - ")
+    }
+
+    function providerCostRow(cost) {
+        if (!cost || typeof cost !== "object" || typeof cost.used !== "number" || typeof cost.limit !== "number" || cost.limit <= 0) {
+            return null
+        }
+        var used = Math.max(0, Math.min(100, cost.used / cost.limit * 100))
+        var detail = formatCurrency(cost.used, cost.currencyCode) + " / " + formatCurrency(cost.limit, cost.currencyCode)
+        if (typeof cost.nextRegenAmount === "number" && cost.nextRegenAmount > 0) {
+            detail += " - " + i18n("+%1 next regen", formatNumber(cost.nextRegenAmount))
+        }
+        return {
+            title: cost.period || i18n("Spend"),
+            percentLeft: Math.max(0, 100 - used),
+            resetsAt: cost.resetsAt || null,
+            detail: detail,
+            usageKnown: true
+        }
+    }
+
+    function dashboardSummary(dashboard) {
+        if (!dashboard || typeof dashboard !== "object") {
+            return []
+        }
+        var summary = []
+        if (typeof dashboard.codeReviewRemainingPercent === "number") {
+            summary.push(i18n("Code review: %1% remaining", Math.round(dashboard.codeReviewRemainingPercent)))
+        }
+        if (dashboard.accountPlan) {
+            summary.push(i18n("Plan: %1", dashboard.accountPlan))
+        }
+        if (dashboard.creditEvents && dashboard.creditEvents.length > 0) {
+            summary.push(i18np("%1 credit event", "%1 credit events", dashboard.creditEvents.length))
+        }
+        if (dashboard.dailyBreakdown && dashboard.dailyBreakdown.length > 0) {
+            summary.push(i18np("%1 credit-history day", "%1 credit-history days", dashboard.dailyBreakdown.length))
+        }
+        if (dashboard.usageBreakdown && dashboard.usageBreakdown.length > 0) {
+            summary.push(i18np("%1 usage-breakdown day", "%1 usage-breakdown days", dashboard.usageBreakdown.length))
+        }
+        return summary
+    }
+
     function normalizeEntry(entry) {
         var usage = entry.usage && typeof entry.usage === "object" ? entry.usage : {}
         var identity = usage.identity && typeof usage.identity === "object" ? usage.identity : {}
@@ -382,6 +538,8 @@ PlasmoidItem {
         var primary = usage.primary
         var secondary = usage.secondary
         var tertiary = usage.tertiary
+        var providerCost = usage.providerCost && typeof usage.providerCost === "object" ? usage.providerCost : null
+        var status = entry.status && typeof entry.status === "object" ? entry.status : null
         var rows = []
         var windows = [
             { title: i18n("Session"), data: primary },
@@ -391,8 +549,35 @@ PlasmoidItem {
         for (var i = 0; i < windows.length; i++) {
             var left = percentLeft(windows[i].data)
             if (left !== null) {
-                rows.push({ title: windows[i].title, percentLeft: left, resetsAt: resetAt(windows[i].data) })
+                rows.push({
+                    title: windows[i].title,
+                    percentLeft: left,
+                    resetsAt: resetAt(windows[i].data),
+                    detail: windowDetail(windows[i].data, true),
+                    usageKnown: true
+                })
             }
+        }
+        var extraRateWindows = usage.extraRateWindows && usage.extraRateWindows.length ? usage.extraRateWindows : []
+        for (var j = 0; j < extraRateWindows.length; j++) {
+            var extra = extraRateWindows[j]
+            if (!extra || !extra.window) {
+                continue
+            }
+            var extraLeft = percentLeft(extra.window)
+            if (extraLeft !== null || resetAt(extra.window)) {
+                rows.push({
+                    title: extra.title || i18n("Extra"),
+                    percentLeft: extra.usageKnown === false ? null : extraLeft,
+                    resetsAt: resetAt(extra.window),
+                    detail: windowDetail(extra.window, extra.usageKnown),
+                    usageKnown: extra.usageKnown !== false
+                })
+            }
+        }
+        var costRow = providerCostRow(providerCost)
+        if (costRow !== null) {
+            rows.push(costRow)
         }
         return {
             provider: entry.provider,
@@ -400,16 +585,20 @@ PlasmoidItem {
             version: entry.version,
             source: entry.source,
             account: entry.account || usage.accountEmail || identity.accountEmail || "",
-            plan: usage.loginMethod || identity.loginMethod || "",
+            plan: usage.loginMethod || identity.loginMethod || dashboard.accountPlan || "",
             primaryPercentLeft: percentLeft(primary),
             primaryResetsAt: resetAt(primary),
             secondaryPercentLeft: percentLeft(secondary),
             secondaryResetsAt: resetAt(secondary),
-            creditsRemaining: credits ? credits.remaining : null,
+            creditsRemaining: credits ? credits.remaining : (typeof dashboard.creditsRemaining === "number" ? dashboard.creditsRemaining : null),
             codeReviewRemainingPercent: typeof dashboard.codeReviewRemainingPercent === "number" ? dashboard.codeReviewRemainingPercent : null,
+            dashboardSummary: dashboardSummary(dashboard),
             rows: rows,
             updatedAt: usage.updatedAt || entry.updatedAt || "",
             status: entry.status,
+            statusIndicator: status ? (status.indicator || "unknown") : "",
+            statusDescription: status ? (status.description || "") : "",
+            statusURL: status ? (status.url || "") : "",
             errorMessage: error ? (error.message || i18n("Provider returned an error")) : "",
             errorKind: error ? (error.kind || "") : ""
         }
@@ -439,6 +628,35 @@ PlasmoidItem {
             return "#d08a5b"
         }
         return Kirigami.Theme.highlightColor
+    }
+
+    function statusText(indicator, description) {
+        if (!indicator) {
+            return ""
+        }
+        var labels = {
+            "none": i18n("Operational"),
+            "minor": i18n("Partial outage"),
+            "major": i18n("Major outage"),
+            "critical": i18n("Critical issue"),
+            "maintenance": i18n("Maintenance"),
+            "unknown": i18n("Status unknown")
+        }
+        var label = labels[indicator] || indicator
+        return description ? label + ": " + description : label
+    }
+
+    function statusColor(indicator) {
+        if (indicator === "none") {
+            return Kirigami.Theme.positiveTextColor
+        }
+        if (indicator === "minor" || indicator === "maintenance") {
+            return Kirigami.Theme.neutralTextColor
+        }
+        if (indicator === "major" || indicator === "critical") {
+            return Kirigami.Theme.negativeTextColor
+        }
+        return Kirigami.Theme.disabledTextColor
     }
 
     compactRepresentation: MouseArea {
@@ -641,6 +859,14 @@ PlasmoidItem {
                                 }
                             }
 
+                            PlasmaComponents.Label {
+                                visible: modelData.statusIndicator && modelData.statusIndicator.length > 0
+                                text: root.statusText(modelData.statusIndicator, modelData.statusDescription)
+                                color: root.statusColor(modelData.statusIndicator)
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+
                             Kirigami.Separator {
                                 Layout.fillWidth: true
                             }
@@ -674,7 +900,7 @@ PlasmoidItem {
                                         }
 
                                         PlasmaComponents.Label {
-                                            text: root.formatUsedPercent(modelData.percentLeft)
+                                            text: root.formatUsedPercent(modelData.percentLeft, modelData.usageKnown)
                                             color: root.usageAccent(modelData.percentLeft)
                                             font.pointSize: Kirigami.Theme.defaultFont.pointSize + 1
                                         }
@@ -682,6 +908,9 @@ PlasmoidItem {
 
                                     Rectangle {
                                         readonly property real used: root.usedPercent(modelData.percentLeft) || 0
+                                        visible: modelData.usageKnown !== false
+                                            && modelData.percentLeft !== null
+                                            && modelData.percentLeft !== undefined
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: 8
                                         radius: height / 2
@@ -696,6 +925,13 @@ PlasmoidItem {
                                         }
                                     }
 
+                                    PlasmaComponents.Label {
+                                        visible: modelData.detail && modelData.detail.length > 0
+                                        text: modelData.detail || ""
+                                        color: Kirigami.Theme.disabledTextColor
+                                        wrapMode: Text.WordWrap
+                                        Layout.fillWidth: true
+                                    }
                                 }
                             }
 
@@ -711,8 +947,7 @@ PlasmoidItem {
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                visible: root.showCreditsInPanel
-                                    && modelData.creditsRemaining !== null
+                                visible: modelData.creditsRemaining !== null
                                     && modelData.creditsRemaining !== undefined
 
                                 ColumnLayout {
@@ -740,6 +975,30 @@ PlasmoidItem {
                                     font.weight: Font.DemiBold
                                     font.pointSize: Kirigami.Theme.defaultFont.pointSize + 1
                                     Layout.alignment: Qt.AlignTop
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                visible: modelData.dashboardSummary && modelData.dashboardSummary.length > 0
+                                spacing: Kirigami.Units.smallSpacing
+
+                                PlasmaComponents.Label {
+                                    text: i18n("Dashboard")
+                                    font.weight: Font.Bold
+                                    font.pointSize: Kirigami.Theme.defaultFont.pointSize + 5
+                                    Layout.fillWidth: true
+                                }
+
+                                Repeater {
+                                    model: modelData.dashboardSummary || []
+
+                                    delegate: PlasmaComponents.Label {
+                                        text: modelData
+                                        color: Kirigami.Theme.disabledTextColor
+                                        wrapMode: Text.WordWrap
+                                        Layout.fillWidth: true
+                                    }
                                 }
                             }
 
