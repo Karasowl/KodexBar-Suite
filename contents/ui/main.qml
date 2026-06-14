@@ -711,7 +711,9 @@ PlasmoidItem {
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                visible: modelData.creditsRemaining !== null && modelData.creditsRemaining !== undefined
+                                visible: root.showCreditsInPanel
+                                    && modelData.creditsRemaining !== null
+                                    && modelData.creditsRemaining !== undefined
 
                                 ColumnLayout {
                                     spacing: Kirigami.Units.smallSpacing
