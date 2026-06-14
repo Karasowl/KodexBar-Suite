@@ -47,6 +47,7 @@ Open the widget settings to choose:
 - whether the provider name appears in the compact panel label
 - whether used percent appears in the compact panel label
 - whether credits appear in the compact panel label
+- whether the account email appears in the popup widget
 - whether provider status is fetched with `codexbar usage --status`
 
 Provider credentials and toggles are still owned by CodexBar CLI in `~/.codexbar/config.json`.

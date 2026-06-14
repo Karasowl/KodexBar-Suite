@@ -22,6 +22,8 @@ KCM.SimpleKCM {
     property bool cfg_showUsedPercentInPanelDefault
     property alias cfg_showProviderInPanel: showProviderInPanel.checked
     property bool cfg_showProviderInPanelDefault
+    property alias cfg_showEmailInWidget: showEmailInWidget.checked
+    property bool cfg_showEmailInWidgetDefault
     property alias cfg_includeStatus: includeStatus.checked
     property bool cfg_includeStatusDefault
 
@@ -171,6 +173,11 @@ KCM.SimpleKCM {
             QQC2.CheckBox {
                 id: showProviderInPanel
                 text: i18n("Show provider in panel")
+            }
+
+            QQC2.CheckBox {
+                id: showEmailInWidget
+                text: i18n("Show email in widget")
             }
 
             QQC2.CheckBox {

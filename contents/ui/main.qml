@@ -24,6 +24,7 @@ PlasmoidItem {
     property bool showCreditsInPanel: Plasmoid.configuration.showCreditsInPanel === undefined ? true : Plasmoid.configuration.showCreditsInPanel
     property bool showUsedPercentInPanel: Plasmoid.configuration.showUsedPercentInPanel === undefined ? true : Plasmoid.configuration.showUsedPercentInPanel
     property bool showProviderInPanel: Plasmoid.configuration.showProviderInPanel === undefined ? true : Plasmoid.configuration.showProviderInPanel
+    property bool showEmailInWidget: Plasmoid.configuration.showEmailInWidget === undefined ? false : Plasmoid.configuration.showEmailInWidget
     property bool includeStatus: Plasmoid.configuration.includeStatus === undefined ? false : Plasmoid.configuration.includeStatus
     property int refreshSeconds: Math.max(10, Plasmoid.configuration.refreshInterval || 60)
 
@@ -973,7 +974,7 @@ PlasmoidItem {
                                     }
 
                                     PlasmaComponents.Label {
-                                        visible: modelData.account
+                                        visible: root.showEmailInWidget && modelData.account
                                         text: modelData.account || ""
                                         color: Kirigami.Theme.disabledTextColor
                                         elide: Text.ElideRight
