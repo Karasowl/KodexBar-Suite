@@ -50,10 +50,9 @@ KCM.SimpleKCM {
                 Layout.fillWidth: true
                 spacing: Kirigami.Units.smallSpacing
 
-                PlasmaComponents.Label {
+                Kirigami.Heading {
                     text: i18n("CodexBar CLI")
-                    font.weight: Font.DemiBold
-                    font.pointSize: Kirigami.Theme.defaultFont.pointSize + 2
+                    level: 3
                     Layout.fillWidth: true
                 }
 

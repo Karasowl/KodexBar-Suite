@@ -648,7 +648,7 @@ PlasmoidItem {
             return Kirigami.Theme.negativeTextColor
         }
         if (percentLeft < 35) {
-            return "#d08a5b"
+            return Kirigami.Theme.neutralTextColor
         }
         return Kirigami.Theme.highlightColor
     }
@@ -846,17 +846,15 @@ PlasmoidItem {
                                     spacing: Kirigami.Units.smallSpacing
                                     Layout.fillWidth: true
 
-                                    PlasmaComponents.Label {
+                                    Kirigami.Heading {
                                         text: modelData.name || modelData.provider
-                                        font.weight: Font.Bold
-                                        font.pointSize: Kirigami.Theme.defaultFont.pointSize + 7
+                                        level: 2
                                         Layout.fillWidth: true
                                     }
 
                                     PlasmaComponents.Label {
                                         text: root.generatedAt.length > 0 ? i18n("Updated %1", root.generatedAt) : ""
                                         color: Kirigami.Theme.disabledTextColor
-                                        font.pointSize: Kirigami.Theme.defaultFont.pointSize + 1
                                         elide: Text.ElideRight
                                         Layout.fillWidth: true
                                     }
@@ -865,7 +863,6 @@ PlasmoidItem {
                                 PlasmaComponents.Label {
                                     text: modelData.source || ""
                                     color: Kirigami.Theme.disabledTextColor
-                                    font.pointSize: Kirigami.Theme.defaultFont.pointSize + 1
                                     visible: text.length > 0
                                     Layout.alignment: Qt.AlignBottom
                                 }
@@ -894,10 +891,9 @@ PlasmoidItem {
                                         Layout.fillWidth: true
                                         spacing: Kirigami.Units.smallSpacing
 
-                                        PlasmaComponents.Label {
+                                        Kirigami.Heading {
                                             text: modelData.title
-                                            font.weight: Font.Bold
-                                            font.pointSize: Kirigami.Theme.defaultFont.pointSize + 5
+                                            level: 4
                                             elide: Text.ElideRight
                                             Layout.fillWidth: true
                                         }
@@ -905,7 +901,6 @@ PlasmoidItem {
                                         PlasmaComponents.Label {
                                             text: root.formatResetTime(modelData.resetsAt)
                                             color: Kirigami.Theme.disabledTextColor
-                                            font.pointSize: Kirigami.Theme.defaultFont.pointSize + 1
                                             visible: text.length > 0
                                             elide: Text.ElideRight
                                             Layout.maximumWidth: Kirigami.Units.gridUnit * 9
@@ -914,7 +909,6 @@ PlasmoidItem {
                                         PlasmaComponents.Label {
                                             text: root.formatUsedPercent(modelData.percentLeft, modelData.usageKnown)
                                             color: root.usageAccent(modelData.percentLeft)
-                                            font.pointSize: Kirigami.Theme.defaultFont.pointSize + 1
                                         }
                                     }
 
@@ -966,10 +960,9 @@ PlasmoidItem {
                                     spacing: Kirigami.Units.smallSpacing
                                     Layout.fillWidth: true
 
-                                    PlasmaComponents.Label {
+                                    Kirigami.Heading {
                                         text: i18n("Credits")
-                                        font.weight: Font.Bold
-                                        font.pointSize: Kirigami.Theme.defaultFont.pointSize + 5
+                                        level: 4
                                         Layout.fillWidth: true
                                     }
 
@@ -985,7 +978,6 @@ PlasmoidItem {
                                 PlasmaComponents.Label {
                                     text: root.formatCredits(modelData.creditsRemaining)
                                     font.weight: Font.DemiBold
-                                    font.pointSize: Kirigami.Theme.defaultFont.pointSize + 1
                                     Layout.alignment: Qt.AlignTop
                                 }
                             }
@@ -995,10 +987,9 @@ PlasmoidItem {
                                 visible: modelData.dashboardSummary && modelData.dashboardSummary.length > 0
                                 spacing: Kirigami.Units.smallSpacing
 
-                                PlasmaComponents.Label {
+                                Kirigami.Heading {
                                     text: i18n("Dashboard")
-                                    font.weight: Font.Bold
-                                    font.pointSize: Kirigami.Theme.defaultFont.pointSize + 5
+                                    level: 4
                                     Layout.fillWidth: true
                                 }
 
