@@ -131,12 +131,6 @@ If the widget shows a CLI error, either install the CLI, configure provider cred
 | `Best available` picks the wrong provider | Select the provider explicitly in settings. |
 | Status never appears | Enable **Fetch provider status** in widget settings. |
 
-## Related
-
-- [CodexBar](https://github.com/steipete/CodexBar) - upstream macOS app and Linux CLI.
-- [codexbar-waybar](https://github.com/Marouan-chak/codexbar-waybar) - Waybar custom module and GTK4 popover for Wayland compositors.
-- [Win-CodexBar](https://github.com/Finesssee/Win-CodexBar) - Windows port of CodexBar.
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
