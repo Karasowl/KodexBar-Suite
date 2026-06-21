@@ -130,6 +130,7 @@ If the widget shows a CLI error, either install the CLI, configure provider cred
 | --- | --- |
 | Widget says `No data` | Run `codexbar usage --format json --pretty` in a terminal and verify the CLI returns usable data. |
 | Cost section is missing | Run `codexbar cost --format json --pretty` and verify the CLI reports local cost data for the selected provider. |
+| Widget says Codex is signed out | Run `codex login` in a terminal, then refresh the widget. |
 | Widget shows a CLI/runtime error | Install `codexbar`, set the full command path, or select a provider/source that works on Linux. |
 | Provider works in terminal but not in the widget | Use an absolute command path in settings if Plasma does not inherit your shell `PATH`. |
 | `Best available` picks the wrong provider | Select the provider explicitly in settings. |

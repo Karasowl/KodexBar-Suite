@@ -34,7 +34,15 @@ PlasmoidItem {
 
     preferredRepresentation: compactRepresentation
     toolTipMainText: "KodexBar"
-    toolTipSubText: errorMessage.length > 0 ? errorMessage : panelText()
+    toolTipSubText: {
+        if (errorMessage.length > 0) {
+            return errorMessage
+        }
+        if (entries.length > 0 && entries[0].signedOut) {
+            return entries[0].errorMessage
+        }
+        return panelText()
+    }
 
     function panelText() {
         if (entries.length === 0) {
@@ -55,7 +63,7 @@ PlasmoidItem {
             parts.push(first.name || "Codex")
         }
         if (first.errorMessage) {
-            parts.push(i18n("Error"))
+            parts.push(first.signedOut ? i18n("Sign in") : i18n("Error"))
             return parts.join(" ")
         }
         var primaryUsed = usedPercent(first.primaryPercentLeft)
@@ -364,6 +372,39 @@ PlasmoidItem {
             }
         }
         failedCandidates = existing
+    }
+
+    function isCodexAuthenticationError(entry) {
+        if (!entry || String(entry.provider || "").toLowerCase() !== "codex" || !entry.errorMessage) {
+            return false
+        }
+        var message = String(entry.errorMessage).toLowerCase()
+        return message.indexOf("authentication required") !== -1
+            || message.indexOf("account authentication") !== -1
+            || message.indexOf("not logged in") !== -1
+            || message.indexOf("not signed in") !== -1
+            || message.indexOf("login required") !== -1
+            || message.indexOf("sign in required") !== -1
+            || message.indexOf("signed out") !== -1
+    }
+
+    function stopForCodexAuthentication(normalized) {
+        for (var i = 0; i < normalized.length; i++) {
+            if (!isCodexAuthenticationError(normalized[i])) {
+                continue
+            }
+            var entry = normalized[i]
+            entry.signedOut = true
+            entry.errorKind = "authentication"
+            entry.errorMessage = i18n("Codex is installed, but the client is signed out. Run \"codex login\" in a terminal, then refresh.")
+            loading = false
+            errorMessage = ""
+            errorDetail = ""
+            generatedAt = new Date().toLocaleString(Qt.locale(), Locale.ShortFormat)
+            entries = [withCostSummary(entry)]
+            return true
+        }
+        return false
     }
 
     function parsePayload(text) {
@@ -798,7 +839,8 @@ PlasmoidItem {
             statusDescription: status ? (status.description || "") : "",
             statusURL: status ? (status.url || "") : "",
             errorMessage: error ? (error.message || i18n("Provider returned an error")) : "",
-            errorKind: error ? (error.kind || "") : ""
+            errorKind: error ? (error.kind || "") : "",
+            signedOut: false
         }
     }
 
@@ -1118,7 +1160,7 @@ PlasmoidItem {
 
                             PlasmaComponents.Label {
                                 visible: modelData.errorMessage && modelData.errorMessage.length > 0
-                                text: modelData.errorKind && modelData.errorKind.length > 0
+                                text: modelData.errorKind && modelData.errorKind.length > 0 && !modelData.signedOut
                                     ? modelData.errorKind + ": " + modelData.errorMessage
                                     : modelData.errorMessage
                                 color: Kirigami.Theme.negativeTextColor
@@ -1275,6 +1317,9 @@ PlasmoidItem {
                         message: data.stderr || i18n("Exit code %1", data["exit code"])
                     }
                 })
+                if (root.stopForCodexAuthentication([errorEntry])) {
+                    return
+                }
                 root.appendFailedEntries([errorEntry])
                 root.tryNextCandidate()
                 return
@@ -1288,6 +1333,9 @@ PlasmoidItem {
                 })
                 root.appendFailedEntries([parseErrorEntry])
                 root.tryNextCandidate()
+                return
+            }
+            if (!result.usable && root.stopForCodexAuthentication(result.entries)) {
                 return
             }
             if (!result.usable && root.pendingCandidates.length > 0) {
