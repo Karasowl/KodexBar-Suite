@@ -492,6 +492,8 @@ assert.match(
     "the compact quota default excludes extras"
 )
 assert.equal(metadata.KPlugin.Version, "0.3.0", "package metadata uses version 0.3.0")
+assert.equal(metadata.KPlugin.Name, "KodexBar Suite", "package metadata uses the public product name")
+assert.equal(metadata.KPlugin.Id, "org.kde.plasma.kodexbar", "the technical plugin ID remains compatible")
 assert.doesNotMatch(
     mainQml,
     /used\s*<\s*\d+/,

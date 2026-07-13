@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for helping improve this KodexBar fork.
+Thank you for helping improve this KodexBar Suite fork.
 
 ## Before Opening a Change
 

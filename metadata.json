@@ -13,11 +13,11 @@
       }
     ],
     "Category": "System Information",
-    "Description": "KDE Plasma panel widget for ordered multi-provider CodexBar quotas.",
+    "Description": "KodexBar Suite KDE Plasma panel widget for ordered multi-provider CodexBar quotas.",
     "Icon": "codex",
     "Id": "org.kde.plasma.kodexbar",
     "License": "MIT",
-    "Name": "KodexBar",
+    "Name": "KodexBar Suite",
     "Version": "0.3.0",
     "Website": "https://github.com/Karasowl/KodexBar"
   },

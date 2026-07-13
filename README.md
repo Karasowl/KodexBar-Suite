@@ -1,4 +1,4 @@
-# KodexBar
+# KodexBar Suite
 
 [Leer en español](README.es.md)
 
@@ -8,9 +8,9 @@
 [![CodexBar CLI](https://img.shields.io/badge/powered%20by-CodexBar%20CLI-0a0a0c?style=flat-square)](https://github.com/steipete/CodexBar)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-KodexBar is a KDE Plasma 6 widget for monitoring AI provider quotas through the [CodexBar CLI](https://github.com/steipete/CodexBar). It provides a configurable compact summary in the panel and a complete popup with every enabled provider and quota.
+KodexBar Suite is a KDE Plasma 6 widget for monitoring AI provider quotas through the [CodexBar CLI](https://github.com/steipete/CodexBar). It provides a configurable compact summary in the panel and a complete popup with every enabled provider and quota.
 
-![KodexBar screenshot](screenshot.png)
+![KodexBar Suite screenshot](screenshot.png)
 
 ## Features
 
@@ -79,7 +79,7 @@ If `kpackagetool6` reports that the package already exists, use the update comma
 kpackagetool6 -t Plasma/Applet -u .
 ```
 
-Then add **KodexBar** to a Plasma panel if it is not already present.
+Then add **KodexBar Suite** to a Plasma panel if it is not already present.
 
 ## Update
 
@@ -104,7 +104,7 @@ Remove the shared plugin ID:
 kpackagetool6 -t Plasma/Applet -r org.kde.plasma.kodexbar
 ```
 
-This removes whichever KodexBar package currently occupies that ID, whether it came from upstream or this fork.
+This removes whichever package currently occupies that ID, whether it is KodexBar Suite or the upstream KodexBar widget.
 
 ## Usage
 
@@ -166,7 +166,7 @@ CodexBar owns provider authentication, provider configuration, API calls, and CL
 
 ### AI CLI Control integration
 
-KodexBar can launch the separately installed [ai-cli-control](https://github.com/Karasowl/ai-cli-control) selector from its popup AI button or Plasma context menu. The widget does not embed the selector or copy its provider logic. `Open AI CLI Control` starts `ai` in its own graphical window. `Update all AI CLIs` runs `ai --update all` through Konsole with the terminal held open so the version and result summary remain visible. Set `AI CLI Control` in widget settings when the executable is not named `ai` or is outside `PATH`.
+KodexBar Suite can launch the separately installed [ai-cli-control](https://github.com/Karasowl/ai-cli-control) selector from its popup AI button or Plasma context menu. The widget does not embed the selector or copy its provider logic. `Open AI CLI Control` starts `ai` in its own graphical window. `Update all AI CLIs` runs `ai --update all` through Konsole with the terminal held open so the version and result summary remain visible. Set `AI CLI Control` in widget settings when the executable is not named `ai` or is outside `PATH`.
 
 ## Validation
 

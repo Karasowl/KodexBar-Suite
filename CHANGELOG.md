@@ -4,6 +4,10 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+### Changed
+
+- Rename the public product to KodexBar Suite while preserving the technical plugin ID `org.kde.plasma.kodexbar` and upstream KodexBar attribution.
+
 ## 0.3.0, 2026-07-13
 
 ### Added

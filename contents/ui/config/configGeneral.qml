@@ -133,7 +133,7 @@ KCM.SimpleKCM {
                 }
 
                 PlasmaComponents.Label {
-                    text: i18n("Command used by the KodexBar actions to open the separate AI CLI Control selector and update all provider CLIs.")
+                    text: i18n("Command used by the KodexBar Suite actions to open the separate AI CLI Control selector and update all provider CLIs.")
                     color: Kirigami.Theme.disabledTextColor
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true

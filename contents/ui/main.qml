@@ -79,7 +79,7 @@ PlasmoidItem {
     ]
 
     preferredRepresentation: compactRepresentation
-    toolTipMainText: "KodexBar"
+    toolTipMainText: "KodexBar Suite"
     toolTipSubText: {
         if (aiControlError.length > 0) {
             return i18n("AI CLI Control: %1", aiControlError)
@@ -1108,7 +1108,7 @@ PlasmoidItem {
                     spacing: 1
 
                     PlasmaComponents.Label {
-                        text: "KodexBar"
+                        text: "KodexBar Suite"
                         color: root.textColor
                         font.family: root.designFont
                         font.pixelSize: 16
@@ -1316,7 +1316,7 @@ PlasmoidItem {
                         }
 
                         PlasmaComponents.Label {
-                            text: root.popupState.hasEntry ? root.activeEntry.displayName : "KodexBar"
+                            text: root.popupState.hasEntry ? root.activeEntry.displayName : "KodexBar Suite"
                             color: root.textColor
                             font.family: root.designFont
                             font.pixelSize: 16
