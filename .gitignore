@@ -1,0 +1,42 @@
+# Local editor and operating-system metadata
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Package and build artifacts
+*.plasmoid
+*.tar
+*.tar.gz
+*.zip
+build/
+dist/
+package/
+package-root/
+.kpackage/
+node_modules/
+
+# Python and QML caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.qmlcache/
+*.qmlc
+*.jsc
+
+# Logs and local QA output
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+qa-artifacts/
+
+# Local worker handoff files
+WORKER_RESULT.md
+FONT_WORKER_RESULT.md
+REVIEW_FIX_RESULT.md

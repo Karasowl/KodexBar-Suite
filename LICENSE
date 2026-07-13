@@ -1,0 +1,18 @@
+MIT License
+
+KodexBar Suite is a monorepo containing independently licensed packages. The package-specific license files are authoritative for the code they cover:
+
+- `packages/kodexbar/LICENSE` preserves the original KodexBar MIT copyright notice for tylxr.
+- `packages/ai-cli-control/LICENSE` covers the independent ai-cli-control work by Ismael (Karasowl).
+
+For each package, permission is hereby granted, free of charge, to any person obtaining a copy of the Software and associated documentation files to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and sell copies of the Software, subject to the copyright notice and permission notice in that package's LICENSE file.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+This summary does not replace either package license file.
