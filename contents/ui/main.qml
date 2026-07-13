@@ -65,7 +65,7 @@ PlasmoidItem {
     readonly property var popupEntries: popupState.entries || []
     readonly property var activeEntry: popupState.entry || ({})
 
-    contextualActions: [
+    Plasmoid.contextualActions: [
         PlasmaCore.Action {
             text: i18n("Open AI CLI Control")
             icon.name: "applications-development"

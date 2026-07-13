@@ -446,7 +446,7 @@ assert.match(
     "the popup data path retains every returned provider"
 )
 assert.match(mainQml, /composeCompactBlocks/, "QML delegates compact visual composition to tested pure logic")
-assert.match(mainQml, /contextualActions:\s*\[/, "the widget exposes user-facing contextual actions")
+assert.match(mainQml, /Plasmoid\.contextualActions:\s*\[/, "the widget exposes user-facing contextual actions")
 assert.match(mainQml, /text: i18n\("Open AI CLI Control"\)/, "the widget can open the separate AI CLI selector")
 assert.match(mainQml, /launchAiControl\(\["--update", "all"\]\)/, "the widget can invoke the multi-CLI update flow")
 assert.match(mainQml, /konsole --hold -e/, "multi-CLI updates keep terminal output visible")
