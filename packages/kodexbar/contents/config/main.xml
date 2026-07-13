@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+      https://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+  <kcfgfile name=""/>
+  <group name="General">
+    <entry name="codexbarCommand" type="String">
+      <default>codexbar</default>
+    </entry>
+    <entry name="aiControlCommand" type="String">
+      <default>ai</default>
+    </entry>
+    <entry name="source" type="String">
+      <default>detect</default>
+    </entry>
+    <entry name="provider" type="String">
+      <default>detect</default>
+    </entry>
+    <entry name="refreshInterval" type="Int">
+      <default>60</default>
+      <min>10</min>
+      <max>3600</max>
+    </entry>
+    <entry name="showCreditsInPanel" type="Bool">
+      <default>false</default>
+    </entry>
+    <entry name="showUsedPercentInPanel" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="showProviderInPanel" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="showEmailInWidget" type="Bool">
+      <default>false</default>
+    </entry>
+    <entry name="includeStatus" type="Bool">
+      <default>false</default>
+    </entry>
+    <entry name="showCostSummary" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="compactProviderOrder" type="String">
+      <default>codex,claude,grok,antigravity</default>
+    </entry>
+    <entry name="compactQuotaSelection" type="String">
+      <default>primary,weekly</default>
+    </entry>
+    <entry name="compactProviderMigrationDone" type="Bool">
+      <default>false</default>
+    </entry>
+  </group>
+</kcfg>

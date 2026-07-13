@@ -1,0 +1,185 @@
+{
+  "configuredOrder": " CODEX, claude,codeX,GROK, antigravity ",
+  "expectedNormalizedOrder": [
+    "codex",
+    "claude",
+    "grok",
+    "antigravity"
+  ],
+  "entries": [
+    {
+      "provider": "unlisted",
+      "name": "Other",
+      "errorMessage": "must be filtered"
+    },
+    {
+      "provider": "GROK",
+      "name": "Grok",
+      "errorMessage": "quota unavailable"
+    },
+    {
+      "provider": "antigravity",
+      "name": "Gemini (Antigravity)",
+      "errorMessage": ""
+    },
+    {
+      "provider": "codex",
+      "name": "Codex",
+      "account": "first",
+      "errorMessage": ""
+    },
+    {
+      "provider": "claude",
+      "name": "Claude",
+      "errorMessage": ""
+    },
+    {
+      "provider": "codex",
+      "name": "Codex",
+      "account": "second",
+      "errorMessage": ""
+    }
+  ],
+  "expectedFilteredProviders": [
+    "codex",
+    "codex",
+    "claude",
+    "GROK",
+    "antigravity"
+  ],
+  "quotaSelection": " primary, Claude.Fable-Only,primary ",
+  "expectedNormalizedQuotaSelection": [
+    "primary",
+    "claude.fable-only"
+  ],
+  "compactEntries": [
+    {
+      "provider": "codex",
+      "compactPrimaryPercentLeft": 72,
+      "primaryResetsAt": "2026-07-13T01:00:00Z",
+      "rows": []
+    },
+    {
+      "provider": "claude",
+      "rows": [
+        {
+          "title": "Fable only",
+          "compactKey": "fable-only",
+          "compactExtra": true,
+          "percentLeft": 80,
+          "resetsAt": "2026-07-14T01:00:00Z"
+        }
+      ]
+    },
+    {
+      "provider": "antigravity",
+      "tertiaryPercentLeft": null,
+      "tertiaryResetsAt": "2026-07-15T01:00:00Z",
+      "rows": []
+    },
+    {
+      "provider": "gemini",
+      "secondaryPercentLeft": 55,
+      "secondaryResetsAt": "2026-07-16T01:00:00Z",
+      "rows": []
+    }
+  ],
+  "composeEntries": [
+    {
+      "provider": "codex",
+      "account": "private-account-one",
+      "compactPrimaryPercentLeft": 80,
+      "primaryResetsAt": "2026-07-13T01:00:00Z",
+      "creditsRemaining": 5,
+      "rows": [
+        {
+          "title": "Fast requests",
+          "compactKey": "fast-requests",
+          "compactExtra": true,
+          "percentLeft": 80,
+          "resetsAt": "2026-07-13T01:00:00Z"
+        },
+        {
+          "title": "Fallback quota",
+          "compactKey": "fallback-quota",
+          "compactExtra": true,
+          "percentLeft": 70,
+          "resetsAt": "2026-07-13T01:00:00Z"
+        }
+      ]
+    },
+    {
+      "provider": "codex",
+      "account": "private-account-two",
+      "compactPrimaryPercentLeft": 60,
+      "primaryResetsAt": "2026-07-13T02:00:00Z",
+      "creditsRemaining": 3,
+      "rows": [
+        {
+          "title": "Fast requests",
+          "compactKey": "fast-requests",
+          "compactExtra": true,
+          "percentLeft": 60,
+          "resetsAt": "2026-07-13T02:00:00Z"
+        }
+      ]
+    },
+    {
+      "provider": "grok",
+      "errorMessage": "quota unavailable",
+      "rows": []
+    }
+  ],
+  "defaultCompactEntries": [
+    {
+      "provider": "codex",
+      "compactPrimaryPercentLeft": 81,
+      "secondaryPercentLeft": 100,
+      "rows": []
+    },
+    {
+      "provider": "claude",
+      "errorMessage": "rate limited",
+      "rows": []
+    },
+    {
+      "provider": "grok",
+      "compactPrimaryPercentLeft": 92,
+      "secondaryPercentLeft": 69,
+      "rows": []
+    },
+    {
+      "provider": "antigravity",
+      "compactPrimaryPercentLeft": 100,
+      "secondaryPercentLeft": 99,
+      "rows": [
+        {
+          "title": "Gemini 5-hour",
+          "compactKey": "gemini-5-hour",
+          "compactExtra": true,
+          "percentLeft": 75
+        }
+      ]
+    }
+  ],
+  "costSummaries": {
+    "codex": {
+      "provider": "codex",
+      "todayCost": 2.5
+    },
+    "grok": {
+      "provider": "grok",
+      "todayCost": 1
+    }
+  },
+  "antigravityUsage": {
+    "primary": {
+      "windowMinutes": 10080,
+      "usedPercent": 61
+    },
+    "secondary": {
+      "windowMinutes": 300,
+      "usedPercent": 24
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "KPlugin": {
+    "Authors": [
+      {
+        "Email": "",
+        "Name": "tylxr",
+        "Task": "Original author"
+      },
+      {
+        "Email": "",
+        "Name": "Ismael (Karasowl)",
+        "Task": "Fork maintainer"
+      }
+    ],
+    "Category": "System Information",
+    "Description": "KodexBar Suite KDE Plasma panel widget for ordered multi-provider CodexBar quotas.",
+    "Icon": "codex",
+    "Id": "org.kde.plasma.kodexbar",
+    "License": "MIT",
+    "Name": "KodexBar Suite",
+    "Version": "0.3.0",
+    "Website": "https://github.com/Karasowl/KodexBar"
+  },
+  "KPackageStructure": "Plasma/Applet",
+  "X-Plasma-API-Minimum-Version": "6.0"
+}

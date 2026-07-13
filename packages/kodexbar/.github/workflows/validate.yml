@@ -1,0 +1,47 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static-validation:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install validation tools
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git \
+            jq \
+            kcmutils \
+            kirigami \
+            libplasma \
+            nodejs \
+            plasma5support \
+            python \
+            qt6-declarative \
+            ripgrep \
+            ruby
+      - name: Add Qt tools to PATH
+        run: echo "/usr/lib/qt6/bin" >> "$GITHUB_PATH"
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Run static and fixture validation
+        run: scripts/validate.sh
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
