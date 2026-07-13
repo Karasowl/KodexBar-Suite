@@ -10,6 +10,8 @@
 
 KodexBar Suite is a KDE Plasma 6 widget for monitoring AI provider quotas through the [CodexBar CLI](https://github.com/steipete/CodexBar). It provides a configurable compact summary in the panel and a complete popup with every enabled provider and quota.
 
+This package is also maintained inside the [KodexBar Suite monorepo](../../README.md). From that repository root, use `./install.sh` to install it together with `ai-cli-control`. The package can still be validated and installed independently.
+
 ![KodexBar Suite screenshot](screenshot.png)
 
 ## Features

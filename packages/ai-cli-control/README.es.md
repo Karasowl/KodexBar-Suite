@@ -4,6 +4,8 @@ Documentación en español. La documentación completa en inglés está en [READ
 
 `ai-cli-control` es un selector local para iniciar Codex, Claude, Grok o Antigravity desde el directorio actual de la terminal. Conserva el directorio de trabajo y el entorno de la CLI elegida. Es trabajo original y no es un fork de KodexBar.
 
+Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../README.es.md). Desde la raíz de ese repositorio, usa `./install.sh` para instalarlo junto con el widget de Plasma. El `install.sh` del paquete sigue disponible para uso independiente.
+
 ## Funciones
 
 - Selecciona proveedor, modelo, esfuerzo de razonamiento y modo de permisos.

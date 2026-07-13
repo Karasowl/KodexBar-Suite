@@ -10,6 +10,8 @@
 
 KodexBar Suite es un widget para KDE Plasma 6 que permite consultar las cuotas de proveedores de IA mediante la [CLI CodexBar](https://github.com/steipete/CodexBar). Ofrece un resumen compacto configurable en el panel y un popup completo con todos los proveedores y cuotas habilitados.
 
+Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../README.es.md). Desde la raíz de ese repositorio, usa `./install.sh` para instalarlo junto con `ai-cli-control`. El paquete todavía puede validarse e instalarse por separado.
+
 ![Captura de KodexBar Suite](screenshot.png)
 
 ## Funciones
