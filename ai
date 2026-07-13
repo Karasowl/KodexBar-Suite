@@ -1,0 +1,725 @@
+#!/usr/bin/env python3
+"""Launch supported AI CLIs without changing their configuration."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from typing import NoReturn, Sequence
+
+
+VERSION = "0.1.0"
+EXIT_INVALID = 2
+CODEX_CACHE = Path(
+    os.environ.get("AI_CODEX_MODELS_CACHE", "~/.codex/models_cache.json")
+).expanduser()
+
+TRANSLATIONS = {
+    "en": {
+        "cancel": "Cancel",
+        "selection": "Selection: ",
+        "invalid_selection": "Invalid input. Choose a number from the list.",
+        "invalid_many": "Invalid input. Use comma-separated numbers, all, or 0.",
+        "many_hint": "Enter comma-separated numbers, all, or 0 to cancel.",
+        "option": "Option",
+        "detail": "Details",
+        "selected": "Selected",
+        "provider_prompt": "Choose a provider",
+        "model_prompt": "Choose a model",
+        "effort_prompt": "Choose a reasoning effort",
+        "permission_prompt": "Choose a permission mode",
+        "update_title": "Update CLIs",
+        "update_prompt": "Choose one or more CLIs to update",
+        "update_label": "Update CLIs",
+        "update_description": "Choose one or more CLIs",
+        "codex_description": "Models and efforts from the local cache",
+        "claude_description": "Model access depends on the account",
+        "grok_description": "Models are queried when the selector starts",
+        "antigravity_description": "Models are queried with agy models",
+        "codex_catalog": "Local Codex catalog",
+        "grok_catalog": "Catalog returned by grok models",
+        "antigravity_catalog": "Catalog returned by agy models",
+        "default": "default",
+        "claude_fable": "Verified locally",
+        "account_access": "Access depends on the account",
+        "read_only": "Read only",
+        "read_only_description": "Read-only sandbox without escalation",
+        "ask": "Ask",
+        "ask_description": "Workspace writes with approval when requested",
+        "limited_automatic": "Limited automatic",
+        "limited_automatic_description": "Workspace writes without questions",
+        "full_access": "Full access",
+        "full_access_description": "No sandbox or approvals",
+        "plan": "Plan",
+        "plan_description": "Planning mode",
+        "manual": "Manual",
+        "manual_description": "Request permissions manually",
+        "accept_edits": "Accept edits",
+        "accept_edits_description": "Automatically approve file edits",
+        "automatic": "Automatic",
+        "automatic_description": "The CLI decides permissions",
+        "dont_ask": "Do not ask",
+        "dont_ask_description": "Do not request interactive approvals",
+        "default_mode": "Default",
+        "default_mode_description": "Normal confirmations",
+        "sandbox": "Sandbox",
+        "sandbox_description": "Run inside the Antigravity sandbox",
+        "manual_antigravity_description": "No additional permission automation",
+        "plan_antigravity_description": "Read-only mode",
+        "invalid_field": "invalid {field} '{value}'. Valid values: {valid}",
+        "codex_cache_error": "could not read the Codex catalog at {path}: {error}",
+        "codex_catalog_empty": "the Codex catalog at {path} has no usable models",
+        "grok_query_error": "could not query 'grok models': {error}",
+        "grok_failed": "'grok models' failed: {detail}",
+        "grok_empty": "'grok models' returned no recognizable models",
+        "antigravity_query_error": "could not query 'agy models': {error}",
+        "antigravity_failed": "'agy models' failed: {detail}",
+        "antigravity_empty": "'agy models' returned no usable models",
+        "codex_efforts_empty": "Codex model '{model}' declares no supported reasoning efforts",
+        "antigravity_effort": "invalid effort '{value}'. The level is already part of the Antigravity model name",
+        "update_list_invalid": "invalid update list '{value}'. Valid values: {valid}, all",
+        "not_available": "not available ({detail})",
+        "no_output": "no output",
+        "run_failed": "failed to run ({error})",
+        "success": "success",
+        "failed": "failed",
+        "failed_code": "failed (code {code})",
+        "previous_version": "previous version",
+        "result": "result",
+        "new_version": "new version",
+        "update_summary": "Update summary:",
+        "executable_missing_path": "could not find '{executable}' in PATH",
+        "executable_missing_file": "the executable does not exist or is not executable: {executable}",
+        "help_description": "Choose and launch Codex, Claude, Grok, or Antigravity in the current directory.",
+        "help_dry_run": "print the command without running it",
+        "help_help": "show this help message and exit",
+        "help_version": "show the program version and exit",
+        "help_text": "use menus in the terminal",
+        "help_language": "use English or Spanish interface text",
+        "help_update": "update codex, claude, grok, and antigravity, or a comma-separated list",
+        "field_provider": "provider",
+        "field_model": "model",
+        "field_effort": "effort",
+        "field_permission": "permission mode",
+        "invalid_arguments": "invalid command-line arguments",
+    },
+    "es": {
+        "cancel": "Cancelar",
+        "selection": "Selección: ",
+        "invalid_selection": "Entrada inválida. Elige un número de la lista.",
+        "invalid_many": "Entrada inválida. Usa números separados por comas, all o 0.",
+        "many_hint": "Escribe números separados por comas, all o 0 para cancelar.",
+        "option": "Opción",
+        "detail": "Detalle",
+        "selected": "Selección",
+        "provider_prompt": "Selecciona un proveedor",
+        "model_prompt": "Selecciona un modelo",
+        "effort_prompt": "Selecciona el esfuerzo",
+        "permission_prompt": "Selecciona el modo de permisos",
+        "update_title": "Actualizar CLIs",
+        "update_prompt": "Selecciona las CLIs que deseas actualizar",
+        "update_label": "Actualizar CLIs",
+        "update_description": "Selecciona una o varias CLIs",
+        "codex_description": "Modelos y esfuerzos desde la caché local",
+        "claude_description": "El acceso a cada modelo depende de la cuenta",
+        "grok_description": "Modelos consultados al iniciar el selector",
+        "antigravity_description": "Modelos consultados con agy models",
+        "codex_catalog": "Catálogo local de Codex",
+        "grok_catalog": "Catálogo devuelto por grok models",
+        "antigravity_catalog": "Catálogo devuelto por agy models",
+        "default": "predeterminado",
+        "claude_fable": "Verificado localmente",
+        "account_access": "El acceso depende de la cuenta",
+        "read_only": "Solo lectura",
+        "read_only_description": "Sandbox de lectura y sin escalamiento",
+        "ask": "Preguntar",
+        "ask_description": "Escritura en workspace con aprobación cuando se solicite",
+        "limited_automatic": "Automático limitado",
+        "limited_automatic_description": "Escritura en workspace sin preguntas",
+        "full_access": "Acceso total",
+        "full_access_description": "Sin sandbox ni aprobaciones",
+        "plan": "Plan",
+        "plan_description": "Modo de planificación",
+        "manual": "Manual",
+        "manual_description": "Solicita permisos manualmente",
+        "accept_edits": "Aceptar ediciones",
+        "accept_edits_description": "Autoaprueba cambios de archivos",
+        "automatic": "Automático",
+        "automatic_description": "La CLI decide permisos",
+        "dont_ask": "No preguntar",
+        "dont_ask_description": "No solicita aprobaciones interactivas",
+        "default_mode": "Predeterminado",
+        "default_mode_description": "Confirmaciones normales",
+        "sandbox": "Sandbox",
+        "sandbox_description": "Ejecuta dentro del sandbox de Antigravity",
+        "manual_antigravity_description": "Sin automatización adicional de permisos",
+        "plan_antigravity_description": "Modo de solo lectura",
+        "invalid_field": "{field} inválido '{value}'. Valores válidos: {valid}",
+        "codex_cache_error": "no se pudo leer el catálogo Codex en {path}: {error}",
+        "codex_catalog_empty": "el catálogo Codex en {path} no contiene modelos utilizables",
+        "grok_query_error": "no se pudo consultar 'grok models': {error}",
+        "grok_failed": "'grok models' falló: {detail}",
+        "grok_empty": "'grok models' no devolvió modelos reconocibles",
+        "antigravity_query_error": "no se pudo consultar 'agy models': {error}",
+        "antigravity_failed": "'agy models' falló: {detail}",
+        "antigravity_empty": "'agy models' no devolvió modelos utilizables",
+        "codex_efforts_empty": "el modelo Codex '{model}' no declara esfuerzos compatibles",
+        "antigravity_effort": "esfuerzo inválido '{value}'. El nivel ya forma parte del modelo de Antigravity",
+        "update_list_invalid": "lista de actualización inválida '{value}'. Valores válidos: {valid}, all",
+        "not_available": "no disponible ({detail})",
+        "no_output": "sin salida",
+        "run_failed": "fallo al ejecutar ({error})",
+        "success": "éxito",
+        "failed": "fallo",
+        "failed_code": "fallo (código {code})",
+        "previous_version": "versión anterior",
+        "result": "resultado",
+        "new_version": "versión posterior",
+        "update_summary": "Resumen de actualizaciones:",
+        "executable_missing_path": "no se encontró '{executable}' en PATH",
+        "executable_missing_file": "el ejecutable no existe o no tiene permiso de ejecución: {executable}",
+        "help_description": "Selecciona e inicia Codex, Claude, Grok o Antigravity en el directorio actual.",
+        "help_dry_run": "imprime el comando sin ejecutarlo",
+        "help_help": "muestra esta ayuda y termina",
+        "help_version": "muestra la versión del programa y termina",
+        "help_text": "usa menús dentro de la terminal",
+        "help_language": "usa texto de interfaz en inglés o español",
+        "help_update": "actualiza codex, claude, grok y antigravity, o una lista separada por comas",
+        "field_provider": "proveedor",
+        "field_model": "modelo",
+        "field_effort": "esfuerzo",
+        "field_permission": "modo de permisos",
+        "invalid_arguments": "argumentos de línea de comandos inválidos",
+    },
+}
+
+
+@dataclass(frozen=True)
+class Option:
+    value: str
+    label: str
+    description: str = ""
+
+
+class Cancelled(Exception):
+    pass
+
+
+def locale_language(environ: dict[str, str] | None = None) -> str:
+    """Return Spanish only for an explicitly Spanish standard locale."""
+    environment = os.environ if environ is None else environ
+    for variable in ("LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG"):
+        value = environment.get(variable, "")
+        if value:
+            return "es" if value.lower().startswith("es") else "en"
+    return "en"
+
+
+def message(language: str, key: str, **values: object) -> str:
+    return TRANSLATIONS[language][key].format(**values)
+
+
+class SelectorUI:
+    def choose(self, title: str, prompt: str, options: Sequence[Option]) -> str:
+        raise NotImplementedError
+
+    def choose_many(self, title: str, prompt: str, options: Sequence[Option]) -> list[str]:
+        raise NotImplementedError
+
+
+class TextUI(SelectorUI):
+    def __init__(self, language: str) -> None:
+        self.language = language
+
+    def choose(self, title: str, prompt: str, options: Sequence[Option]) -> str:
+        print(f"\n{title}\n{prompt}", file=sys.stderr)
+        for index, option in enumerate(options, start=1):
+            detail = f". {option.description}" if option.description else ""
+            print(f"  {index}) {option.label}{detail}", file=sys.stderr)
+        print(f"  0) {message(self.language, 'cancel')}", file=sys.stderr)
+        while True:
+            try:
+                print(message(self.language, "selection"), end="", file=sys.stderr, flush=True)
+                answer = sys.stdin.readline()
+            except KeyboardInterrupt:
+                raise Cancelled from None
+            if answer == "":
+                raise Cancelled
+            answer = answer.strip()
+            if answer in {"0", "q", "Q"}:
+                raise Cancelled
+            if answer.isdigit() and 1 <= int(answer) <= len(options):
+                return options[int(answer) - 1].value
+            print(message(self.language, "invalid_selection"), file=sys.stderr)
+
+    def choose_many(self, title: str, prompt: str, options: Sequence[Option]) -> list[str]:
+        print(f"\n{title}\n{prompt}", file=sys.stderr)
+        for index, option in enumerate(options, start=1):
+            detail = f". {option.description}" if option.description else ""
+            print(f"  {index}) {option.label}{detail}", file=sys.stderr)
+        print(f"  0) {message(self.language, 'cancel')}", file=sys.stderr)
+        print(message(self.language, "many_hint"), file=sys.stderr)
+        while True:
+            try:
+                print(message(self.language, "selection"), end="", file=sys.stderr, flush=True)
+                answer = sys.stdin.readline()
+            except KeyboardInterrupt:
+                raise Cancelled from None
+            if answer == "":
+                raise Cancelled
+            answer = answer.strip()
+            if answer in {"0", "q", "Q"}:
+                raise Cancelled
+            if answer == "":
+                return []
+            if answer.lower() == "all":
+                return [option.value for option in options]
+            try:
+                indexes = [int(item.strip()) for item in answer.split(",")]
+            except ValueError:
+                indexes = []
+            if indexes and all(1 <= index <= len(options) for index in indexes):
+                selected = set(indexes)
+                return [option.value for index, option in enumerate(options, start=1) if index in selected]
+            print(message(self.language, "invalid_many"), file=sys.stderr)
+
+
+class KDialogUI(SelectorUI):
+    def __init__(self, language: str) -> None:
+        self.language = language
+
+    def choose(self, title: str, prompt: str, options: Sequence[Option]) -> str:
+        command = ["kdialog", "--title", title, "--menu", prompt]
+        for option in options:
+            text = option.label
+            if option.description:
+                text += f" | {option.description}"
+            command.extend([option.value, text])
+        result = subprocess.run(command, text=True, capture_output=True, check=False)
+        if result.returncode != 0:
+            raise Cancelled
+        value = result.stdout.strip()
+        if value not in option_values(options):
+            raise Cancelled
+        return value
+
+    def choose_many(self, title: str, prompt: str, options: Sequence[Option]) -> list[str]:
+        command = ["kdialog", "--title", title, "--checklist", prompt]
+        for option in options:
+            command.extend([option.value, option.label, "off"])
+        command.append("--separate-output")
+        result = subprocess.run(command, text=True, capture_output=True, check=False)
+        if result.returncode != 0:
+            raise Cancelled
+        selected = {value.strip() for value in result.stdout.splitlines() if value.strip()}
+        if not selected.issubset(option_values(options)):
+            raise Cancelled
+        return [option.value for option in options if option.value in selected]
+
+
+class YadUI(SelectorUI):
+    def __init__(self, language: str) -> None:
+        self.language = language
+
+    def choose(self, title: str, prompt: str, options: Sequence[Option]) -> str:
+        command = [
+            "yad", "--list", "--title", title, "--text", prompt, "--column=ID:HD",
+            f"--column={message(self.language, 'option')}",
+            f"--column={message(self.language, 'detail')}", "--print-column=1",
+            "--separator=", "--width=720", "--height=420",
+        ]
+        for option in options:
+            command.extend([option.value, option.label, option.description])
+        result = subprocess.run(command, text=True, capture_output=True, check=False)
+        if result.returncode != 0:
+            raise Cancelled
+        value = result.stdout.strip()
+        if value not in option_values(options):
+            raise Cancelled
+        return value
+
+    def choose_many(self, title: str, prompt: str, options: Sequence[Option]) -> list[str]:
+        command = [
+            "yad", "--list", "--multiple", "--title", title, "--text", prompt,
+            f"--column={message(self.language, 'selected')}:CHK", "--column=ID:HD",
+            f"--column={message(self.language, 'option')}",
+            f"--column={message(self.language, 'detail')}", "--print-column=2",
+            "--separator=,", "--width=720", "--height=420",
+        ]
+        for option in options:
+            command.extend(["FALSE", option.value, option.label, option.description])
+        result = subprocess.run(command, text=True, capture_output=True, check=False)
+        if result.returncode != 0:
+            raise Cancelled
+        selected = {value.strip() for value in result.stdout.split(",") if value.strip()}
+        if not selected.issubset(option_values(options)):
+            raise Cancelled
+        return [option.value for option in options if option.value in selected]
+
+
+def select_ui(force_text: bool, language: str) -> SelectorUI:
+    has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    if force_text or not has_display:
+        return TextUI(language)
+    if shutil.which("kdialog"):
+        return KDialogUI(language)
+    if shutil.which("yad"):
+        return YadUI(language)
+    return TextUI(language)
+
+
+def command_name(provider: str) -> str:
+    variable = f"AI_{provider.upper()}_EXECUTABLE"
+    default = "agy" if provider == "antigravity" else provider
+    return os.environ.get(variable, default)
+
+
+def die(language: str, key: str, **values: object) -> NoReturn:
+    print(f"ai: {message(language, key, **values)}", file=sys.stderr)
+    raise SystemExit(EXIT_INVALID)
+
+
+def providers(language: str) -> list[Option]:
+    return [
+        Option("codex", "Codex", message(language, "codex_description")),
+        Option("claude", "Claude", message(language, "claude_description")),
+        Option("grok", "Grok", message(language, "grok_description")),
+        Option("antigravity", "Antigravity", message(language, "antigravity_description")),
+    ]
+
+
+def update_option(language: str) -> Option:
+    return Option("update", message(language, "update_label"), message(language, "update_description"))
+
+
+def claude_models(language: str) -> list[Option]:
+    return [
+        Option("fable", "Fable", message(language, "claude_fable")),
+        Option("opus", "Opus", message(language, "account_access")),
+        Option("sonnet", "Sonnet", message(language, "account_access")),
+        Option("haiku", "Haiku", message(language, "account_access")),
+    ]
+
+
+def permissions(language: str) -> dict[str, list[Option]]:
+    return {
+        "codex": [
+            Option("read-only", message(language, "read_only"), message(language, "read_only_description")),
+            Option("ask", message(language, "ask"), message(language, "ask_description")),
+            Option("automatic", message(language, "limited_automatic"), message(language, "limited_automatic_description")),
+            Option("full", message(language, "full_access"), message(language, "full_access_description")),
+        ],
+        "claude": [
+            Option("plan", message(language, "plan"), message(language, "plan_description")),
+            Option("manual", message(language, "manual"), message(language, "manual_description")),
+            Option("accept-edits", message(language, "accept_edits"), message(language, "accept_edits_description")),
+            Option("auto", message(language, "automatic"), message(language, "automatic_description")),
+            Option("dont-ask", message(language, "dont_ask"), message(language, "dont_ask_description")),
+            Option("bypass", message(language, "full_access"), message(language, "full_access_description")),
+        ],
+        "grok": [
+            Option("plan", message(language, "plan"), message(language, "plan_description")),
+            Option("default", message(language, "default_mode"), message(language, "default_mode_description")),
+            Option("accept-edits", message(language, "accept_edits"), message(language, "accept_edits_description")),
+            Option("auto", message(language, "automatic"), message(language, "automatic_description")),
+            Option("dont-ask", message(language, "dont_ask"), message(language, "dont_ask_description")),
+            Option("bypass", message(language, "full_access"), message(language, "full_access_description")),
+        ],
+        "antigravity": [
+            Option("manual", message(language, "manual"), message(language, "manual_antigravity_description")),
+            Option("plan", message(language, "plan"), message(language, "plan_antigravity_description")),
+            Option("accept-edits", message(language, "accept_edits"), message(language, "accept_edits_description")),
+            Option("sandbox", message(language, "sandbox"), message(language, "sandbox_description")),
+            Option("full", message(language, "full_access"), message(language, "full_access_description")),
+        ],
+    }
+
+
+def load_codex_models(language: str) -> tuple[list[Option], dict[str, list[Option]]]:
+    try:
+        payload = json.loads(CODEX_CACHE.read_text(encoding="utf-8"))
+        raw_models = payload["models"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
+        die(language, "codex_cache_error", path=CODEX_CACHE, error=error)
+    models: list[Option] = []
+    efforts: dict[str, list[Option]] = {}
+    for item in raw_models:
+        if not isinstance(item, dict):
+            continue
+        slug = item.get("slug")
+        if not isinstance(slug, str) or not slug:
+            continue
+        display = item.get("display_name") or slug
+        description = item.get("description") or message(language, "codex_catalog")
+        models.append(Option(slug, str(display), str(description)))
+        parsed_levels = [
+            Option(level["effort"], level["effort"], str(level.get("description") or ""))
+            for level in item.get("supported_reasoning_levels", [])
+            if isinstance(level, dict) and isinstance(level.get("effort"), str)
+        ]
+        if parsed_levels:
+            efforts[slug] = parsed_levels
+    if not models:
+        die(language, "codex_catalog_empty", path=CODEX_CACHE)
+    return models, efforts
+
+
+def load_grok_models(language: str) -> list[Option]:
+    executable = command_name("grok")
+    try:
+        result = subprocess.run([executable, "models"], text=True, capture_output=True, check=False, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        die(language, "grok_query_error", error=error)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip() or f"code {result.returncode}"
+        die(language, "grok_failed", detail=detail)
+    models: list[Option] = []
+    for line in result.stdout.splitlines():
+        match = re.match(r"^\s*(?:\*|-)\s+([^\s]+)(?:\s+\(default\))?\s*$", line)
+        if match:
+            model = match.group(1)
+            label = f"{model} ({message(language, 'default')})" if "(default)" in line else model
+            models.append(Option(model, label, message(language, "grok_catalog")))
+    if not models:
+        die(language, "grok_empty")
+    return models
+
+
+def load_antigravity_models(language: str) -> list[Option]:
+    executable = command_name("antigravity")
+    try:
+        result = subprocess.run([executable, "models"], text=True, capture_output=True, check=False, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        die(language, "antigravity_query_error", error=error)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip() or f"code {result.returncode}"
+        die(language, "antigravity_failed", detail=detail)
+    models = [Option(line, line, message(language, "antigravity_catalog")) for line in result.stdout.splitlines() if line.strip()]
+    if not models:
+        die(language, "antigravity_empty")
+    return models
+
+
+def option_values(options: Sequence[Option]) -> set[str]:
+    return {option.value for option in options}
+
+
+def choose_or_validate(ui: SelectorUI, supplied: str | None, title: str, prompt: str, options: Sequence[Option], field: str, language: str) -> str:
+    if supplied is None:
+        return ui.choose(title, prompt, options)
+    if supplied not in option_values(options):
+        die(language, "invalid_field", field=message(language, field), value=supplied, valid=", ".join(option.value for option in options))
+    return supplied
+
+
+def permission_arguments(provider: str, permission: str) -> list[str]:
+    if provider == "codex":
+        return {
+            "read-only": ["--sandbox", "read-only", "--ask-for-approval", "never"],
+            "ask": ["--sandbox", "workspace-write", "--ask-for-approval", "on-request"],
+            "automatic": ["--sandbox", "workspace-write", "--ask-for-approval", "never"],
+            "full": ["--dangerously-bypass-approvals-and-sandbox"],
+        }[permission]
+    if provider in {"claude", "grok"}:
+        mapping = {"plan": "plan", "manual": "manual", "default": "default", "accept-edits": "acceptEdits", "auto": "auto", "dont-ask": "dontAsk", "bypass": "bypassPermissions"}
+        return ["--permission-mode", mapping[permission]]
+    return {
+        "manual": [], "plan": ["--mode", "plan"], "accept-edits": ["--mode", "accept-edits"],
+        "sandbox": ["--sandbox"], "full": ["--dangerously-skip-permissions"],
+    }[permission]
+
+
+def build_command(provider: str, model: str, effort: str, permission: str) -> list[str]:
+    command = [command_name(provider), "--model", model]
+    if provider == "codex":
+        command.extend(["--config", f'model_reasoning_effort="{effort}"'])
+    elif provider == "claude":
+        command.extend(["--effort", effort])
+    elif provider == "grok":
+        command.extend(["--reasoning-effort", effort])
+    command.extend(permission_arguments(provider, permission))
+    return command
+
+
+@dataclass(frozen=True)
+class UpdateResult:
+    provider: str
+    before: str
+    success: bool
+    detail: str
+    after: str
+
+
+def version_of(executable: str, language: str) -> str:
+    try:
+        result = subprocess.run([executable, "--version"], text=True, capture_output=True, check=False)
+    except OSError as error:
+        return message(language, "not_available", detail=error)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip() or f"code {result.returncode}"
+        return message(language, "not_available", detail=detail)
+    return (result.stdout or result.stderr).strip() or message(language, "no_output")
+
+
+def build_update_command(provider: str) -> list[str]:
+    return [command_name(provider), "update"]
+
+
+def parse_update_list(value: str, language: str) -> list[str]:
+    provider_options = providers(language)
+    normalized = value.strip().lower()
+    if normalized == "all":
+        return [option.value for option in provider_options]
+    requested = [item.strip().lower() for item in value.split(",")]
+    if not requested or any(not item or item not in option_values(provider_options) for item in requested):
+        die(language, "update_list_invalid", value=value, valid=", ".join(option.value for option in provider_options))
+    selected = set(requested)
+    return [option.value for option in provider_options if option.value in selected]
+
+
+def run_updates(provider_ids: Sequence[str], dry_run: bool, language: str) -> int:
+    if not provider_ids:
+        return 0
+    if dry_run:
+        for provider in provider_ids:
+            print(shlex.join(build_update_command(provider)))
+        return 0
+    labels = {option.value: option.label for option in providers(language)}
+    results: list[UpdateResult] = []
+    for provider in provider_ids:
+        command = build_update_command(provider)
+        before = version_of(command[0], language)
+        try:
+            result = subprocess.run(command, check=False)
+        except OSError as error:
+            success = False
+            detail = message(language, "run_failed", error=error)
+        else:
+            success = result.returncode == 0
+            detail = message(language, "success") if success else message(language, "failed_code", code=result.returncode)
+        after = version_of(command[0], language)
+        results.append(UpdateResult(provider, before, success, detail, after))
+        print(f"{labels[provider]}: {message(language, 'previous_version')}: {before}")
+        print(f"{labels[provider]}: {message(language, 'result')}: {detail}")
+        print(f"{labels[provider]}: {message(language, 'new_version')}: {after}")
+    print(message(language, "update_summary"))
+    for record in results:
+        status = message(language, "success") if record.success else message(language, "failed")
+        print(f"{labels[record.provider]}: {status}")
+    return 0 if all(record.success for record in results) else 1
+
+
+def requested_language(argv: Sequence[str]) -> str:
+    detected = locale_language()
+    override: str | None = None
+    for index, argument in enumerate(argv):
+        if argument == "--language":
+            if index + 1 >= len(argv):
+                die(detected, "invalid_arguments")
+            override = argv[index + 1]
+        elif argument.startswith("--language="):
+            override = argument.split("=", 1)[1]
+    if override is None:
+        return detected
+    if override not in TRANSLATIONS:
+        die(detected, "invalid_field", field="language", value=override, valid="en, es")
+    return override
+
+
+class LocalizedArgumentParser(argparse.ArgumentParser):
+    def __init__(self, language: str, **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        self.language = language
+
+    def error(self, _message: str) -> NoReturn:
+        self.print_usage(sys.stderr)
+        die(self.language, "invalid_arguments")
+
+    def format_help(self) -> str:
+        output = super().format_help()
+        if self.language == "es":
+            output = output.replace("usage:", "uso:", 1)
+            output = output.replace("\noptions:\n", "\nopciones:\n", 1)
+            output = output.replace("\npositional arguments:\n", "\nargumentos posicionales:\n", 1)
+        return output
+
+
+def parse_arguments(language: str) -> argparse.Namespace:
+    parser = LocalizedArgumentParser(language, prog="ai", description=message(language, "help_description"), add_help=False)
+    parser.add_argument("-h", "--help", action="help", help=message(language, "help_help"))
+    parser.add_argument("--version", action="version", version=f"ai-cli-control {VERSION}", help=message(language, "help_version"))
+    parser.add_argument("--dry-run", action="store_true", help=message(language, "help_dry_run"))
+    parser.add_argument("--text", action="store_true", help=message(language, "help_text"))
+    parser.add_argument("--language", metavar="LANGUAGE", help=message(language, "help_language"))
+    parser.add_argument("--provider", help=argparse.SUPPRESS)
+    parser.add_argument("--model", help=argparse.SUPPRESS)
+    parser.add_argument("--effort", help=argparse.SUPPRESS)
+    parser.add_argument("--permissions", help=argparse.SUPPRESS)
+    parser.add_argument("--update", metavar="LIST", help=message(language, "help_update"))
+    return parser.parse_args()
+
+
+def main() -> int:
+    language = requested_language(sys.argv[1:])
+    args = parse_arguments(language)
+    if args.update is not None:
+        return run_updates(parse_update_list(args.update, language), args.dry_run, language)
+    ui = select_ui(args.text, language)
+    provider_options = providers(language)
+    try:
+        if args.provider is None:
+            provider = ui.choose("ai", message(language, "provider_prompt"), [*provider_options, update_option(language)])
+        else:
+            provider = choose_or_validate(ui, args.provider, "ai", message(language, "provider_prompt"), provider_options, "field_provider", language)
+        if provider == update_option(language).value:
+            selected = ui.choose_many(message(language, "update_title"), message(language, "update_prompt"), provider_options)
+            return run_updates(selected, args.dry_run, language)
+        if provider == "codex":
+            models, codex_efforts = load_codex_models(language)
+        elif provider == "claude":
+            models = claude_models(language)
+        elif provider == "grok":
+            models = load_grok_models(language)
+        else:
+            models = load_antigravity_models(language)
+        model = choose_or_validate(ui, args.model, "ai", message(language, "model_prompt"), models, "field_model", language)
+        if provider == "codex":
+            efforts = codex_efforts.get(model)
+            if not efforts:
+                die(language, "codex_efforts_empty", model=model)
+        elif provider == "claude":
+            efforts = [Option(value, value) for value in ("low", "medium", "high", "xhigh", "max")]
+        elif provider == "grok":
+            efforts = [Option(value, value) for value in ("low", "medium", "high")]
+        else:
+            if args.effort not in {None, "included"}:
+                die(language, "antigravity_effort", value=args.effort)
+            effort = "included"
+        if provider != "antigravity":
+            effort = choose_or_validate(ui, args.effort, "ai", message(language, "effort_prompt"), efforts, "field_effort", language)
+        permission = choose_or_validate(ui, args.permissions, "ai", message(language, "permission_prompt"), permissions(language)[provider], "field_permission", language)
+    except Cancelled:
+        return 0
+    command = build_command(provider, model, effort, permission)
+    if args.dry_run:
+        print(shlex.join(command))
+        return 0
+    executable = command[0]
+    if os.path.sep not in executable and shutil.which(executable) is None:
+        die(language, "executable_missing_path", executable=executable)
+    if os.path.sep in executable and not os.access(executable, os.X_OK):
+        die(language, "executable_missing_file", executable=executable)
+    os.execvp(executable, command)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

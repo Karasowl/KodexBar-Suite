@@ -1,0 +1,122 @@
+# ai-cli-control
+
+English documentation. Complete Spanish documentation is available in [README.es.md](README.es.md).
+
+`ai-cli-control` is a local selector for launching Codex, Claude, Grok, or Antigravity from the current terminal directory. It keeps the selected CLI's working directory and environment. It is original work and is not a KodexBar fork.
+
+## Features
+
+- Select a provider, model, reasoning effort, and permission mode.
+- Use KDialog when available, Yad as a graphical fallback, and an interactive terminal fallback otherwise.
+- Read Codex models from the local model cache and query Grok and Antigravity catalogs when selected.
+- Run one or more CLI updates in a fixed order, while continuing after a failed update.
+- Preview launch and update commands with `--dry-run`.
+- Use English by default. Spanish locales receive Spanish interface text. `--language en` and `--language es` override locale detection.
+- Keep every launched and updated command as an argument array without shell evaluation.
+
+## Requirements
+
+- Python 3.10 or newer.
+- At least one supported provider CLI on `PATH` when launching it.
+- Optional `kdialog` or `yad` for graphical selection.
+- A readable Codex model cache at `~/.codex/models_cache.json` when selecting Codex.
+
+Antigravity must be available as `agy` and authenticated before its catalog can be queried. This project does not install, remove, authenticate, or configure any provider CLI.
+
+## Quick start
+
+Run from a clone or extracted release:
+
+```bash
+./ai
+./ai --text
+./ai --dry-run
+./ai --language es --text
+./ai --version
+```
+
+The graphical selector uses KDialog first, then Yad. Without a graphical session it uses the text selector. Cancelling any selector step exits successfully and does not launch a CLI.
+
+The text selector accepts numbered choices. For the update checklist it accepts comma-separated numbers, `all`, or `0` to cancel.
+
+## Non-interactive launch
+
+The hidden automation arguments are supported for reproducible scripts and tests:
+
+```bash
+./ai --dry-run --provider codex --model gpt-5 --effort high --permissions ask
+./ai --dry-run --provider claude --model opus --effort high --permissions accept-edits
+./ai --dry-run --provider grok --model grok-4 --effort medium --permissions default
+./ai --dry-run --provider antigravity --model 'Gemini 3.1 Pro (High)' --effort included --permissions plan
+```
+
+Antigravity model names already include their level. The interactive flow does not request an effort for Antigravity, and `--effort included` adds no effort flag.
+
+## Permissions and launch arguments
+
+The selector builds commands as argument arrays. These mappings are passed exactly to the provider CLI:
+
+| Provider | Permission ID | Arguments |
+| --- | --- | --- |
+| Codex | `read-only` | `--sandbox read-only --ask-for-approval never` |
+| Codex | `ask` | `--sandbox workspace-write --ask-for-approval on-request` |
+| Codex | `automatic` | `--sandbox workspace-write --ask-for-approval never` |
+| Codex | `full` | `--dangerously-bypass-approvals-and-sandbox` |
+| Claude and Grok | `plan`, `manual` or `default`, `accept-edits`, `auto`, `dont-ask`, `bypass` | `--permission-mode` with the provider value |
+| Antigravity | `manual` | No permission argument |
+| Antigravity | `plan` | `--mode plan` |
+| Antigravity | `accept-edits` | `--mode accept-edits` |
+| Antigravity | `sandbox` | `--sandbox` |
+| Antigravity | `full` | `--dangerously-skip-permissions` |
+
+Provider availability, model entitlement, and provider-side behavior remain controlled by each provider.
+
+## Updating provider CLIs
+
+Choose **Update CLIs** in the main selector, or use a non-interactive list:
+
+```bash
+./ai --update codex,grok
+./ai --update all --dry-run
+```
+
+Valid identifiers are `codex`, `claude`, `grok`, and `antigravity`. Updates always run in that order, even when the input order differs. The exact update arrays are `codex update`, `claude update`, `grok update`, and `agy update`.
+
+Before and after each real update, the selector attempts `<cli> --version`. Standard output and error from each update stay attached to the terminal. A failed or missing CLI is reported and the remaining selected CLIs continue. The final status is `0` only when all selected updates succeed. `--dry-run` prints the update arrays without checking versions or executing updates.
+
+## Installation and removal
+
+Installation copies the executable into a durable user-owned location. It never points `~/.local/bin/ai` at the checkout or release directory.
+
+```bash
+./install.sh
+ai --version
+./uninstall.sh
+# If the checkout is gone:
+~/.local/share/ai-cli-control/uninstall.sh
+```
+
+The installed executable is `~/.local/share/ai-cli-control/ai`, with `~/.local/bin/ai` as its symlink. A copy of `uninstall.sh` is stored beside it for removal after a checkout has been deleted. No `sudo` is used. Installation refuses to replace an existing `~/.local/bin/ai` that is not owned by this project. Uninstallation checks its ownership marker and symlink before removing only project-owned files. Both scripts are idempotent.
+
+## Development
+
+```bash
+make test
+make check
+make install
+make uninstall
+```
+
+`make test` runs Python unit tests. `make check` runs unit tests, Python compilation, Bash syntax checks, and static safety checks. Tests use temporary executable fixtures and never execute real provider updates.
+
+## Security
+
+This project does not use `eval`, `shell=True`, or `os.system`. It does not include credentials or provider configuration. Read [SECURITY.md](SECURITY.md) for reporting guidance.
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Releases follow [CHANGELOG.md](CHANGELOG.md).
+
+## License and notices
+
+Copyright 2026 Ismael (Karasowl). Licensed under the [MIT License](LICENSE). Third-party product notices are in [NOTICE.md](NOTICE.md).

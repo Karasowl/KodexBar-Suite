@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Run repository safety checks without invoking provider CLIs."""
+
+from __future__ import annotations
+
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+
+ROOT = Path(__file__).resolve().parents[1]
+AI = ROOT / "ai"
+FORBIDDEN = ("eval(", "shell=True", "shell = True", "os.system(")
+SECRET_PATTERNS = {
+    "private key": re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"),
+    "GitHub token": re.compile(r"\bgh[opsur]_[A-Za-z0-9]{36,255}\b|\bgithub_pat_[A-Za-z0-9_]{20,255}\b"),
+    "personal home path": re.compile(r"/(?:home|Users)/[A-Za-z0-9._-]+(?:/|$)"),
+    "email address": re.compile(r"\b[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+\b"),
+}
+TEXT_SUFFIXES = {"", ".md", ".py", ".sh", ".yml", ".yaml", ".json", ".txt"}
+
+
+def tracked_text_files() -> list[Path]:
+    """Return tracked text files, with a deterministic fallback for source archives."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "-z"],
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        candidates = [ROOT / item for item in result.stdout.split("\0") if item]
+    except (OSError, subprocess.CalledProcessError):
+        candidates = [
+            path for path in ROOT.rglob("*")
+            if path.is_file() and "__pycache__" not in path.parts
+        ]
+    return sorted(path for path in candidates if path.suffix in TEXT_SUFFIXES)
+
+
+def find_secrets() -> list[str]:
+    findings: list[str] = []
+    for path in tracked_text_files():
+        try:
+            source = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        for name, pattern in SECRET_PATTERNS.items():
+            if pattern.search(source):
+                findings.append(f"{path.relative_to(ROOT)}: possible {name}")
+    return findings
+
+
+def main() -> int:
+    source = AI.read_text(encoding="utf-8")
+    failures = [token for token in FORBIDDEN if token in source]
+    if failures:
+        print(f"Forbidden execution tokens found: {', '.join(failures)}", file=sys.stderr)
+        return 1
+    if 'return [command_name(provider), "update"]' not in source:
+        print("Updates are not built as an argument array", file=sys.stderr)
+        return 1
+    if 'default = "agy" if provider == "antigravity" else provider' not in source:
+        print("Missing Antigravity executable mapping", file=sys.stderr)
+        return 1
+    findings = find_secrets()
+    if findings:
+        print("Potential secrets or personal data found:", file=sys.stderr)
+        print("\n".join(findings), file=sys.stderr)
+        return 1
+    print("Static safety checks passed.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
