@@ -1,0 +1,476 @@
+.pragma library
+
+function providerId(value) {
+    return String(value || "").trim().toLowerCase()
+}
+
+function normalizeProviderOrder(value) {
+    var rawIds = String(value || "").split(",")
+    var normalized = []
+    var seen = {}
+    for (var i = 0; i < rawIds.length; i++) {
+        var id = providerId(rawIds[i])
+        if (id.length === 0 || seen[id] === true) {
+            continue
+        }
+        seen[id] = true
+        normalized.push(id)
+    }
+    return normalized
+}
+
+function normalizeQuotaSelection(value) {
+    return normalizeProviderOrder(value)
+}
+
+function acquisitionCandidates(source) {
+    var normalizedSource = String(source || "detect").trim().toLowerCase() || "detect"
+    return [{ provider: "", source: normalizedSource }]
+}
+
+function usageArguments(provider, source, includeStatus) {
+    var args = ["usage", "--format", "json", "--json-only"]
+    if (provider && provider !== "detect") {
+        args.push("--provider", String(provider))
+    }
+    if (source && source !== "detect") {
+        args.push("--source", String(source))
+    }
+    if (includeStatus === true) {
+        args.push("--status")
+    }
+    return args
+}
+
+function costArguments() {
+    return ["cost", "--format", "json", "--json-only"]
+}
+
+function compactQuotaKey(value) {
+    return String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+}
+
+function compactQuotaSelected(configuredSelection, provider, quotaKey, extra) {
+    var selection = normalizeQuotaSelection(configuredSelection)
+    var id = providerId(provider)
+    var key = compactQuotaKey(quotaKey)
+    if (selection.length === 0 || key.length === 0) {
+        return false
+    }
+
+    var candidates = [key, id + "." + key]
+    if (extra === true) {
+        candidates.push("extras")
+        candidates.push(id + ".extras")
+    }
+    for (var i = 0; i < selection.length; i++) {
+        if (candidates.indexOf(selection[i]) !== -1) {
+            return true
+        }
+    }
+    return false
+}
+
+function compactQuotaLabel(quotaKey, title) {
+    var labels = {
+        "primary": "P",
+        "weekly": "W",
+        "tertiary": "T"
+    }
+    if (labels[quotaKey]) {
+        return labels[quotaKey]
+    }
+    return title === "Fable only" ? "Fb" : compactTitleToken(title)
+}
+
+function compactQuotaPart(configuredSelection, provider, quotaKey, title, percentLeft, resetsAt, extra) {
+    var key = compactQuotaKey(quotaKey)
+    if (!compactQuotaSelected(configuredSelection, provider, key, extra)) {
+        return ""
+    }
+    var label = compactQuotaLabel(key, title)
+    if (percentLeft !== null && percentLeft !== undefined && !isNaN(percentLeft)) {
+        var used = Math.max(0, Math.min(100, 100 - Number(percentLeft)))
+        var separator = label.indexOf(" #") !== -1 ? " " : ""
+        return label + separator + Math.round(used) + "%"
+    }
+    if (resetsAt) {
+        return label + " reset"
+    }
+    return ""
+}
+
+function compactExtraPart(configuredSelection, provider, title, percentLeft, resetsAt) {
+    var key = compactQuotaKey(title)
+    return compactQuotaPart(configuredSelection, provider, key, title, percentLeft, resetsAt, true)
+}
+
+function standardWindowVisible(percentLeft, resetsAt) {
+    if (percentLeft !== null && percentLeft !== undefined && !isNaN(percentLeft)) {
+        return true
+    }
+    return Boolean(resetsAt)
+}
+
+function standardWindowRow(quotaKey, title, percentLeft, resetsAt, detail) {
+    if (!standardWindowVisible(percentLeft, resetsAt)) {
+        return null
+    }
+    var usageKnown = percentLeft !== null && percentLeft !== undefined && !isNaN(percentLeft)
+    return {
+        title: title,
+        percentLeft: usageKnown ? Number(percentLeft) : null,
+        resetsAt: resetsAt || null,
+        detail: detail || "",
+        usageKnown: usageKnown,
+        compactKey: compactQuotaKey(quotaKey),
+        compactExtra: false
+    }
+}
+
+function compactTitleToken(title) {
+    return String(title || "Extra").replace(/[^A-Za-z0-9]+/g, "") || "Extra"
+}
+
+function uniqueExtraLabels(titles) {
+    var list = Array.isArray(titles) ? titles : []
+    var tokens = []
+    var counts = {}
+    for (var i = 0; i < list.length; i++) {
+        var token = compactTitleToken(list[i])
+        var key = token.toLowerCase()
+        tokens.push({ token: token, key: key, fable: String(list[i]) === "Fable only" })
+        counts[key] = (counts[key] || 0) + 1
+    }
+
+    var occurrences = {}
+    var labels = []
+    for (var j = 0; j < tokens.length; j++) {
+        var current = tokens[j]
+        var label = "Fb"
+        if (!current.fable) {
+            var length = Math.min(2, current.token.length)
+            while (length < current.token.length) {
+                var prefix = current.key.slice(0, length)
+                var unique = true
+                for (var otherIndex = 0; otherIndex < tokens.length; otherIndex++) {
+                    var other = tokens[otherIndex]
+                    if (other.key !== current.key && other.key.slice(0, length) === prefix) {
+                        unique = false
+                        break
+                    }
+                }
+                if (unique) {
+                    break
+                }
+                length++
+            }
+            label = current.token.slice(0, Math.max(1, length))
+            label = label.charAt(0).toUpperCase() + label.slice(1).toLowerCase()
+        }
+        occurrences[current.key] = (occurrences[current.key] || 0) + 1
+        if (counts[current.key] > 1) {
+            label += " #" + occurrences[current.key]
+        }
+        labels.push(label)
+    }
+    return labels
+}
+
+function compactValuePart(label, percentLeft, resetsAt) {
+    if (percentLeft !== null && percentLeft !== undefined && !isNaN(percentLeft)) {
+        var used = Math.max(0, Math.min(100, 100 - Number(percentLeft)))
+        var separator = label.indexOf(" #") !== -1 ? " " : ""
+        return label + separator + Math.round(used) + "%"
+    }
+    return resetsAt ? label + " reset" : ""
+}
+
+function compactNumber(value) {
+    if (value === null || value === undefined || isNaN(value)) {
+        return ""
+    }
+    var rounded = Math.round(Number(value) * 100) / 100
+    return String(rounded)
+}
+
+function selectedExtraRows(entries, configuredSelection) {
+    var byProvider = {}
+    var list = Array.isArray(entries) ? entries : []
+    for (var i = 0; i < list.length; i++) {
+        var entry = list[i]
+        var id = providerId(entry && entry.provider)
+        var rows = entry && Array.isArray(entry.rows) ? entry.rows : []
+        if (!byProvider[id]) {
+            byProvider[id] = []
+        }
+        for (var j = 0; j < rows.length; j++) {
+            var row = rows[j]
+            var key = row && (row.compactKey || compactQuotaKey(row.title))
+            if (row && row.compactExtra === true
+                    && standardWindowVisible(row.percentLeft, row.resetsAt)
+                    && compactQuotaSelected(configuredSelection, id, key, true)) {
+                byProvider[id].push(row)
+            }
+        }
+    }
+    return byProvider
+}
+
+function composeCompactText(entries, options) {
+    var settings = options || {}
+    var quotaSelection = settings.showUsed === false ? "" : settings.quotaSelection
+    var orderedEntries = filterAndOrderEntries(entries, settings.providerOrder)
+    var selected = filterCompactEntries(entries, settings.providerOrder, quotaSelection)
+    if (selected.length === 0) {
+        return {
+            hasSelection: false,
+            provider: "",
+            text: settings.noSelectionText || "No selection"
+        }
+    }
+
+    var providerCounts = {}
+    for (var countIndex = 0; countIndex < orderedEntries.length; countIndex++) {
+        var countId = providerId(orderedEntries[countIndex] && orderedEntries[countIndex].provider)
+        providerCounts[countId] = (providerCounts[countId] || 0) + 1
+    }
+
+    var extras = selectedExtraRows(selected, settings.quotaSelection)
+    var extraLabels = {}
+    var extraCursors = {}
+    for (var extraProvider in extras) {
+        var titles = []
+        for (var titleIndex = 0; titleIndex < extras[extraProvider].length; titleIndex++) {
+            titles.push(extras[extraProvider][titleIndex].title)
+        }
+        extraLabels[extraProvider] = uniqueExtraLabels(titles)
+        extraCursors[extraProvider] = 0
+    }
+
+    var blocks = []
+    for (var i = 0; i < selected.length; i++) {
+        var entry = selected[i]
+        var id = providerId(entry && entry.provider)
+        var providerOrdinal = 0
+        for (var orderedIndex = 0; orderedIndex < orderedEntries.length; orderedIndex++) {
+            if (providerId(orderedEntries[orderedIndex] && orderedEntries[orderedIndex].provider) === id) {
+                providerOrdinal++
+            }
+            if (orderedEntries[orderedIndex] === entry) {
+                break
+            }
+        }
+        var block = []
+        var ordinal = providerCounts[id] > 1 ? "#" + providerOrdinal : ""
+        if (settings.showProvider !== false) {
+            var providerLabel = compactProviderLabel(entry.provider, entry.name)
+            block.push(ordinal ? providerLabel + " " + ordinal : providerLabel)
+        } else if (ordinal) {
+            block.push(ordinal)
+        }
+        if (entry.errorMessage) {
+            block.push("ERR")
+            blocks.push(block.join(" "))
+            continue
+        }
+        if (settings.showUsed !== false) {
+            var standard = [
+                compactQuotaPart(settings.quotaSelection, id, "primary", "Primary",
+                    entry.compactPrimaryPercentLeft, entry.primaryResetsAt, false),
+                compactQuotaPart(settings.quotaSelection, id, "weekly", "Weekly",
+                    entry.secondaryPercentLeft, entry.secondaryResetsAt, false),
+                compactQuotaPart(settings.quotaSelection, id, "tertiary", "Tertiary",
+                    entry.tertiaryPercentLeft, entry.tertiaryResetsAt, true)
+            ]
+            for (var standardIndex = 0; standardIndex < standard.length; standardIndex++) {
+                if (standard[standardIndex]) {
+                    block.push(standard[standardIndex])
+                }
+            }
+            var rows = entry && Array.isArray(entry.rows) ? entry.rows : []
+            for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+                var row = rows[rowIndex]
+                var key = row && (row.compactKey || compactQuotaKey(row.title))
+                if (!row || row.compactExtra !== true
+                        || !standardWindowVisible(row.percentLeft, row.resetsAt)
+                        || !compactQuotaSelected(settings.quotaSelection, id, key, true)) {
+                    continue
+                }
+                var cursor = extraCursors[id] || 0
+                var label = extraLabels[id] && extraLabels[id][cursor]
+                    ? extraLabels[id][cursor]
+                    : compactQuotaLabel(key, row.title)
+                extraCursors[id] = cursor + 1
+                var extraPart = compactValuePart(label, row.percentLeft, row.resetsAt)
+                if (extraPart) {
+                    block.push(extraPart)
+                }
+            }
+        }
+        if (settings.showCredits !== false && entry.creditsRemaining !== null
+                && entry.creditsRemaining !== undefined && !isNaN(entry.creditsRemaining)) {
+            block.push("Cr " + compactNumber(entry.creditsRemaining))
+        }
+        if (block.length > 0) {
+            blocks.push(block.join(" "))
+        }
+    }
+    return {
+        hasSelection: true,
+        provider: providerId(selected[0] && selected[0].provider),
+        text: blocks.length > 0 ? blocks.join(" | ") : (settings.noFieldsText || "No compact fields")
+    }
+}
+
+function attachProviderCostSummaries(entries, summaries) {
+    var list = Array.isArray(entries) ? entries : []
+    var source = summaries || {}
+    var seen = {}
+    var result = []
+    for (var i = 0; i < list.length; i++) {
+        var entry = list[i]
+        var copy = {}
+        for (var prop in entry) {
+            copy[prop] = entry[prop]
+        }
+        var id = providerId(entry && entry.provider)
+        copy.costSummaryOwner = seen[id] !== true
+        copy.costSummary = copy.costSummaryOwner ? (source[id] || null) : null
+        seen[id] = true
+        result.push(copy)
+    }
+    return result
+}
+
+function sameProviderOrder(left, right) {
+    return normalizeProviderOrder(left).join(",") === normalizeProviderOrder(right).join(",")
+}
+
+function migrateLegacyProvider(legacyProvider, currentOrder, defaultOrder, migrationDone) {
+    if (migrationDone === true) {
+        return { order: currentOrder, writeOrder: false, writeDone: false }
+    }
+    var legacy = providerId(legacyProvider || "detect")
+    var personalized = !sameProviderOrder(currentOrder, defaultOrder)
+    var target = defaultOrder
+    if (legacy === "all") {
+        target = ""
+    } else if (legacy && legacy !== "detect") {
+        target = legacy
+    }
+    return {
+        order: personalized ? currentOrder : target,
+        writeOrder: !personalized && String(currentOrder) !== String(target),
+        writeDone: true
+    }
+}
+
+function entryHasSelectedQuota(entry, configuredSelection) {
+    if (normalizeQuotaSelection(configuredSelection).length === 0 || (entry && entry.errorMessage)) {
+        return true
+    }
+    var provider = entry && entry.provider
+    var standard = [
+        { key: "primary", percentLeft: entry && entry.compactPrimaryPercentLeft, resetsAt: entry && entry.primaryResetsAt, extra: false },
+        { key: "weekly", percentLeft: entry && entry.secondaryPercentLeft, resetsAt: entry && entry.secondaryResetsAt, extra: false },
+        { key: "tertiary", percentLeft: entry && entry.tertiaryPercentLeft, resetsAt: entry && entry.tertiaryResetsAt, extra: true }
+    ]
+    for (var i = 0; i < standard.length; i++) {
+        if (standardWindowVisible(standard[i].percentLeft, standard[i].resetsAt)
+                && compactQuotaSelected(configuredSelection, provider, standard[i].key, standard[i].extra)) {
+            return true
+        }
+    }
+    var rows = entry && Array.isArray(entry.rows) ? entry.rows : []
+    for (var j = 0; j < rows.length; j++) {
+        var row = rows[j]
+        if (row && row.compactExtra === true
+                && standardWindowVisible(row.percentLeft, row.resetsAt)
+                && compactQuotaSelected(configuredSelection, provider,
+                    row.compactKey || compactQuotaKey(row.title), true)) {
+            return true
+        }
+    }
+    return false
+}
+
+function filterCompactEntries(entries, configuredOrder, configuredSelection) {
+    var ordered = filterAndOrderEntries(entries, configuredOrder)
+    var filtered = []
+    for (var i = 0; i < ordered.length; i++) {
+        if (entryHasSelectedQuota(ordered[i], configuredSelection)) {
+            filtered.push(ordered[i])
+        }
+    }
+    return filtered
+}
+
+function compactSelectionState(entries, configuredOrder, configuredSelection) {
+    var selected = filterCompactEntries(entries, configuredOrder, configuredSelection)
+    if (selected.length === 0) {
+        return { hasSelection: false, provider: "", text: "No selection" }
+    }
+    return {
+        hasSelection: true,
+        provider: providerId(selected[0] && selected[0].provider),
+        text: ""
+    }
+}
+
+function appendProviderMatches(target, list, provider) {
+    for (var i = 0; i < list.length; i++) {
+        if (providerId(list[i] && list[i].provider) === provider) {
+            target.push(list[i])
+        }
+    }
+}
+
+function filterAndOrderEntries(entries, configuredOrder) {
+    var list = Array.isArray(entries) ? entries : []
+    var order = normalizeProviderOrder(configuredOrder)
+    if (order.length === 0) {
+        return list.slice()
+    }
+
+    var filtered = []
+    for (var i = 0; i < order.length; i++) {
+        appendProviderMatches(filtered, list, order[i])
+    }
+    return filtered
+}
+
+function normalizeUsageWindows(provider, primary, secondary) {
+    var id = providerId(provider)
+    if ((id === "antigravity" || id === "gemini")
+            && primary && secondary
+            && typeof primary.windowMinutes === "number"
+            && typeof secondary.windowMinutes === "number"
+            && primary.windowMinutes > secondary.windowMinutes) {
+        return { primary: secondary, secondary: primary }
+    }
+    return { primary: primary, secondary: secondary }
+}
+
+function compactProviderLabel(provider, name) {
+    var id = providerId(provider || name)
+    var labels = {
+        "codex": "Cx",
+        "claude": "Cl",
+        "grok": "Gk",
+        "antigravity": "Ag",
+        "gemini": "Gm"
+    }
+    if (labels[id]) {
+        return labels[id]
+    }
+    var fallback = String(name || provider || "AI").trim()
+    if (fallback.length <= 2) {
+        return fallback || "AI"
+    }
+    return fallback.slice(0, 2)
+}

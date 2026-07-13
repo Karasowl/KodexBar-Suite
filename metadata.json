@@ -3,17 +3,23 @@
     "Authors": [
       {
         "Email": "",
-        "Name": "tylxr"
+        "Name": "tylxr",
+        "Task": "Original author"
+      },
+      {
+        "Email": "",
+        "Name": "Ismael (Karasowl)",
+        "Task": "Fork maintainer"
       }
     ],
     "Category": "System Information",
-    "Description": "KDE Plasma panel widget for CodexBar usage, quotas, and credits.",
+    "Description": "KDE Plasma panel widget for ordered multi-provider CodexBar quotas.",
     "Icon": "codex",
     "Id": "org.kde.plasma.kodexbar",
     "License": "MIT",
     "Name": "KodexBar",
-    "Version": "0.1.0",
-    "Website": "https://github.com/tylxr59/KodexBar"
+    "Version": "0.2.0",
+    "Website": "https://github.com/Karasowl/KodexBar"
   },
   "KPackageStructure": "Plasma/Applet",
   "X-Plasma-API-Minimum-Version": "6.0"

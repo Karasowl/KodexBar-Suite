@@ -10,8 +10,6 @@ KCM.SimpleKCM {
 
     property alias cfg_codexbarCommand: codexbarCommand.text
     property string cfg_codexbarCommandDefault
-    property string cfg_provider
-    property string cfg_providerDefault
     property string cfg_source
     property string cfg_sourceDefault
     property alias cfg_refreshInterval: refreshInterval.value
@@ -28,6 +26,10 @@ KCM.SimpleKCM {
     property bool cfg_includeStatusDefault
     property alias cfg_showCostSummary: showCostSummary.checked
     property bool cfg_showCostSummaryDefault
+    property alias cfg_compactProviderOrder: compactProviderOrder.text
+    property string cfg_compactProviderOrderDefault
+    property alias cfg_compactQuotaSelection: compactQuotaSelection.text
+    property string cfg_compactQuotaSelectionDefault
 
     function indexForValue(model, value) {
         for (var i = 0; i < model.count; i++) {
@@ -81,71 +83,6 @@ KCM.SimpleKCM {
                 }
 
                 QQC2.ComboBox {
-                    id: provider
-                    Kirigami.FormData.label: i18n("Provider:")
-                    textRole: "text"
-                    valueRole: "value"
-                    model: ListModel {
-                        ListElement { text: "Best available"; value: "detect" }
-                        ListElement { text: "All enabled"; value: "all" }
-                        ListElement { text: "Abacus AI"; value: "abacus" }
-                        ListElement { text: "Alibaba Coding Plan"; value: "alibaba" }
-                        ListElement { text: "Alibaba Token Plan"; value: "alibabatokenplan" }
-                        ListElement { text: "Amp"; value: "amp" }
-                        ListElement { text: "Antigravity"; value: "antigravity" }
-                        ListElement { text: "Augment"; value: "augment" }
-                        ListElement { text: "AWS Bedrock"; value: "bedrock" }
-                        ListElement { text: "Azure OpenAI"; value: "azureopenai" }
-                        ListElement { text: "Codex"; value: "codex" }
-                        ListElement { text: "Claude"; value: "claude" }
-                        ListElement { text: "Codebuff"; value: "codebuff" }
-                        ListElement { text: "Command Code"; value: "commandcode" }
-                        ListElement { text: "Copilot"; value: "copilot" }
-                        ListElement { text: "Crof"; value: "crof" }
-                        ListElement { text: "Cursor"; value: "cursor" }
-                        ListElement { text: "Deepgram"; value: "deepgram" }
-                        ListElement { text: "DeepSeek"; value: "deepseek" }
-                        ListElement { text: "Devin"; value: "devin" }
-                        ListElement { text: "Doubao"; value: "doubao" }
-                        ListElement { text: "Droid"; value: "factory" }
-                        ListElement { text: "ElevenLabs"; value: "elevenlabs" }
-                        ListElement { text: "Gemini"; value: "gemini" }
-                        ListElement { text: "Grok"; value: "grok" }
-                        ListElement { text: "GroqCloud"; value: "groq" }
-                        ListElement { text: "JetBrains AI"; value: "jetbrains" }
-                        ListElement { text: "Kilo Code"; value: "kilo" }
-                        ListElement { text: "Kimi"; value: "kimi" }
-                        ListElement { text: "Kimi K2"; value: "kimik2" }
-                        ListElement { text: "Kiro"; value: "kiro" }
-                        ListElement { text: "LLM Proxy"; value: "llmproxy" }
-                        ListElement { text: "Manus"; value: "manus" }
-                        ListElement { text: "MiniMax"; value: "minimax" }
-                        ListElement { text: "Mistral"; value: "mistral" }
-                        ListElement { text: "Moonshot"; value: "moonshot" }
-                        ListElement { text: "Ollama"; value: "ollama" }
-                        ListElement { text: "OpenAI API"; value: "openai" }
-                        ListElement { text: "OpenCode"; value: "opencode" }
-                        ListElement { text: "OpenCode Go"; value: "opencodego" }
-                        ListElement { text: "OpenRouter"; value: "openrouter" }
-                        ListElement { text: "Perplexity"; value: "perplexity" }
-                        ListElement { text: "StepFun"; value: "stepfun" }
-                        ListElement { text: "Synthetic"; value: "synthetic" }
-                        ListElement { text: "T3 Chat"; value: "t3chat" }
-                        ListElement { text: "Venice"; value: "venice" }
-                        ListElement { text: "Vertex AI"; value: "vertexai" }
-                        ListElement { text: "Warp"; value: "warp" }
-                        ListElement { text: "Windsurf"; value: "windsurf" }
-                        ListElement { text: "Xiaomi MiMo"; value: "mimo" }
-                        ListElement { text: "z.ai"; value: "zai" }
-                    }
-                    currentIndex: page.indexForValue(model, page.cfg_provider || "detect")
-                    Layout.preferredWidth: Kirigami.Units.gridUnit * 12
-                    onActivated: function(index) {
-                        page.cfg_provider = model.get(index).value
-                    }
-                }
-
-                QQC2.ComboBox {
                     id: source
                     Kirigami.FormData.label: i18n("Source:")
                     textRole: "text"
@@ -174,6 +111,36 @@ KCM.SimpleKCM {
                     textFromValue: function(value) { return i18np("%1 second", "%1 seconds", value) }
                     valueFromText: function(text) { return Number(text.replace(/\D/g, "")) }
                     Layout.preferredWidth: Kirigami.Units.gridUnit * 10
+                }
+
+                QQC2.TextField {
+                    id: compactProviderOrder
+                    Kirigami.FormData.label: i18n("Compact providers:")
+                    placeholderText: "codex,claude,grok,antigravity"
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 20
+                }
+
+                PlasmaComponents.Label {
+                    text: i18n("Comma-separated provider IDs shown in the compact panel, in this order. This never filters the popup. Leave empty to show every returned provider.")
+                    color: Kirigami.Theme.disabledTextColor
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                    Kirigami.FormData.label: ""
+                }
+
+                QQC2.TextField {
+                    id: compactQuotaSelection
+                    Kirigami.FormData.label: i18n("Compact quotas:")
+                    placeholderText: "primary,weekly,extras"
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 20
+                }
+
+                PlasmaComponents.Label {
+                    text: i18n("Comma-separated quota keys shown in the compact panel. Use primary, weekly, or extras for every compact provider. Extras includes tertiary and every extra rate-limit window. Use provider.key for an individual quota, for example antigravity.tertiary or claude.fable-only. Leave empty to show provider labels only. The popup always shows every detected quota.")
+                    color: Kirigami.Theme.disabledTextColor
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                    Kirigami.FormData.label: ""
                 }
 
                 QQC2.CheckBox {

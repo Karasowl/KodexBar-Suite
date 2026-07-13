@@ -5,6 +5,7 @@ import org.kde.kirigami as Kirigami
 import org.kde.plasma.plasmoid
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.plasma5support as Plasma5Support
+import "../code/providerLogic.js" as ProviderLogic
 
 PlasmoidItem {
     id: root
@@ -18,9 +19,8 @@ PlasmoidItem {
     property string costErrorMessage: ""
     property var costSummaries: ({})
     property string codexbarCommand: Plasmoid.configuration.codexbarCommand || "codexbar"
-    property string selectedProvider: Plasmoid.configuration.provider || "detect"
     property string selectedSource: Plasmoid.configuration.source || "detect"
-    property string activeProvider: selectedProvider
+    property string activeProvider: ""
     property string activeSource: selectedSource
     property var pendingCandidates: []
     property var failedCandidates: []
@@ -30,6 +30,13 @@ PlasmoidItem {
     property bool showEmailInWidget: Plasmoid.configuration.showEmailInWidget === undefined ? false : Plasmoid.configuration.showEmailInWidget
     property bool includeStatus: Plasmoid.configuration.includeStatus === undefined ? false : Plasmoid.configuration.includeStatus
     property bool showCostSummary: Plasmoid.configuration.showCostSummary === undefined ? true : Plasmoid.configuration.showCostSummary
+    readonly property string defaultCompactProviderOrder: "codex,claude,grok,antigravity"
+    property string compactProviderOrder: Plasmoid.configuration.compactProviderOrder === undefined
+        ? defaultCompactProviderOrder
+        : Plasmoid.configuration.compactProviderOrder
+    property string compactQuotaSelection: Plasmoid.configuration.compactQuotaSelection === undefined
+        ? "primary,weekly,extras"
+        : Plasmoid.configuration.compactQuotaSelection
     property int refreshSeconds: Math.max(10, Plasmoid.configuration.refreshInterval || 60)
 
     preferredRepresentation: compactRepresentation
@@ -44,36 +51,23 @@ PlasmoidItem {
         return panelText()
     }
 
+    function compactResult() {
+        return ProviderLogic.composeCompactText(entries, {
+            providerOrder: compactProviderOrder,
+            quotaSelection: compactQuotaSelection,
+            showProvider: showProviderInPanel,
+            showUsed: showUsedPercentInPanel,
+            showCredits: showCreditsInPanel,
+            noSelectionText: i18n("No selection"),
+            noFieldsText: i18n("No compact fields")
+        })
+    }
+
     function panelText() {
         if (entries.length === 0) {
             return loading ? i18n("Loading") : i18n("No data")
         }
-        var first = null
-        for (var i = 0; i < entries.length; i++) {
-            if (!entries[i].errorMessage && entries[i].rows.length > 0) {
-                first = entries[i]
-                break
-            }
-        }
-        if (first === null) {
-            first = entries[0]
-        }
-        var parts = []
-        if (showProviderInPanel) {
-            parts.push(first.name || "Codex")
-        }
-        if (first.errorMessage) {
-            parts.push(first.signedOut ? i18n("Sign in") : i18n("Error"))
-            return parts.join(" ")
-        }
-        var displayedUsed = usedPercent(first.primaryPercentLeft)
-        if (displayedUsed !== null && showUsedPercentInPanel) {
-            parts.push(Math.round(displayedUsed) + "%")
-        }
-        if (first.creditsRemaining !== null && first.creditsRemaining !== undefined && showCreditsInPanel) {
-            parts.push(formatCredits(first.creditsRemaining))
-        }
-        return parts.join(" ")
+        return compactResult().text
     }
 
     function formatNumber(value) {
@@ -228,23 +222,19 @@ PlasmoidItem {
     }
 
     function commandLine(provider, source) {
-        var command = shellQuote(codexbarCommand) + " usage --format json --json-only"
-        if (provider && provider !== "detect") {
-            command += " --provider " + shellQuote(provider)
-        }
-        if (source && source !== "detect") {
-            command += " --source " + shellQuote(source)
-        }
-        if (includeStatus) {
-            command += " --status"
+        var args = ProviderLogic.usageArguments(provider, source, includeStatus)
+        var command = shellQuote(codexbarCommand)
+        for (var i = 0; i < args.length; i++) {
+            command += " " + shellQuote(args[i])
         }
         return command
     }
 
     function costCommandLine() {
-        var command = shellQuote(codexbarCommand) + " cost --format json --json-only"
-        if (selectedProvider && selectedProvider !== "detect") {
-            command += " --provider " + shellQuote(selectedProvider)
+        var args = ProviderLogic.costArguments()
+        var command = shellQuote(codexbarCommand)
+        for (var i = 0; i < args.length; i++) {
+            command += " " + shellQuote(args[i])
         }
         return command
     }
@@ -278,69 +268,17 @@ PlasmoidItem {
     }
 
     function candidateList() {
-        var provider = selectedProvider || "detect"
-        var source = selectedSource || "detect"
-        var sources = source === "detect" || source === "auto" ? ["cli", "oauth", "api", "auto"] : [source]
-        var result = []
-
-        if (provider === "detect" && source === "detect") {
-            result.push({ provider: "", source: "" })
-        }
-
-        if (provider !== "detect" && provider !== "all") {
-            for (var i = 0; i < sources.length; i++) {
-                result.push({ provider: provider, source: sources[i] })
-            }
-            return result
-        }
-
-        if (provider === "all" && source !== "detect") {
-            return [{ provider: "all", source: source }]
-        }
-
-        return [
-            { provider: "codex", source: "cli" },
-            { provider: "codex", source: "oauth" },
-            { provider: "codex", source: "api" },
-            { provider: "claude", source: "cli" },
-            { provider: "claude", source: "oauth" },
-            { provider: "claude", source: "api" },
-            { provider: "openai", source: "api" },
-            { provider: "gemini", source: "api" },
-            { provider: "copilot", source: "api" },
-            { provider: "kilo", source: "cli" },
-            { provider: "kilo", source: "api" },
-            { provider: "kimi", source: "api" },
-            { provider: "kimik2", source: "api" },
-            { provider: "zai", source: "api" },
-            { provider: "minimax", source: "api" },
-            { provider: "kiro", source: "cli" },
-            { provider: "vertexai", source: "oauth" },
-            { provider: "warp", source: "api" },
-            { provider: "openrouter", source: "api" },
-            { provider: "elevenlabs", source: "api" },
-            { provider: "ollama", source: "api" },
-            { provider: "deepseek", source: "api" },
-            { provider: "moonshot", source: "api" },
-            { provider: "doubao", source: "api" },
-            { provider: "codebuff", source: "api" },
-            { provider: "crof", source: "api" },
-            { provider: "venice", source: "api" },
-            { provider: "bedrock", source: "api" },
-            { provider: "groq", source: "api" },
-            { provider: "llmproxy", source: "api" },
-            { provider: "deepgram", source: "api" }
-        ]
+        return ProviderLogic.acquisitionCandidates(selectedSource)
     }
 
     function tryNextCandidate() {
         if (pendingCandidates.length === 0) {
             loading = false
-            entries = failedCandidates
+            entries = failedCandidates.slice()
             generatedAt = new Date().toLocaleString(Qt.locale(), Locale.ShortFormat)
             if (entries.length === 0) {
                 errorMessage = i18n("No usable CodexBar provider found")
-                errorDetail = i18n("Configure a Linux-capable provider or choose a specific provider/source.")
+                errorDetail = i18n("Configure at least one provider in CodexBar or choose a compatible source.")
             }
             return
         }
@@ -372,39 +310,6 @@ PlasmoidItem {
             }
         }
         failedCandidates = existing
-    }
-
-    function isCodexAuthenticationError(entry) {
-        if (!entry || String(entry.provider || "").toLowerCase() !== "codex" || !entry.errorMessage) {
-            return false
-        }
-        var message = String(entry.errorMessage).toLowerCase()
-        return message.indexOf("authentication required") !== -1
-            || message.indexOf("account authentication") !== -1
-            || message.indexOf("not logged in") !== -1
-            || message.indexOf("not signed in") !== -1
-            || message.indexOf("login required") !== -1
-            || message.indexOf("sign in required") !== -1
-            || message.indexOf("signed out") !== -1
-    }
-
-    function stopForCodexAuthentication(normalized) {
-        for (var i = 0; i < normalized.length; i++) {
-            if (!isCodexAuthenticationError(normalized[i])) {
-                continue
-            }
-            var entry = normalized[i]
-            entry.signedOut = true
-            entry.errorKind = "authentication"
-            entry.errorMessage = i18n("Codex is installed, but the client is signed out. Run \"codex login\" in a terminal, then refresh.")
-            loading = false
-            errorMessage = ""
-            errorDetail = ""
-            generatedAt = new Date().toLocaleString(Qt.locale(), Locale.ShortFormat)
-            entries = [withCostSummary(entry)]
-            return true
-        }
-        return false
     }
 
     function parsePayload(text) {
@@ -539,28 +444,11 @@ PlasmoidItem {
         return parts.join(" - ")
     }
 
-    function withCostSummary(entry) {
-        if (!entry || typeof entry !== "object") {
-            return entry
-        }
-        var key = String(entry.provider || "").toLowerCase()
-        var copy = {}
-        for (var prop in entry) {
-            copy[prop] = entry[prop]
-        }
-        copy.costSummary = costSummaries[key] || null
-        return copy
-    }
-
     function applyCostSummaries() {
         if (!entries || entries.length === 0) {
             return
         }
-        var updated = []
-        for (var i = 0; i < entries.length; i++) {
-            updated.push(withCostSummary(entries[i]))
-        }
-        entries = updated
+        entries = ProviderLogic.attachProviderCostSummaries(entries, costSummaries)
     }
 
     function providerName(raw) {
@@ -570,7 +458,7 @@ PlasmoidItem {
             "alibaba": "Alibaba Coding Plan",
             "alibabatokenplan": "Alibaba Token Plan",
             "amp": "Amp",
-            "antigravity": "Antigravity",
+            "antigravity": "Gemini (Antigravity)",
             "augment": "Augment",
             "bedrock": "AWS Bedrock",
             "codex": "Codex",
@@ -626,7 +514,7 @@ PlasmoidItem {
             "alibaba": "alibaba",
             "alibabatokenplan": "alibabatokenplan",
             "amp": "amp",
-            "antigravity": "antigravity",
+            "antigravity": "gemini",
             "augment": "augment",
             "bedrock": "bedrock",
             "codex": "codex",
@@ -688,13 +576,20 @@ PlasmoidItem {
         return null
     }
 
+    function knownPercentLeft(window) {
+        if (window && typeof window === "object" && window.usageKnown === false) {
+            return null
+        }
+        return percentLeft(window)
+    }
+
     function displayPercentLeft(provider, primary, secondary) {
-        var primaryLeft = percentLeft(primary)
+        var primaryLeft = knownPercentLeft(primary)
         if (String(provider || "").toLowerCase() !== "codex") {
             return primaryLeft
         }
 
-        var weeklyLeft = percentLeft(secondary)
+        var weeklyLeft = knownPercentLeft(secondary)
         return weeklyLeft !== null ? weeklyLeft : primaryLeft
     }
 
@@ -787,24 +682,25 @@ PlasmoidItem {
         var primary = usage.primary
         var secondary = usage.secondary
         var tertiary = usage.tertiary
+        var normalizedWindows = ProviderLogic.normalizeUsageWindows(entry.provider, primary, secondary)
+        primary = normalizedWindows.primary
+        secondary = normalizedWindows.secondary
         var providerCost = usage.providerCost && typeof usage.providerCost === "object" ? usage.providerCost : null
         var status = entry.status && typeof entry.status === "object" ? entry.status : null
         var rows = []
         var windows = [
-            { title: i18n("Session"), data: primary },
-            { title: i18n("Weekly"), data: secondary },
-            { title: i18n("Extra"), data: tertiary }
+            { key: "primary", title: i18n("Session"), data: primary },
+            { key: "weekly", title: i18n("Weekly"), data: secondary },
+            { key: "tertiary", title: i18n("Tertiary"), data: tertiary }
         ]
         for (var i = 0; i < windows.length; i++) {
-            var left = percentLeft(windows[i].data)
-            if (left !== null) {
-                rows.push({
-                    title: windows[i].title,
-                    percentLeft: left,
-                    resetsAt: resetAt(windows[i].data),
-                    detail: windowDetail(windows[i].data, true),
-                    usageKnown: true
-                })
+            var left = knownPercentLeft(windows[i].data)
+            var reset = resetAt(windows[i].data)
+            var standardRow = ProviderLogic.standardWindowRow(
+                windows[i].key, windows[i].title, left, reset,
+                windowDetail(windows[i].data, left !== null))
+            if (standardRow !== null) {
+                rows.push(standardRow)
             }
         }
         var extraRateWindows = usage.extraRateWindows && usage.extraRateWindows.length ? usage.extraRateWindows : []
@@ -815,12 +711,17 @@ PlasmoidItem {
             }
             var extraLeft = percentLeft(extra.window)
             if (extraLeft !== null || resetAt(extra.window)) {
+                var extraUsageKnown = extra.usageKnown !== false
+                    && extra.window.usageKnown !== false
+                    && extraLeft !== null
                 rows.push({
                     title: extra.title || i18n("Extra"),
-                    percentLeft: extra.usageKnown === false ? null : extraLeft,
+                    percentLeft: extraUsageKnown ? extraLeft : null,
                     resetsAt: resetAt(extra.window),
-                    detail: windowDetail(extra.window, extra.usageKnown),
-                    usageKnown: extra.usageKnown !== false
+                    detail: windowDetail(extra.window, extraUsageKnown),
+                    usageKnown: extraUsageKnown,
+                    compactKey: ProviderLogic.compactQuotaKey(extra.title || "extra"),
+                    compactExtra: true
                 })
             }
         }
@@ -836,9 +737,12 @@ PlasmoidItem {
             account: entry.account || usage.accountEmail || identity.accountEmail || "",
             plan: usage.loginMethod || identity.loginMethod || dashboard.accountPlan || "",
             primaryPercentLeft: displayPercentLeft(entry.provider, primary, secondary),
+            compactPrimaryPercentLeft: knownPercentLeft(primary),
             primaryResetsAt: resetAt(primary),
-            secondaryPercentLeft: percentLeft(secondary),
+            secondaryPercentLeft: knownPercentLeft(secondary),
             secondaryResetsAt: resetAt(secondary),
+            tertiaryPercentLeft: knownPercentLeft(tertiary),
+            tertiaryResetsAt: resetAt(tertiary),
             creditsRemaining: credits ? credits.remaining : (typeof dashboard.creditsRemaining === "number" ? dashboard.creditsRemaining : null),
             codeReviewRemainingPercent: typeof dashboard.codeReviewRemainingPercent === "number" ? dashboard.codeReviewRemainingPercent : null,
             dashboardSummary: dashboardSummary(dashboard),
@@ -921,7 +825,10 @@ PlasmoidItem {
             spacing: Kirigami.Units.smallSpacing
 
             Kirigami.Icon {
-                source: root.providerIconSource(root.entries.length > 0 ? root.entries[0].provider : "codex")
+                source: {
+                    var state = root.compactResult()
+                    return state.hasSelection ? root.providerIconSource(state.provider) : "view-filter"
+                }
                 isMask: true
                 color: Kirigami.Theme.textColor
                 implicitWidth: Kirigami.Units.iconSizes.small
@@ -933,7 +840,7 @@ PlasmoidItem {
                 visible: text.length > 0
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
-                Layout.maximumWidth: Kirigami.Units.gridUnit * 8
+                Layout.maximumWidth: Kirigami.Units.gridUnit * 30
             }
         }
     }
@@ -958,58 +865,72 @@ PlasmoidItem {
                 Layout.fillWidth: true
                 spacing: Kirigami.Units.smallSpacing
 
-                RowLayout {
-                    spacing: Kirigami.Units.smallSpacing
+                QQC2.ScrollView {
+                    id: providerChipScroll
                     Layout.fillWidth: true
+                    Layout.preferredHeight: providerChipRow.implicitHeight + Kirigami.Units.smallSpacing
+                    contentWidth: providerChipRow.implicitWidth
+                    contentHeight: providerChipRow.implicitHeight
+                    clip: true
 
-                    Repeater {
-                        model: root.entries.length > 0 ? root.entries : [{ name: "KodexBar", provider: "kodexbar", primaryPercentLeft: null }]
+                    QQC2.ScrollBar.horizontal.policy: providerChipRow.implicitWidth > providerChipScroll.availableWidth
+                        ? QQC2.ScrollBar.AsNeeded
+                        : QQC2.ScrollBar.AlwaysOff
+                    QQC2.ScrollBar.vertical.policy: QQC2.ScrollBar.AlwaysOff
 
-                        delegate: Rectangle {
-                            readonly property real used: root.usedPercent(modelData.primaryPercentLeft) || 0
-                            Layout.preferredWidth: Math.max(Kirigami.Units.gridUnit * 4.25, chipLabel.implicitWidth + Kirigami.Units.largeSpacing * 2)
-                            Layout.preferredHeight: Kirigami.Units.gridUnit * 3.55
-                            radius: Kirigami.Units.cornerRadius
-                            color: index === 0 ? Kirigami.Theme.highlightColor : "transparent"
-                            opacity: modelData.errorMessage ? 0.62 : 1
+                    RowLayout {
+                        id: providerChipRow
+                        spacing: Kirigami.Units.smallSpacing
 
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: Kirigami.Units.smallSpacing / 1.5
-                                spacing: Kirigami.Units.smallSpacing / 2
+                        Repeater {
+                            model: root.entries.length > 0 ? root.entries : [{ name: "KodexBar", provider: "kodexbar", primaryPercentLeft: null }]
 
-                                Kirigami.Icon {
-                                    source: root.providerIconSource(modelData.provider)
-                                    isMask: true
-                                    color: index === 0 ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
-                                    implicitWidth: Kirigami.Units.iconSizes.small
-                                    implicitHeight: Kirigami.Units.iconSizes.small
-                                    Layout.alignment: Qt.AlignHCenter
-                                }
+                            delegate: Rectangle {
+                                readonly property real used: root.usedPercent(modelData.primaryPercentLeft) || 0
+                                Layout.preferredWidth: Math.max(Kirigami.Units.gridUnit * 4.25, chipLabel.implicitWidth + Kirigami.Units.largeSpacing * 2)
+                                Layout.preferredHeight: Kirigami.Units.gridUnit * 3.55
+                                radius: Kirigami.Units.cornerRadius
+                                color: index === 0 ? Kirigami.Theme.highlightColor : "transparent"
+                                opacity: modelData.errorMessage ? 0.62 : 1
 
-                                PlasmaComponents.Label {
-                                    id: chipLabel
-                                    text: modelData.name || modelData.provider
-                                    horizontalAlignment: Text.AlignHCenter
-                                    font.pointSize: Kirigami.Theme.smallFont.pointSize
-                                    font.weight: index === 0 ? Font.DemiBold : Font.Normal
-                                    color: index === 0 ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: Kirigami.Units.smallSpacing / 1.5
+                                    spacing: Kirigami.Units.smallSpacing / 2
 
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 4
-                                    radius: height / 2
-                                    color: Qt.rgba(Kirigami.Theme.disabledTextColor.r, Kirigami.Theme.disabledTextColor.g, Kirigami.Theme.disabledTextColor.b, 0.28)
-                                    clip: true
+                                    Kirigami.Icon {
+                                        source: root.providerIconSource(modelData.provider)
+                                        isMask: true
+                                        color: index === 0 ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
+                                        implicitWidth: Kirigami.Units.iconSizes.small
+                                        implicitHeight: Kirigami.Units.iconSizes.small
+                                        Layout.alignment: Qt.AlignHCenter
+                                    }
+
+                                    PlasmaComponents.Label {
+                                        id: chipLabel
+                                        text: modelData.name || modelData.provider
+                                        horizontalAlignment: Text.AlignHCenter
+                                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                        font.weight: index === 0 ? Font.DemiBold : Font.Normal
+                                        color: index === 0 ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
 
                                     Rectangle {
-                                        width: parent.width * used / 100
-                                        height: parent.height
-                                        radius: parent.radius
-                                        color: index === 0 ? Kirigami.Theme.highlightedTextColor : root.usageAccent(modelData.primaryPercentLeft)
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 4
+                                        radius: height / 2
+                                        color: Qt.rgba(Kirigami.Theme.disabledTextColor.r, Kirigami.Theme.disabledTextColor.g, Kirigami.Theme.disabledTextColor.b, 0.28)
+                                        clip: true
+
+                                        Rectangle {
+                                            width: parent.width * used / 100
+                                            height: parent.height
+                                            radius: parent.radius
+                                            color: index === 0 ? Kirigami.Theme.highlightedTextColor : root.usageAccent(modelData.primaryPercentLeft)
+                                        }
                                     }
                                 }
                             }
@@ -1285,6 +1206,7 @@ PlasmoidItem {
                             PlasmaComponents.Label {
                                 visible: root.showCostSummary
                                     && root.costErrorMessage.length > 0
+                                    && modelData.costSummaryOwner === true
                                     && (!modelData.costSummary)
                                 text: root.costErrorMessage
                                 color: Kirigami.Theme.disabledTextColor
@@ -1327,9 +1249,6 @@ PlasmoidItem {
                         message: data.stderr || i18n("Exit code %1", data["exit code"])
                     }
                 })
-                if (root.stopForCodexAuthentication([errorEntry])) {
-                    return
-                }
                 root.appendFailedEntries([errorEntry])
                 root.tryNextCandidate()
                 return
@@ -1345,9 +1264,6 @@ PlasmoidItem {
                 root.tryNextCandidate()
                 return
             }
-            if (!result.usable && root.stopForCodexAuthentication(result.entries)) {
-                return
-            }
             if (!result.usable && root.pendingCandidates.length > 0) {
                 root.appendFailedEntries(result.entries)
                 root.tryNextCandidate()
@@ -1357,11 +1273,7 @@ PlasmoidItem {
             root.errorMessage = ""
             root.errorDetail = ""
             root.generatedAt = new Date().toLocaleString(Qt.locale(), Locale.ShortFormat)
-            var updatedEntries = []
-            for (var i = 0; i < result.entries.length; i++) {
-                updatedEntries.push(root.withCostSummary(result.entries[i]))
-            }
-            root.entries = updatedEntries
+            root.entries = ProviderLogic.attachProviderCostSummaries(result.entries, root.costSummaries)
         }
     }
 
@@ -1405,10 +1317,23 @@ PlasmoidItem {
     }
 
     onCodexbarCommandChanged: refresh()
-    onSelectedProviderChanged: refresh()
     onSelectedSourceChanged: refresh()
     onShowCostSummaryChanged: refreshCost()
     onShowCreditsInPanelChanged: panelText()
     onShowUsedPercentInPanelChanged: panelText()
     onShowProviderInPanelChanged: panelText()
+
+    Component.onCompleted: {
+        var migration = ProviderLogic.migrateLegacyProvider(
+            Plasmoid.configuration.provider,
+            Plasmoid.configuration.compactProviderOrder,
+            defaultCompactProviderOrder,
+            Plasmoid.configuration.compactProviderMigrationDone === true)
+        if (migration.writeOrder) {
+            Plasmoid.configuration.compactProviderOrder = migration.order
+        }
+        if (migration.writeDone) {
+            Plasmoid.configuration.compactProviderMigrationDone = true
+        }
+    }
 }

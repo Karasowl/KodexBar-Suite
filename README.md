@@ -1,32 +1,48 @@
 # KodexBar
 
-> AI provider usage in your KDE Plasma panel.
+[Leer en español](README.es.md)
+
+> Ordered AI provider quotas in your KDE Plasma panel.
 
 [![Plasma 6](https://img.shields.io/badge/KDE%20Plasma-6-1d99f3?style=flat-square)](https://kde.org/plasma-desktop/)
 [![CodexBar CLI](https://img.shields.io/badge/powered%20by-CodexBar%20CLI-0a0a0c?style=flat-square)](https://github.com/steipete/CodexBar)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-KodexBar is a native KDE Plasma widget inspired by [CodexBar](https://github.com/steipete/CodexBar). It keeps Codex, Claude, OpenAI, Gemini, Copilot, OpenRouter, Bedrock, GroqCloud, and other CodexBar-supported provider limits visible from a Plasma panel popup.
+This repository is a public fork of [tylxr59/KodexBar](https://github.com/tylxr59/KodexBar). It preserves the upstream Git history, original MIT license, original author attribution, and original screenshot.
 
-The widget intentionally uses the upstream `codexbar` CLI as its data source instead of reimplementing provider backends. CodexBar owns auth, provider config, API calls, local CLI probing, and `~/.codexbar/config.json`; KodexBar focuses on the Plasma panel and popup UI.
+The fork adds an independently configurable, ordered multi-provider summary for the Plasma panel. The popup always keeps every provider and quota returned by the [steipete/CodexBar](https://github.com/steipete/CodexBar) CLI. Neither tylxr nor the CodexBar maintainers endorse this fork.
 
-![KodexBar widget screenshot](screenshot.png)
+![Original upstream KodexBar screenshot](screenshot.png)
 
-## Why
+## Fork Changes
 
-- **Panel visibility.** Show the active provider, used percent, and remaining credits directly in your KDE panel.
-- **CodexBar-compatible data.** Reads the same JSON payloads as the upstream app and Linux CLI.
-- **Local cost estimates.** Shows `codexbar cost` token and estimated-cost summaries when the upstream CLI can scan local logs.
-- **Provider fallback.** `Best available` tries Linux-friendly source combinations before surfacing an error.
-- **Plasma-native UI.** Built as a Plasma 6 applet with Kirigami styling, provider icons, compact panel text, and a scrollable popup.
+- Adds `compactProviderOrder`, an ordered comma-separated provider selection for the compact panel.
+- Adds `compactQuotaSelection`, a comma-separated quota selection for the compact panel.
+- Defaults to `codex,claude,grok,antigravity`.
+- Matches provider IDs without case and removes duplicate IDs.
+- Keeps listed providers with errors visible as `ERR`.
+- Omits unselected providers only from the compact panel.
+- Preserves every returned provider and detected quota in the popup.
+- Always acquires the providers enabled in CodexBar. The compact settings never narrow acquisition.
+- Preserves multiple accounts returned with the same provider ID.
+- Adds stable account ordinals such as `Cx #1` and `Cx #2` without exposing account emails.
+- Shows compact provider labels and both primary and weekly used percentages on one line.
+- Shows selected extra windows at every usage percentage, with no automatic threshold.
+- Shows standard primary, secondary, and tertiary windows in the popup when usage or reset data is known.
+- Uses deterministic minimum unique prefixes for extra quota labels, while preserving `Fb` for Fable.
+- Keeps provider chips horizontally scrollable when the popup contains many enabled providers or accounts.
+- Shows each provider-level cost summary only once when multiple accounts share a provider.
+- Presents Antigravity quota data as `Gemini (Antigravity)` in the popup.
+- Corrects reversed Gemini window order when the CLI reports a longer primary window than secondary.
+- Preserves provider-specific popup details, reset times, credits, status, and cost summaries.
 
 ## Requirements
 
 - KDE Plasma 6
 - `kpackagetool6`
-- Upstream `codexbar` CLI on `PATH`, or a full path configured in the widget settings
+- The upstream `codexbar` CLI on `PATH`, or a full command path configured in the widget settings
 
-Install the upstream CLI with Homebrew on Linux:
+Install the CLI with Homebrew on Linux:
 
 ```sh
 brew install steipete/tap/codexbar
@@ -34,108 +50,148 @@ codexbar --version
 codexbar usage --format json --pretty
 ```
 
-Or download a Linux CLI tarball from the [CodexBar releases](https://github.com/steipete/CodexBar/releases/latest).
+You can also download a Linux CLI archive from the [CodexBar releases](https://github.com/steipete/CodexBar/releases/latest).
 
-Make sure the provider CLIs or credentials you rely on are already configured. For example, sign in with `codex login`, `claude /login`, cloud/provider CLIs, or API keys supported by CodexBar.
+Provider credentials and enabled providers are managed by CodexBar. Configure the provider CLIs, OAuth sessions, or API keys required by the providers you use.
+
+## Compatibility Warning
+
+This fork intentionally uses the same Plasma plugin ID as upstream, `org.kde.plasma.kodexbar`. It replaces an upstream installation in place. Do not install the upstream widget and this fork at the same time.
+
+Your existing Plasma widget configuration remains associated with that plugin ID. A one-time migration converts the hidden legacy provider choice into the compact provider selection. A specific provider becomes that provider ID, `all` becomes an empty compact filter, and `detect` keeps the default order. An already customized compact order is never overwritten.
 
 ## Install
 
-Clone this repository and install the applet:
+Clone the fork and install it:
 
 ```sh
-git clone https://github.com/tylxr59/KodexBar.git
+git clone https://github.com/Karasowl/KodexBar.git
 cd KodexBar
 kpackagetool6 -t Plasma/Applet -i .
 ```
 
-Then add **KodexBar** to a Plasma panel.
-
-For development reloads:
+If `kpackagetool6` reports that the package already exists, use the update command because this fork replaces the same plugin ID:
 
 ```sh
 kpackagetool6 -t Plasma/Applet -u .
+```
+
+Then add **KodexBar** to a Plasma panel if it is not already present.
+
+## Update
+
+Update the clone and replace the installed package:
+
+```sh
+git pull --ff-only
+kpackagetool6 -t Plasma/Applet -u .
+```
+
+Restart Plasma only if the shell does not reload the changed package automatically:
+
+```sh
 plasmashell --replace
 ```
+
+## Uninstall
+
+Remove the shared plugin ID:
+
+```sh
+kpackagetool6 -t Plasma/Applet -r org.kde.plasma.kodexbar
+```
+
+This removes whichever KodexBar package currently occupies that ID, whether it came from upstream or this fork.
 
 ## Usage
 
 - Click the panel item to open the popup.
-- Use the refresh button in the popup to query the CLI immediately.
-- Open widget settings to change provider, source, refresh cadence, and compact label fields.
-- Leave Provider as `Best available` if you want KodexBar to find the first usable Linux-capable provider/source combination.
-- Choose `All enabled` to ask the CLI for all providers enabled in `~/.codexbar/config.json`.
+- Use the refresh button to query the CLI immediately.
+- Open widget settings to choose a source, refresh interval, and panel fields.
+- The widget always requests the providers enabled in CodexBar.
+- Edit `Compact providers` to select and order providers in the system tray.
+- Edit `Compact quotas` to select the quota values shown in the system tray.
+- Leave `Compact providers` empty to show every returned provider in CLI order.
+- Leave `Compact quotas` empty to show provider labels without quota values.
+- Open the popup to see every returned provider and detected quota regardless of compact selections.
 
-The popup renders common CodexBar CLI fields:
+The default compact output follows this shape:
 
-- session, weekly, tertiary, and extra rate-limit windows
-- reset countdowns and usage bars
-- provider spend/budget rows
-- credit balances
-- OpenAI dashboard summaries where present
-- provider status when status fetching is enabled
-- per-provider CLI/runtime errors
+```text
+Cx P24% W61% | Cl P18% W42% Fb67% | Gk ERR | Ag P8% W31%
+```
 
-Provider-specific charts, account management, cookie/API-key editing, notifications, and cost scans remain available through the upstream CodexBar app and CLI.
+`P` is the used percentage for the primary window. `W` is the used percentage for the weekly or secondary window. `Fb` is a Claude Fable-only window. The values above are illustrative, not real account data.
+
+When CodexBar returns multiple accounts for one provider, the compact panel adds non-sensitive ordinals such as `Cx #1` and `Cx #2`. The ordinals remain visible when provider labels are disabled. Account emails remain confined to the optional popup email field.
+
+The default quota selection is `primary,weekly,extras`. These global keys apply to every provider selected for the compact panel. `extras` includes the standard tertiary window and every entry from `extraRateWindows`. To choose individual values, use provider-qualified keys such as `codex.primary`, `antigravity.tertiary`, `claude.weekly`, and `claude.fable-only`. A provider-qualified `extras` key, such as `claude.extras`, selects its tertiary window and every detected extra rate-limit window. Extra quota titles become stable lowercase keys with words separated by hyphens. Their visible labels use the shortest unique prefix of at least two characters within the provider. Identical titles receive ordinals.
+
+### Acquisition and compact selection
+
+Every refresh runs the default CodexBar usage query without a `--provider` override. CodexBar therefore honors its enabled-provider toggles, and the popup receives every enabled provider and returned account. Passing `--provider all` is intentionally avoided because CodexBar 0.40.0 also returns disabled providers for that explicit override.
+
+`Compact providers` and `Compact quotas` only control the system tray summary after that CLI request returns. They never remove data from the popup. An invalid provider or quota selection displays `No selection` with a neutral icon instead of implying that Codex was selected.
+
+### Gemini labels
+
+The popup uses `Gemini (Antigravity)` for Antigravity and `Gemini` for the independent Gemini provider. Compact labels stay distinct too. Antigravity uses `Ag` and Gemini uses `Gm`, so their quota values are not visually combined.
 
 ## Settings
-
-KodexBar exposes these Plasma widget settings:
 
 | Setting | Purpose |
 | --- | --- |
 | Command | `codexbar` binary name or full path. |
-| Provider | `Best available`, `All enabled`, or a specific CodexBar provider ID. |
 | Source | `Best available`, `auto`, `web`, `cli`, `oauth`, or `api`. |
-| Refresh | Poll interval, from 10 to 3600 seconds. |
-| Show provider in panel | Include the provider name in the compact label. |
-| Show used percent in panel | Include weekly usage for Codex (or the primary window for other providers) in the compact label. |
-| Show credits in panel | Include remaining credits in the compact label when available. |
-| Show email in widget | Show the account email inside the popup when available. |
-| Fetch provider status | Add `--status` to CLI calls and display incident/maintenance state. |
+| Refresh | Poll interval from 10 to 3600 seconds. |
+| Compact providers | Display-only ordered comma-separated provider IDs used by the system tray. Empty shows every returned provider and never filters the popup. |
+| Compact quotas | Display-only comma-separated quota keys. Supports global keys and provider-qualified keys. Empty shows provider labels only and never filters the popup. |
+| Show provider in panel | Includes each selected provider label in the compact system tray summary. |
+| Show used percent in panel | Includes usage percentages in compact output. |
+| Show credits in panel | Includes available credits as `Cr` values in each compact provider block. |
+| Show email in widget | Shows the account email in the popup when available. |
+| Fetch provider status | Requests and displays provider status information. |
+| Show local cost summary | Displays local CodexBar token and cost estimates when available. |
 
-Provider credentials and provider toggles are still controlled by the CodexBar CLI config at `~/.codexbar/config.json`.
+## Data and Privacy
 
-## Linux provider fallback
+The widget runs `codexbar usage --format json --json-only` locally and renders the returned JSON. Optional cost summaries come from `codexbar cost`. This repository does not add a provider backend, credential store, telemetry service, or remote account service.
 
-Some CodexBar sources are macOS-specific, especially WebKit/browser integrations from the upstream app. KodexBar's `Best available` mode first lets the CLI use its configured defaults, then falls back through Linux-friendly combinations such as:
+CodexBar owns provider authentication, provider configuration, API calls, and CLI probing. Review the [CodexBar project](https://github.com/steipete/CodexBar) for its supported providers and data handling.
 
-- Codex via CLI, OAuth, or API
-- Claude via CLI, OAuth, or API
-- OpenAI, Gemini, Copilot, Kilo, Kimi, z.ai, MiniMax, Vertex AI, Warp, OpenRouter, ElevenLabs, Ollama, DeepSeek, Bedrock, GroqCloud, LLM Proxy, Deepgram, and other API/CLI-backed providers
+## Validation
 
-If you already know which provider works on your system, select it directly and leave Source as `Auto` or `Best available`.
-
-## Test The CLI
-
-Run these before debugging the widget:
+Run the deterministic fixture tests and static checks:
 
 ```sh
-codexbar usage --format json --json-only --provider all --source auto | python3 -m json.tool
-codexbar usage --format json --json-only --provider codex --source oauth | python3 -m json.tool
+scripts/validate.sh
 ```
 
-If the widget shows a CLI error, either install the CLI, configure provider credentials, or set the full command path in the widget settings.
+The validation checks JSON, XML, fixture logic, QML linting, preserved asset hashes, common secret patterns, documentation punctuation, and whitespace errors.
 
-## How It Works
+To inspect CLI data before debugging the widget:
 
-1. Plasma runs the applet from `metadata.json` and `contents/ui/main.qml`.
-2. The applet shells out to `codexbar usage --format json --json-only`.
-3. The JSON payload is normalized into provider cards, usage rows, credit rows, status text, and compact panel text.
-4. A timer refreshes the data at the configured interval.
-5. Provider icons are loaded from `contents/icons/providers/`.
+```sh
+codexbar usage --format json --json-only --source auto | python3 -m json.tool
+```
 
 ## Troubleshooting
 
 | Symptom | Likely fix |
 | --- | --- |
-| Widget says `No data` | Run `codexbar usage --format json --pretty` in a terminal and verify the CLI returns usable data. |
-| Cost section is missing | Run `codexbar cost --format json --pretty` and verify the CLI reports local cost data for the selected provider. |
-| Widget says Codex is signed out | Run `codex login` in a terminal, then refresh the widget. |
-| Widget shows a CLI/runtime error | Install `codexbar`, set the full command path, or select a provider/source that works on Linux. |
-| Provider works in terminal but not in the widget | Use an absolute command path in settings if Plasma does not inherit your shell `PATH`. |
-| `Best available` picks the wrong provider | Select the provider explicitly in settings. |
-| Status never appears | Enable **Fetch provider status** in widget settings. |
+| Widget says `No data` | Run the CLI command above and confirm it returns usable JSON. |
+| A listed provider shows `ERR` | Configure that provider in CodexBar or inspect its CLI error. |
+| A provider is absent from the system tray | Add its exact CodexBar provider ID to `Compact providers`, or leave the setting empty. |
+| A quota is absent from the system tray | Add its global or provider-qualified key to `Compact quotas`. The popup shows the detected title needed to derive an extra quota key. |
+| The system tray says `No selection` | Correct a provider or quota key in the compact settings. The popup remains complete. |
+| Provider works in a terminal but not in Plasma | Configure the full path to `codexbar` because Plasma may not inherit the shell `PATH`. |
+| Status is absent | Enable **Fetch provider status**. |
+| Cost summary is absent | Run `codexbar cost --format json --pretty` and verify local cost data exists. |
 
-## License
+## Attribution and License
 
-MIT. See [LICENSE](LICENSE).
+Original project by [tylxr](https://github.com/tylxr59). Fork maintenance by [Karasowl](https://github.com/Karasowl).
+
+Usage data is supplied by the independent [CodexBar CLI](https://github.com/steipete/CodexBar). See [NOTICE.md](NOTICE.md) for attribution details.
+
+Licensed under the original MIT license. See [LICENSE](LICENSE). The notice file supplements the license and does not replace it.

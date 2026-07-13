@@ -8,10 +8,10 @@
     <entry name="codexbarCommand" type="String">
       <default>codexbar</default>
     </entry>
-    <entry name="provider" type="String">
+    <entry name="source" type="String">
       <default>detect</default>
     </entry>
-    <entry name="source" type="String">
+    <entry name="provider" type="String">
       <default>detect</default>
     </entry>
     <entry name="refreshInterval" type="Int">
@@ -36,6 +36,15 @@
     </entry>
     <entry name="showCostSummary" type="Bool">
       <default>true</default>
+    </entry>
+    <entry name="compactProviderOrder" type="String">
+      <default>codex,claude,grok,antigravity</default>
+    </entry>
+    <entry name="compactQuotaSelection" type="String">
+      <default>primary,weekly,extras</default>
+    </entry>
+    <entry name="compactProviderMigrationDone" type="Bool">
+      <default>false</default>
     </entry>
   </group>
 </kcfg>
