@@ -8,13 +8,13 @@
 [![CodexBar CLI](https://img.shields.io/badge/powered%20by-CodexBar%20CLI-0a0a0c?style=flat-square)](https://github.com/steipete/CodexBar)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-This repository is a public fork of [tylxr59/KodexBar](https://github.com/tylxr59/KodexBar). It preserves the upstream Git history, original MIT license, original author attribution, and original screenshot.
+I built this version of KodexBar to keep multiple AI provider quotas visible, ordered, and independently configurable in KDE Plasma. The popup keeps every provider and quota returned by the [steipete/CodexBar](https://github.com/steipete/CodexBar) CLI, while the panel summary remains fully customizable.
 
-The fork adds an independently configurable, ordered multi-provider summary for the Plasma panel. The popup always keeps every provider and quota returned by the [steipete/CodexBar](https://github.com/steipete/CodexBar) CLI. Neither tylxr nor the CodexBar maintainers endorse this fork.
+KodexBar is maintained by [Karasowl](https://github.com/Karasowl) and builds on the original work by [tylxr59](https://github.com/tylxr59/KodexBar). The original Git history, MIT license, author attribution, and screenshot remain part of the project.
 
 ![Original upstream KodexBar screenshot](screenshot.png)
 
-## Fork Changes
+## What This Version Adds
 
 - Adds `compactProviderOrder`, an ordered comma-separated provider selection for the compact panel.
 - Adds `compactQuotaSelection`, a comma-separated quota selection for the compact panel.
@@ -190,7 +190,7 @@ codexbar usage --format json --json-only --source auto | python3 -m json.tool
 
 ## Attribution and License
 
-Original project by [tylxr](https://github.com/tylxr59). Fork maintenance by [Karasowl](https://github.com/Karasowl).
+KodexBar is developed and maintained by [Karasowl](https://github.com/Karasowl), based on the original project by [tylxr](https://github.com/tylxr59).
 
 Usage data is supplied by the independent [CodexBar CLI](https://github.com/steipete/CodexBar). See [NOTICE.md](NOTICE.md) for attribution details.
 

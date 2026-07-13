@@ -8,13 +8,13 @@
 [![CodexBar CLI](https://img.shields.io/badge/powered%20by-CodexBar%20CLI-0a0a0c?style=flat-square)](https://github.com/steipete/CodexBar)
 [![Licencia: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-Este repositorio es un fork público de [tylxr59/KodexBar](https://github.com/tylxr59/KodexBar). Conserva el historial Git de upstream, la licencia MIT original, la atribución al autor original y la captura original.
+Construí esta versión de KodexBar para mantener visibles, ordenadas y configurables de forma independiente las cuotas de varios proveedores de IA en KDE Plasma. El popup conserva todos los proveedores y cuotas devueltos por la CLI [steipete/CodexBar](https://github.com/steipete/CodexBar), mientras que el resumen del panel se puede personalizar por completo.
 
-El fork agrega un resumen multiproveedor configurable y ordenado de forma independiente para el panel de Plasma. El popup siempre conserva todos los proveedores y cuotas devueltos por la CLI [steipete/CodexBar](https://github.com/steipete/CodexBar). Ni tylxr ni los mantenedores de CodexBar respaldan este fork.
+KodexBar es mantenido por [Karasowl](https://github.com/Karasowl) y parte del trabajo original de [tylxr59](https://github.com/tylxr59/KodexBar). El historial Git, la licencia MIT, la atribución al autor original y la captura original siguen formando parte del proyecto.
 
 ![Captura original de KodexBar upstream](screenshot.png)
 
-## Cambios del fork
+## Qué aporta esta versión
 
 - Agrega `compactProviderOrder`, una selección ordenada de proveedores para el panel compacto.
 - Agrega `compactQuotaSelection`, una selección de cuotas para el panel compacto.
@@ -190,7 +190,7 @@ codexbar usage --format json --json-only --source auto | python3 -m json.tool
 
 ## Atribución y licencia
 
-Proyecto original de [tylxr](https://github.com/tylxr59). Mantenimiento del fork por [Karasowl](https://github.com/Karasowl).
+KodexBar es desarrollado y mantenido por [Karasowl](https://github.com/Karasowl), basado en el proyecto original de [tylxr](https://github.com/tylxr59).
 
 Los datos de uso son suministrados por la [CLI CodexBar](https://github.com/steipete/CodexBar), un proyecto independiente. Consulta [NOTICE.md](NOTICE.md) para ver los detalles de atribución.
 
