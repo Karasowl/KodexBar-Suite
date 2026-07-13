@@ -8,13 +8,11 @@
 [![CodexBar CLI](https://img.shields.io/badge/powered%20by-CodexBar%20CLI-0a0a0c?style=flat-square)](https://github.com/steipete/CodexBar)
 [![Licencia: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-Construí esta versión de KodexBar para mantener visibles, ordenadas y configurables de forma independiente las cuotas de varios proveedores de IA en KDE Plasma. El popup conserva todos los proveedores y cuotas devueltos por la CLI [steipete/CodexBar](https://github.com/steipete/CodexBar), mientras que el resumen del panel se puede personalizar por completo.
+KodexBar es un widget para KDE Plasma 6 que permite consultar las cuotas de proveedores de IA mediante la [CLI CodexBar](https://github.com/steipete/CodexBar). Ofrece un resumen compacto configurable en el panel y un popup completo con todos los proveedores y cuotas habilitados.
 
-KodexBar es mantenido por [Karasowl](https://github.com/Karasowl) y parte del trabajo original de [tylxr59](https://github.com/tylxr59/KodexBar). El historial Git, la licencia MIT, la atribución al autor original y la captura original siguen formando parte del proyecto.
+![Captura de KodexBar](screenshot.png)
 
-![Captura original de KodexBar upstream](screenshot.png)
-
-## Qué aporta esta versión
+## Funciones
 
 - Agrega `compactProviderOrder`, una selección ordenada de proveedores para el panel compacto.
 - Agrega `compactQuotaSelection`, una selección de cuotas para el panel compacto.
@@ -190,7 +188,7 @@ codexbar usage --format json --json-only --source auto | python3 -m json.tool
 
 ## Atribución y licencia
 
-KodexBar es desarrollado y mantenido por [Karasowl](https://github.com/Karasowl), basado en el proyecto original de [tylxr](https://github.com/tylxr59).
+Mantenido por [Karasowl](https://github.com/Karasowl). Basado en el proyecto KodexBar original de [tylxr](https://github.com/tylxr59).
 
 Los datos de uso son suministrados por la [CLI CodexBar](https://github.com/steipete/CodexBar), un proyecto independiente. Consulta [NOTICE.md](NOTICE.md) para ver los detalles de atribución.
 

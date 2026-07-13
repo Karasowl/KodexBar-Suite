@@ -8,13 +8,11 @@
 [![CodexBar CLI](https://img.shields.io/badge/powered%20by-CodexBar%20CLI-0a0a0c?style=flat-square)](https://github.com/steipete/CodexBar)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-I built this version of KodexBar to keep multiple AI provider quotas visible, ordered, and independently configurable in KDE Plasma. The popup keeps every provider and quota returned by the [steipete/CodexBar](https://github.com/steipete/CodexBar) CLI, while the panel summary remains fully customizable.
+KodexBar is a KDE Plasma 6 widget for monitoring AI provider quotas through the [CodexBar CLI](https://github.com/steipete/CodexBar). It provides a configurable compact summary in the panel and a complete popup with every enabled provider and quota.
 
-KodexBar is maintained by [Karasowl](https://github.com/Karasowl) and builds on the original work by [tylxr59](https://github.com/tylxr59/KodexBar). The original Git history, MIT license, author attribution, and screenshot remain part of the project.
+![KodexBar screenshot](screenshot.png)
 
-![Original upstream KodexBar screenshot](screenshot.png)
-
-## What This Version Adds
+## Features
 
 - Adds `compactProviderOrder`, an ordered comma-separated provider selection for the compact panel.
 - Adds `compactQuotaSelection`, a comma-separated quota selection for the compact panel.
@@ -190,7 +188,7 @@ codexbar usage --format json --json-only --source auto | python3 -m json.tool
 
 ## Attribution and License
 
-KodexBar is developed and maintained by [Karasowl](https://github.com/Karasowl), based on the original project by [tylxr](https://github.com/tylxr59).
+Maintained by [Karasowl](https://github.com/Karasowl). Based on the original KodexBar project by [tylxr](https://github.com/tylxr59).
 
 Usage data is supplied by the independent [CodexBar CLI](https://github.com/steipete/CodexBar). See [NOTICE.md](NOTICE.md) for attribution details.
 
