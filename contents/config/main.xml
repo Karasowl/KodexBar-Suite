@@ -8,6 +8,9 @@
     <entry name="codexbarCommand" type="String">
       <default>codexbar</default>
     </entry>
+    <entry name="aiControlCommand" type="String">
+      <default>ai</default>
+    </entry>
     <entry name="source" type="String">
       <default>detect</default>
     </entry>

@@ -111,6 +111,7 @@ Esto elimina el paquete KodexBar que ocupe ese identificador, ya sea upstream o 
 - Haz clic en el elemento del panel para abrir el popup.
 - Usa el botón de actualización para consultar la CLI inmediatamente.
 - Abre los ajustes del widget para elegir fuente, intervalo y campos del panel.
+- Haz clic derecho en el widget y elige `Open AI CLI Control` para abrir el selector separado `ai`. Elige `Update all AI CLIs` para ejecutar el flujo existente de actualización de Codex, Claude, Grok y Antigravity.
 - El widget siempre solicita los proveedores habilitados en CodexBar.
 - Usa las casillas visibles de proveedores para elegir cuáles aparecen en la bandeja del sistema. Edita `Compact providers` cuando necesites un orden personalizado o un identificador adicional.
 - Edita `Compact quotas` para seleccionar los valores de cuota mostrados en la bandeja del sistema.
@@ -145,6 +146,7 @@ El popup usa `Gemini (Antigravity)` para Antigravity y `Gemini` para el proveedo
 | Ajuste | Propósito |
 | --- | --- |
 | Command | Nombre del binario `codexbar` o su ruta completa. |
+| AI CLI Control | Nombre o ruta completa del binario `ai` usado por las acciones del widget. |
 | Source | `Best available`, `auto`, `web`, `cli`, `oauth` o `api`. |
 | Refresh | Intervalo de consulta entre 10 y 3600 segundos. |
 | Compact providers | Identificadores ordenados y separados por comas que usa la bandeja del sistema. Las casillas visibles cubren Codex, Claude, Grok y Antigravity. Vacío muestra todos los proveedores devueltos y nunca filtra el popup. |
@@ -161,6 +163,10 @@ El popup usa `Gemini (Antigravity)` para Antigravity y `Gemini` para el proveedo
 El widget ejecuta localmente `codexbar usage --format json --json-only` y presenta el JSON devuelto. Los resúmenes opcionales de costos vienen de `codexbar cost`. Este repositorio no agrega un backend de proveedor, almacén de credenciales, servicio de telemetría ni servicio remoto de cuentas.
 
 CodexBar administra autenticación, configuración de proveedores, llamadas API y consultas de CLI. Revisa el [proyecto CodexBar](https://github.com/steipete/CodexBar) para conocer sus proveedores compatibles y el manejo de datos.
+
+### Integración con AI CLI Control
+
+KodexBar puede abrir el selector instalado por separado de [ai-cli-control](https://github.com/Karasowl/ai-cli-control) desde el botón AI del popup o el menú contextual de Plasma. El widget no incrusta el selector ni copia su lógica de proveedores. `Open AI CLI Control` inicia `ai` en su propia ventana gráfica. `Update all AI CLIs` ejecuta `ai --update all` mediante Konsole y deja la terminal abierta para mostrar las versiones y el resumen. Cambia `AI CLI Control` en los ajustes si el ejecutable no se llama `ai` o está fuera de `PATH`.
 
 ## Validación
 

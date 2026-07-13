@@ -111,6 +111,7 @@ This removes whichever KodexBar package currently occupies that ID, whether it c
 - Click the panel item to open the popup.
 - Use the refresh button to query the CLI immediately.
 - Open widget settings to choose a source, refresh interval, and panel fields.
+- Right-click the widget and choose `Open AI CLI Control` to launch the separate `ai` selector window. Choose `Update all AI CLIs` to run its existing multi-provider update flow for Codex, Claude, Grok, and Antigravity.
 - The widget always requests the providers enabled in CodexBar.
 - Use the visible provider checkboxes to select which providers appear in the system tray, then edit `Compact providers` when you need a custom order or provider ID.
 - Edit `Compact quotas` to select the quota values shown in the system tray.
@@ -145,6 +146,7 @@ The popup uses `Gemini (Antigravity)` for Antigravity and `Gemini` for the indep
 | Setting | Purpose |
 | --- | --- |
 | Command | `codexbar` binary name or full path. |
+| AI CLI Control | `ai` binary name or full path used by the widget actions. |
 | Source | `Best available`, `auto`, `web`, `cli`, `oauth`, or `api`. |
 | Refresh | Poll interval from 10 to 3600 seconds. |
 | Compact providers | Display-only ordered comma-separated provider IDs used by the system tray. The visible provider checkboxes cover Codex, Claude, Grok, and Antigravity. Empty shows every returned provider and never filters the popup. |
@@ -161,6 +163,10 @@ The popup uses `Gemini (Antigravity)` for Antigravity and `Gemini` for the indep
 The widget runs `codexbar usage --format json --json-only` locally and renders the returned JSON. Optional cost summaries come from `codexbar cost`. This repository does not add a provider backend, credential store, telemetry service, or remote account service.
 
 CodexBar owns provider authentication, provider configuration, API calls, and CLI probing. Review the [CodexBar project](https://github.com/steipete/CodexBar) for its supported providers and data handling.
+
+### AI CLI Control integration
+
+KodexBar can launch the separately installed [ai-cli-control](https://github.com/Karasowl/ai-cli-control) selector from its popup AI button or Plasma context menu. The widget does not embed the selector or copy its provider logic. `Open AI CLI Control` starts `ai` in its own graphical window. `Update all AI CLIs` runs `ai --update all` through Konsole with the terminal held open so the version and result summary remain visible. Set `AI CLI Control` in widget settings when the executable is not named `ai` or is outside `PATH`.
 
 ## Validation
 

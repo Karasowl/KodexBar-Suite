@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Controls as QQC2
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.plasmoid
+import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.plasma5support as Plasma5Support
 import "../code/providerLogic.js" as ProviderLogic
@@ -24,6 +25,8 @@ PlasmoidItem {
     property string costErrorMessage: ""
     property var costSummaries: ({})
     property string codexbarCommand: Plasmoid.configuration.codexbarCommand || "codexbar"
+    property string aiControlCommand: Plasmoid.configuration.aiControlCommand || "ai"
+    property string aiControlError: ""
     property string selectedSource: Plasmoid.configuration.source || "detect"
     property string selectedEntryKey: ""
     property string activeProvider: ""
@@ -62,9 +65,25 @@ PlasmoidItem {
     readonly property var popupEntries: popupState.entries || []
     readonly property var activeEntry: popupState.entry || ({})
 
+    contextualActions: [
+        PlasmaCore.Action {
+            text: i18n("Open AI CLI Control")
+            icon.name: "applications-development"
+            onTriggered: root.launchAiControl([])
+        },
+        PlasmaCore.Action {
+            text: i18n("Update all AI CLIs")
+            icon.name: "view-refresh"
+            onTriggered: root.launchAiControl(["--update", "all"])
+        }
+    ]
+
     preferredRepresentation: compactRepresentation
     toolTipMainText: "KodexBar"
     toolTipSubText: {
+        if (aiControlError.length > 0) {
+            return i18n("AI CLI Control: %1", aiControlError)
+        }
         if (errorMessage.length > 0) {
             return errorMessage
         }
@@ -316,6 +335,21 @@ PlasmoidItem {
             command += " " + shellQuote(args[i])
         }
         return command
+    }
+
+    function aiControlCommandLine(arguments, showTerminal) {
+        var command = showTerminal ? "konsole --hold -e" : ""
+        command += (command.length > 0 ? " " : "") + shellQuote(aiControlCommand)
+        for (var i = 0; i < arguments.length; i++) {
+            command += " " + shellQuote(arguments[i])
+        }
+        return command
+    }
+
+    function launchAiControl(arguments, showTerminal) {
+        aiControlError = ""
+        aiControlExecutable.connectedSources = []
+        aiControlExecutable.connectSource(aiControlCommandLine(arguments || [], showTerminal === true))
     }
 
     function shellQuote(value) {
@@ -1090,6 +1124,58 @@ PlasmoidItem {
                 }
 
                 QQC2.ToolButton {
+                    id: aiControlButton
+                    width: 34
+                    height: 34
+                    anchors.right: refreshButton.left
+                    anchors.rightMargin: 8
+                    y: 19
+                    text: i18n("AI CLI Control")
+                    display: QQC2.AbstractButton.IconOnly
+                    Accessible.name: text
+                    onClicked: aiControlMenu.open()
+
+                    QQC2.ToolTip.visible: hovered
+                    QQC2.ToolTip.text: text
+
+                    contentItem: Item {
+                        implicitWidth: 16
+                        implicitHeight: 16
+
+                        Kirigami.Icon {
+                            anchors.centerIn: parent
+                            width: 16
+                            height: 16
+                            source: "applications-development"
+                            color: aiControlButton.enabled ? root.mutedColor : root.quietColor
+                        }
+                    }
+
+                    background: Rectangle {
+                        radius: 10
+                        color: root.raisedColor
+                        border.color: parent.hovered ? root.accentColor : "#2b303c"
+                        border.width: 1
+                    }
+                }
+
+                QQC2.Menu {
+                    id: aiControlMenu
+
+                    QQC2.MenuItem {
+                        text: i18n("Open AI CLI Control")
+                        icon.name: "applications-development"
+                        onTriggered: root.launchAiControl([])
+                    }
+
+                    QQC2.MenuItem {
+                        text: i18n("Update all AI CLIs")
+                        icon.name: "view-refresh"
+                        onTriggered: root.launchAiControl(["--update", "all"], true)
+                    }
+                }
+
+                QQC2.ToolButton {
                     id: refreshButton
                     width: 34
                     height: 34
@@ -1843,6 +1929,19 @@ PlasmoidItem {
         }
     }
 
+    Plasma5Support.DataSource {
+        id: aiControlExecutable
+        engine: "executable"
+        onNewData: function(sourceName, data) {
+            disconnectSource(sourceName)
+            if (data["exit code"] && data["exit code"] !== 0) {
+                root.aiControlError = (data.stderr || data.stdout || i18n("Exit code %1", data["exit code"])).trim()
+            } else {
+                root.aiControlError = ""
+            }
+        }
+    }
+
     Timer {
         id: refreshTimer
         interval: root.refreshSeconds * 1000
@@ -1858,6 +1957,7 @@ PlasmoidItem {
     }
 
     onCodexbarCommandChanged: refresh()
+    onAiControlCommandChanged: aiControlError = ""
     onSelectedSourceChanged: refresh()
     onShowCostSummaryChanged: refreshCost()
     onShowCreditsInPanelChanged: panelText()

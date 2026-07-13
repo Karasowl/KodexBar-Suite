@@ -446,6 +446,13 @@ assert.match(
     "the popup data path retains every returned provider"
 )
 assert.match(mainQml, /composeCompactBlocks/, "QML delegates compact visual composition to tested pure logic")
+assert.match(mainQml, /contextualActions:\s*\[/, "the widget exposes user-facing contextual actions")
+assert.match(mainQml, /text: i18n\("Open AI CLI Control"\)/, "the widget can open the separate AI CLI selector")
+assert.match(mainQml, /launchAiControl\(\["--update", "all"\]\)/, "the widget can invoke the multi-CLI update flow")
+assert.match(mainQml, /konsole --hold -e/, "multi-CLI updates keep terminal output visible")
+assert.match(mainQml, /aiControlExecutable\.connectSource\(aiControlCommandLine/, "AI actions use the executable bridge")
+assert.match(mainQml, /id: aiControlButton/, "the popup exposes a discoverable AI CLI Control button")
+assert.match(mainQml, /id: aiControlMenu/, "the popup AI button offers selector and update actions")
 assert.match(mainQml, /ListView \{\s+id: providerTabs/, "popup provider tabs use horizontal scrolling")
 assert.match(mainQml, /preferredWidth: 520/, "popup uses the normative 520 pixel width")
 assert.match(
@@ -475,6 +482,8 @@ assert.doesNotMatch(configQml, /cfg_provider\b/, "legacy provider config stays h
 assert.match(configQml, /placeholderText: "primary,weekly"/, "settings show the compact quota default")
 assert.match(configQml, /text: i18n\("Show all returned providers"\)/, "settings expose an explicit all-providers compact option")
 assert.match(configQml, /setCompactProviderSelected\(modelData\.providerId, checked\)/, "settings expose per-provider compact selection controls")
+assert.match(configQml, /cfg_aiControlCommand/, "settings expose the AI CLI Control command")
+assert.match(configXml, /<entry name="aiControlCommand" type="String">\s*<default>ai<\/default>/, "AI CLI Control uses ai as its default command")
 assert.match(configXml, /<entry name="provider" type="String">/, "legacy provider value remains readable for migration")
 assert.match(configXml, /<entry name="compactProviderMigrationDone" type="Bool">/, "one-time migration has a persistent flag")
 assert.match(

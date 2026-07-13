@@ -10,6 +10,8 @@ KCM.SimpleKCM {
 
     property alias cfg_codexbarCommand: codexbarCommand.text
     property string cfg_codexbarCommandDefault
+    property alias cfg_aiControlCommand: aiControlCommand.text
+    property string cfg_aiControlCommandDefault
     property string cfg_source
     property string cfg_sourceDefault
     property alias cfg_refreshInterval: refreshInterval.value
@@ -121,6 +123,21 @@ KCM.SimpleKCM {
                     Kirigami.FormData.label: i18n("Command:")
                     placeholderText: "codexbar"
                     Layout.preferredWidth: Kirigami.Units.gridUnit * 16
+                }
+
+                QQC2.TextField {
+                    id: aiControlCommand
+                    Kirigami.FormData.label: i18n("AI CLI Control:")
+                    placeholderText: "ai"
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 16
+                }
+
+                PlasmaComponents.Label {
+                    text: i18n("Command used by the KodexBar actions to open the separate AI CLI Control selector and update all provider CLIs.")
+                    color: Kirigami.Theme.disabledTextColor
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                    Kirigami.FormData.label: ""
                 }
 
                 QQC2.ComboBox {
