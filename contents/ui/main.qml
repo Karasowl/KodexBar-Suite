@@ -963,7 +963,7 @@ PlasmoidItem {
                         text: modelData.displayText || ""
                         color: modelData.error ? root.errorColor : root.textColor
                         font.family: root.designFont
-                        font.pixelSize: 12
+                        font.pixelSize: 13
                         font.weight: modelData.error ? Font.Bold : Font.DemiBold
                         elide: Text.ElideRight
                         width: Math.min(implicitWidth, strip.preview ? 112 : 126)
@@ -1025,12 +1025,16 @@ PlasmoidItem {
         Layout.minimumWidth: 520
         Layout.maximumWidth: 520
         Layout.preferredWidth: 520
+        // Keep every provider on the same 520 by 560 design viewport. The
+        // metric ScrollView owns overflow instead of resizing the popup.
         Layout.minimumHeight: 560
         Layout.maximumHeight: 560
         Layout.preferredHeight: 560
 
         Rectangle {
+            id: popupCard
             anchors.fill: parent
+            anchors.margins: 8
             radius: 20
             color: root.cardColor
             border.color: root.lineColor
@@ -1039,12 +1043,12 @@ PlasmoidItem {
         }
 
         ColumnLayout {
-            anchors.fill: parent
+            anchors.fill: popupCard
             spacing: 0
 
             Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 79
+                Layout.preferredHeight: 74
 
                 Rectangle {
                     width: 38
@@ -1086,6 +1090,7 @@ PlasmoidItem {
                 }
 
                 QQC2.ToolButton {
+                    id: refreshButton
                     width: 34
                     height: 34
                     anchors.right: parent.right
@@ -1094,11 +1099,24 @@ PlasmoidItem {
                     enabled: !root.loading
                     text: i18n("Refresh")
                     display: QQC2.AbstractButton.IconOnly
-                    icon.name: "view-refresh"
-                    icon.width: 16
-                    icon.height: 16
-                    icon.color: enabled ? root.mutedColor : root.quietColor
+                    Accessible.name: text
                     onClicked: root.refresh()
+
+                    QQC2.ToolTip.visible: hovered
+                    QQC2.ToolTip.text: text
+
+                    contentItem: Item {
+                        implicitWidth: 16
+                        implicitHeight: 16
+
+                        Kirigami.Icon {
+                            anchors.centerIn: parent
+                            width: 16
+                            height: 16
+                            source: "view-refresh"
+                            color: refreshButton.enabled ? root.mutedColor : root.quietColor
+                        }
+                    }
 
                     background: Rectangle {
                         radius: 10
@@ -1163,7 +1181,7 @@ PlasmoidItem {
                                     text: modelData.tabLabel
                                     color: parent.parent.selected ? "#f2f3f8" : root.mutedColor
                                     font.family: root.designFont
-                                    font.pixelSize: 12
+                                    font.pixelSize: 13
                                     font.weight: Font.DemiBold
                                     elide: Text.ElideRight
                                     Layout.maximumWidth: 104
@@ -1215,7 +1233,7 @@ PlasmoidItem {
                             text: root.popupState.hasEntry ? root.activeEntry.displayName : "KodexBar"
                             color: root.textColor
                             font.family: root.designFont
-                            font.pixelSize: 15
+                            font.pixelSize: 16
                             font.weight: Font.Bold
                             elide: Text.ElideRight
                             Layout.maximumWidth: 210
@@ -1237,7 +1255,7 @@ PlasmoidItem {
                             text: i18n("updated %1", root.formatUpdatedTime(root.activeEntry.updatedAt))
                             color: root.quietColor
                             font.family: root.designFont
-                            font.pixelSize: 11
+                            font.pixelSize: 12
                             elide: Text.ElideRight
                             Layout.maximumWidth: 126
                         }
@@ -1255,7 +1273,7 @@ PlasmoidItem {
                                 text: String(root.activeEntry.source || root.activeSource || "").toUpperCase()
                                 color: "#9787ff"
                                 font.family: root.designFont
-                                font.pixelSize: 10
+                                font.pixelSize: 11
                                 font.weight: Font.DemiBold
                                 font.letterSpacing: 0.5
                             }
@@ -1436,7 +1454,7 @@ PlasmoidItem {
                                             text: modelData.title || ""
                                             color: root.textColor
                                             font.family: root.designFont
-                                            font.pixelSize: 13
+                                            font.pixelSize: 14
                                             font.weight: Font.DemiBold
                                             elide: Text.ElideRight
                                             Layout.fillWidth: true
@@ -1446,7 +1464,7 @@ PlasmoidItem {
                                             text: root.formatResetTime(modelData.resetsAt).toLowerCase()
                                             color: root.quietColor
                                             font.family: root.designFont
-                                            font.pixelSize: 11
+                                            font.pixelSize: 12
                                             visible: text.length > 0
                                             elide: Text.ElideRight
                                             Layout.maximumWidth: 124
@@ -1456,7 +1474,7 @@ PlasmoidItem {
                                             text: root.formatUsedPercent(modelData.percentLeft, modelData.usageKnown)
                                             color: root.metricAccent(modelData.percentLeft, modelData.usageKnown)
                                             font.family: root.designFont
-                                            font.pixelSize: 12
+                                            font.pixelSize: 13
                                             font.weight: Font.Bold
                                         }
                                     }
@@ -1485,7 +1503,7 @@ PlasmoidItem {
                                         text: modelData.detail || ""
                                         color: root.quietColor
                                         font.family: root.designFont
-                                        font.pixelSize: 11
+                                        font.pixelSize: 12
                                         lineHeight: 1.4
                                         wrapMode: Text.WordWrap
                                         Layout.fillWidth: true
@@ -1514,7 +1532,7 @@ PlasmoidItem {
                                         text: i18n("Credits")
                                         color: root.textColor
                                         font.family: root.designFont
-                                        font.pixelSize: 13
+                                        font.pixelSize: 14
                                         font.weight: Font.DemiBold
                                         Layout.fillWidth: true
                                     }
@@ -1557,7 +1575,7 @@ PlasmoidItem {
                                     text: i18n("Cost")
                                     color: root.textColor
                                     font.family: root.designFont
-                                    font.pixelSize: 13
+                                    font.pixelSize: 14
                                     font.weight: Font.DemiBold
                                     Layout.fillWidth: true
                                 }

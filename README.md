@@ -112,7 +112,7 @@ This removes whichever KodexBar package currently occupies that ID, whether it c
 - Use the refresh button to query the CLI immediately.
 - Open widget settings to choose a source, refresh interval, and panel fields.
 - The widget always requests the providers enabled in CodexBar.
-- Edit `Compact providers` to select and order providers in the system tray.
+- Use the visible provider checkboxes to select which providers appear in the system tray, then edit `Compact providers` when you need a custom order or provider ID.
 - Edit `Compact quotas` to select the quota values shown in the system tray.
 - Leave `Compact providers` empty to show every returned provider in CLI order.
 - Leave `Compact quotas` empty to show provider labels without quota values.
@@ -121,10 +121,10 @@ This removes whichever KodexBar package currently occupies that ID, whether it c
 The default compact output follows this shape:
 
 ```text
-[Codex icon] P24% W61% | [Claude icon] ERR | [Grok icon] P8% W31% | [Antigravity icon] P0% W1%
+[Codex icon] S24% W61% | [Claude icon] ERR | [Grok icon] S8% W31% | [Antigravity icon] S0% W1%
 ```
 
-`P` is the used percentage for the primary window. `W` is the used percentage for the weekly or secondary window. The values above are illustrative, not real account data.
+`S` is the used percentage for the Session window, kept internally as the `primary` quota key. `W` is the used percentage for the weekly or secondary window. The values above are illustrative, not real account data.
 
 When CodexBar returns multiple accounts for one provider, the compact panel adds non-sensitive ordinals such as `Cx #1` and `Cx #2`. The ordinals remain visible when provider labels are disabled. Account emails remain confined to the optional popup email field.
 
@@ -147,7 +147,7 @@ The popup uses `Gemini (Antigravity)` for Antigravity and `Gemini` for the indep
 | Command | `codexbar` binary name or full path. |
 | Source | `Best available`, `auto`, `web`, `cli`, `oauth`, or `api`. |
 | Refresh | Poll interval from 10 to 3600 seconds. |
-| Compact providers | Display-only ordered comma-separated provider IDs used by the system tray. Empty shows every returned provider and never filters the popup. |
+| Compact providers | Display-only ordered comma-separated provider IDs used by the system tray. The visible provider checkboxes cover Codex, Claude, Grok, and Antigravity. Empty shows every returned provider and never filters the popup. |
 | Compact quotas | Display-only comma-separated quota keys. Supports global keys and provider-qualified keys. Empty shows provider labels only and never filters the popup. |
 | Show provider in panel | Includes each selected provider icon in the compact system tray summary. |
 | Show used percent in panel | Includes usage percentages in compact output. |

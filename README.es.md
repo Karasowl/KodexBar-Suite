@@ -112,7 +112,7 @@ Esto elimina el paquete KodexBar que ocupe ese identificador, ya sea upstream o 
 - Usa el botón de actualización para consultar la CLI inmediatamente.
 - Abre los ajustes del widget para elegir fuente, intervalo y campos del panel.
 - El widget siempre solicita los proveedores habilitados en CodexBar.
-- Edita `Compact providers` para seleccionar y ordenar proveedores en la bandeja del sistema.
+- Usa las casillas visibles de proveedores para elegir cuáles aparecen en la bandeja del sistema. Edita `Compact providers` cuando necesites un orden personalizado o un identificador adicional.
 - Edita `Compact quotas` para seleccionar los valores de cuota mostrados en la bandeja del sistema.
 - Deja vacío `Compact providers` para mostrar todos los proveedores devueltos en el orden de la CLI.
 - Deja vacío `Compact quotas` para mostrar las etiquetas de proveedores sin valores de cuota.
@@ -121,10 +121,10 @@ Esto elimina el paquete KodexBar que ocupe ese identificador, ya sea upstream o 
 La salida compacta predeterminada sigue esta forma:
 
 ```text
-[icono Codex] P24% W61% | [icono Claude] ERR | [icono Grok] P8% W31% | [icono Antigravity] P0% W1%
+[icono Codex] S24% W61% | [icono Claude] ERR | [icono Grok] S8% W31% | [icono Antigravity] S0% W1%
 ```
 
-`P` es el porcentaje usado de la ventana primaria. `W` es el porcentaje usado de la ventana semanal o secundaria. Los valores anteriores son ilustrativos y no son datos reales de una cuenta.
+`S` es el porcentaje usado de la ventana Session, conservada internamente como la clave de cuota `primary`. `W` es el porcentaje usado de la ventana semanal o secundaria. Los valores anteriores son ilustrativos y no son datos reales de una cuenta.
 
 Cuando CodexBar devuelve varias cuentas del mismo proveedor, el panel compacto agrega ordinales no sensibles como `Cx #1` y `Cx #2`. Los ordinales permanecen visibles cuando se desactivan las etiquetas de proveedor. Los correos de cuenta permanecen limitados al campo opcional del popup.
 
@@ -147,7 +147,7 @@ El popup usa `Gemini (Antigravity)` para Antigravity y `Gemini` para el proveedo
 | Command | Nombre del binario `codexbar` o su ruta completa. |
 | Source | `Best available`, `auto`, `web`, `cli`, `oauth` o `api`. |
 | Refresh | Intervalo de consulta entre 10 y 3600 segundos. |
-| Compact providers | Identificadores ordenados y separados por comas que usa la bandeja del sistema. Vacío muestra todos los proveedores devueltos y nunca filtra el popup. |
+| Compact providers | Identificadores ordenados y separados por comas que usa la bandeja del sistema. Las casillas visibles cubren Codex, Claude, Grok y Antigravity. Vacío muestra todos los proveedores devueltos y nunca filtra el popup. |
 | Compact quotas | Claves de cuota separadas por comas. Admite claves globales y calificadas por proveedor. Vacío muestra solo etiquetas y nunca filtra el popup. |
 | Show provider in panel | Incluye el icono de cada proveedor seleccionado en el resumen compacto. |
 | Show used percent in panel | Incluye porcentajes de uso en la salida compacta. |

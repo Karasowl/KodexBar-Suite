@@ -31,6 +31,14 @@ KCM.SimpleKCM {
     property alias cfg_compactQuotaSelection: compactQuotaSelection.text
     property string cfg_compactQuotaSelectionDefault
 
+    readonly property string compactProviderSelectionDefault: "codex,claude,grok,antigravity"
+    readonly property var compactProviderOptions: [
+        { providerId: "codex", label: i18n("Codex") },
+        { providerId: "claude", label: i18n("Claude") },
+        { providerId: "grok", label: i18n("Grok") },
+        { providerId: "antigravity", label: i18n("Antigravity") }
+    ]
+
     function indexForValue(model, value) {
         for (var i = 0; i < model.count; i++) {
             if (model.get(i).value === value) {
@@ -38,6 +46,39 @@ KCM.SimpleKCM {
             }
         }
         return 0
+    }
+
+    function normalizedCompactProviderIds(value) {
+        var raw = String(value || "").split(",")
+        var ids = []
+        var seen = {}
+        for (var i = 0; i < raw.length; i++) {
+            var id = raw[i].trim().toLowerCase()
+            if (id.length > 0 && !seen[id]) {
+                seen[id] = true
+                ids.push(id)
+            }
+        }
+        return ids
+    }
+
+    function compactProviderSelected(providerId) {
+        return normalizedCompactProviderIds(compactProviderOrder.text).indexOf(providerId) !== -1
+    }
+
+    function setCompactProviderSelected(providerId, selected) {
+        var ids = normalizedCompactProviderIds(compactProviderOrder.text)
+        var index = ids.indexOf(providerId)
+        if (selected && index === -1) {
+            ids.push(providerId)
+        } else if (!selected && index !== -1) {
+            ids.splice(index, 1)
+        }
+        compactProviderOrder.text = ids.join(",")
+    }
+
+    function selectDefaultCompactProviders() {
+        compactProviderOrder.text = compactProviderSelectionDefault
     }
 
     Item {
@@ -121,11 +162,42 @@ KCM.SimpleKCM {
                 }
 
                 PlasmaComponents.Label {
-                    text: i18n("Comma-separated provider IDs shown in the compact panel, in this order. This never filters the popup. Leave empty to show every returned provider.")
+                    text: i18n("Choose the providers shown in the compact panel. The order below is preserved. This never filters the popup.")
                     color: Kirigami.Theme.disabledTextColor
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                     Kirigami.FormData.label: ""
+                }
+
+                QQC2.CheckBox {
+                    id: showAllCompactProviders
+                    text: i18n("Show all returned providers")
+                    checked: compactProviderOrder.text.trim().length === 0
+                    onClicked: {
+                        if (checked) {
+                            compactProviderOrder.text = ""
+                        } else {
+                            page.selectDefaultCompactProviders()
+                        }
+                    }
+                }
+
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Repeater {
+                        model: page.compactProviderOptions
+
+                        delegate: QQC2.CheckBox {
+                            required property var modelData
+                            text: modelData.label
+                            enabled: !showAllCompactProviders.checked
+                            checked: !showAllCompactProviders.checked
+                                && page.compactProviderSelected(modelData.providerId)
+                            onClicked: page.setCompactProviderSelected(modelData.providerId, checked)
+                        }
+                    }
                 }
 
                 QQC2.TextField {

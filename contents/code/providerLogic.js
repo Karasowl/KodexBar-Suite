@@ -77,7 +77,10 @@ function compactQuotaSelected(configuredSelection, provider, quotaKey, extra) {
 
 function compactQuotaLabel(quotaKey, title) {
     var labels = {
-        "primary": "P",
+        // Keep the internal quota key as `primary`, but label it as Session in
+        // compact UI because that is what CodexBar and the provider surfaces
+        // call this window.
+        "primary": "S",
         "weekly": "W",
         "tertiary": "T"
     }
@@ -136,7 +139,7 @@ function standardWindowRow(quotaKey, title, percentLeft, resetsAt, detail) {
 function quotaWindowBadge(quotaKey, title) {
     var key = compactQuotaKey(quotaKey)
     var badges = {
-        "primary": "P",
+        "primary": "S",
         "weekly": "W",
         "tertiary": "T"
     }

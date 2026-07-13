@@ -123,6 +123,8 @@ assert.deepEqual(
 )
 assert.equal(context.compactQuotaKey("Fable only"), "fable-only")
 assert.equal(context.compactQuotaKey("  Model / Week  "), "model-week")
+assert.equal(context.compactQuotaLabel("primary", "Session"), "S", "the internal primary key is shown as Session in compact UI")
+assert.equal(context.quotaWindowBadge("primary", "Session"), "S", "the popup uses S for the Session window badge")
 assert.equal(
     context.compactQuotaSelected(fixture.quotaSelection, "claude", "fable-only", true),
     true,
@@ -267,7 +269,7 @@ const composed = context.composeCompactText(fixture.composeEntries, {
 })
 assert.equal(
     composed.text,
-    "Cx #1 P20% Fas #1 20% Fal30% Cr 5 | Cx #2 P40% Fas #2 40% Cr 3 | Gk ERR",
+    "Cx #1 S20% Fas #1 20% Fal30% Cr 5 | Cx #2 S40% Fas #2 40% Cr 3 | Gk ERR",
     "final compact text distinguishes duplicate accounts, collisions, credits, and errors"
 )
 assert.doesNotMatch(composed.text, /private-account/, "compact output never exposes account identifiers")
@@ -279,7 +281,7 @@ const compactDefault = plain(context.composeCompactBlocks(fixture.defaultCompact
     showUsed: true,
     showCredits: false
 }))
-assert.equal(compactDefault.text, "Cx P19% W0% | Cl ERR | Gk P8% W31% | Ag P0% W1%")
+assert.equal(compactDefault.text, "Cx S19% W0% | Cl ERR | Gk S8% W31% | Ag S0% W1%")
 assert.deepEqual(
     compactDefault.blocks.map(block => block.provider),
     ["codex", "claude", "grok", "antigravity"],
@@ -355,7 +357,7 @@ const hiddenProviders = context.composeCompactText(fixture.composeEntries, {
 })
 assert.equal(
     hiddenProviders.text,
-    "#1 P20% | #2 P40% | ERR",
+    "#1 S20% | #2 S40% | ERR",
     "duplicate accounts retain ordinals when provider labels are hidden"
 )
 
@@ -369,7 +371,7 @@ const stableOrdinal = context.composeCompactText(partiallyVisibleAccounts, {
     showUsed: true,
     showCredits: false
 })
-assert.equal(stableOrdinal.text, "Cx #2 P40%", "account ordinals remain stable when another account has no selected quota")
+assert.equal(stableOrdinal.text, "Cx #2 S40%", "account ordinals remain stable when another account has no selected quota")
 
 const creditsOnly = context.composeCompactText(fixture.composeEntries, {
     providerOrder: "codex,grok",
@@ -446,7 +448,16 @@ assert.match(
 assert.match(mainQml, /composeCompactBlocks/, "QML delegates compact visual composition to tested pure logic")
 assert.match(mainQml, /ListView \{\s+id: providerTabs/, "popup provider tabs use horizontal scrolling")
 assert.match(mainQml, /preferredWidth: 520/, "popup uses the normative 520 pixel width")
-assert.match(mainQml, /preferredHeight: 560/, "popup uses the normative 560 pixel height")
+assert.match(
+    mainQml,
+    /Layout\.minimumHeight: 560\s*Layout\.maximumHeight: 560\s*Layout\.preferredHeight: 560/,
+    "popup keeps the normative fixed 560 pixel height"
+)
+assert.match(
+    mainQml,
+    /QQC2\.ScrollView \{\s*id: metricScroll[\s\S]*metricContent\.implicitHeight > metricScroll\.availableHeight/,
+    "popup keeps overflow content inside the metric scroll view"
+)
 assert.match(
     mainQml,
     /FontLoader\s*\{\s*id: manropeFont\s*source: Qt\.resolvedUrl\("\.\.\/fonts\/Manrope-Variable\.ttf"\)\s*\}/,
@@ -462,6 +473,8 @@ assert.match(mainQml, /"antigravity": "antigravity"/, "Antigravity uses its own 
 assert.doesNotMatch(mainQml, /"antigravity": "gemini"/, "Antigravity never reuses the Gemini icon")
 assert.doesNotMatch(configQml, /cfg_provider\b/, "legacy provider config stays hidden from the settings UI")
 assert.match(configQml, /placeholderText: "primary,weekly"/, "settings show the compact quota default")
+assert.match(configQml, /text: i18n\("Show all returned providers"\)/, "settings expose an explicit all-providers compact option")
+assert.match(configQml, /setCompactProviderSelected\(modelData\.providerId, checked\)/, "settings expose per-provider compact selection controls")
 assert.match(configXml, /<entry name="provider" type="String">/, "legacy provider value remains readable for migration")
 assert.match(configXml, /<entry name="compactProviderMigrationDone" type="Bool">/, "one-time migration has a persistent flag")
 assert.match(

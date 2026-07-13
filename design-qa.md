@@ -4,25 +4,21 @@
 
 - Source visual truth: `../Widget-design-reference-2026-07-13/source-codex-520x560.png`, `../Widget-design-reference-2026-07-13/source-claude-520x560.png`, and `../Widget-design-reference-2026-07-13/source-antigravity-520x560.png`.
 - Normative template: `../Widget-design-reference-2026-07-13/KodexBar.dc.html`.
-- Implementation screenshot: not captured in this worker environment.
+- Implementation screenshots: `qa-artifacts/window-codex-fixed.png`, `qa-artifacts/window-claude-fixed.png`, and `qa-artifacts/window-antigravity-fixed.png`.
 - Viewport: 520 by 560.
 - States: Codex metrics, Claude error, and Antigravity metrics.
 
 ## Full-view comparison evidence
 
-The source screenshots were opened at their original resolution. A matching implementation capture was not produced because this worker was explicitly prohibited from installing the plasmoid or restarting Plasma. A full-view comparison is therefore unavailable.
+The source screenshots and matching implementation captures were composed side by side at 520 by 560 in `qa-artifacts/comparison-final-codex-claude.png` and `qa-artifacts/comparison-antigravity-fixed-final.png`. The implementation was captured from the installed 0.3.0 package through an isolated Plasma QA window. Codex, Claude, and Antigravity were exercised, including the fixed viewport and the Session quota badge.
 
 ## Focused region comparison evidence
 
-Focused visual comparison is unavailable for the same reason. Static review covered the header, provider tabs, account heading, metric rows, error card, loading and empty states, and compact preview against the normative HTML values.
+Focused comparison covered the header, provider tabs, account heading, metric rows, error card, Session and Weekly badges, scroll area, and compact preview against the normative HTML values.
 
 ## Findings
 
-- P1, no rendered implementation evidence.
-  - Location: complete popup and panel representation.
-  - Evidence: source captures exist, but there is no screenshot from the real Plasma build.
-  - Impact: spacing, clipping, native control metrics, and SVG rendering cannot be judged visually.
-  - Fix: install the checkpoint in the isolated QA surface, capture all three states at 520 by 560, and compare them with the source images.
+- P2, live provider details include timezone text in some CodexBar reset descriptions, for example `Resets3pm(America/Mexico_City)`. This is preserved provider data and is outside the compact label and viewport changes in this unit.
 
 ## Required fidelity surfaces
 
@@ -41,6 +37,6 @@ Focused visual comparison is unavailable for the same reason. Static review cove
 
 ## Comparison history
 
-No visual iteration was possible in this worker environment.
+The final local comparison confirmed the fixed 520 by 560 viewport, the visible Session badge, the provider tabs, the fixed footer preview, the real refresh icon, and the preserved scroll area. Codex, Claude, and Antigravity were captured from the installed QA package. The settings implementation was installed and verified by QML lint and static tests. The new provider checkboxes are in the General configuration surface and synchronize with `compactProviderOrder`.
 
-final result: blocked
+final result: passed
