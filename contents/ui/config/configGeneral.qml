@@ -131,12 +131,12 @@ KCM.SimpleKCM {
                 QQC2.TextField {
                     id: compactQuotaSelection
                     Kirigami.FormData.label: i18n("Compact quotas:")
-                    placeholderText: "primary,weekly,extras"
+                    placeholderText: "primary,weekly"
                     Layout.preferredWidth: Kirigami.Units.gridUnit * 20
                 }
 
                 PlasmaComponents.Label {
-                    text: i18n("Comma-separated quota keys shown in the compact panel. Use primary, weekly, or extras for every compact provider. Extras includes tertiary and every extra rate-limit window. Use provider.key for an individual quota, for example antigravity.tertiary or claude.fable-only. Leave empty to show provider labels only. The popup always shows every detected quota.")
+                    text: i18n("Comma-separated quota keys shown in the compact panel. The default is primary,weekly. Add extras for every additional window, or use provider.key for an individual quota such as antigravity.tertiary or claude.fable-only. Leave empty to show provider icons only. The popup always shows every detected quota.")
                     color: Kirigami.Theme.disabledTextColor
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true

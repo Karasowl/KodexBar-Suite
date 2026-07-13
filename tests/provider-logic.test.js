@@ -9,6 +9,7 @@ const fixturePath = path.join(__dirname, "fixtures/provider-logic.json")
 const mainQmlPath = path.join(root, "contents/ui/main.qml")
 const configQmlPath = path.join(root, "contents/ui/config/configGeneral.qml")
 const configXmlPath = path.join(root, "contents/config/main.xml")
+const metadataPath = path.join(root, "metadata.json")
 const source = fs.readFileSync(logicPath, "utf8").replace(/^\.pragma library\s*$/m, "")
 const context = {}
 vm.createContext(context)
@@ -42,6 +43,52 @@ assert.deepEqual(
     fixture.entries.map(entry => entry.provider),
     "empty configuration preserves upstream ordering and filtering behavior"
 )
+
+const popupEntries = plain(context.decoratePopupEntries(fixture.entries))
+assert.deepEqual(
+    popupEntries.map(entry => entry.provider),
+    ["codex", "codex", "claude", "GROK", "antigravity", "unlisted"],
+    "popup entries use the normative provider order and append other enabled providers"
+)
+assert.deepEqual(
+    popupEntries.filter(entry => entry.providerId === "codex").map(entry => entry.tabLabel),
+    ["Codex #1", "Codex #2"],
+    "multiple provider accounts receive stable non-sensitive ordinals"
+)
+const antigravityPopup = popupEntries.find(entry => entry.providerId === "antigravity")
+assert.equal(antigravityPopup.tabLabel, "Antigravity", "Antigravity uses a short popup tab label")
+assert.equal(
+    antigravityPopup.displayName,
+    "Gemini (Antigravity)",
+    "Antigravity keeps its complete provider heading"
+)
+const repeatedAntigravity = plain(context.decoratePopupEntries([
+    { provider: "antigravity", name: "Gemini (Antigravity)", account: "private-one" },
+    { provider: "antigravity", name: "Gemini (Antigravity)", account: "private-two" }
+]))
+assert.deepEqual(
+    repeatedAntigravity.map(entry => entry.tabLabel),
+    ["Antigravity #1", "Antigravity #2"],
+    "short popup labels retain stable account ordinals"
+)
+assert.deepEqual(
+    repeatedAntigravity.map(entry => entry.displayName),
+    ["Gemini (Antigravity) #1", "Gemini (Antigravity) #2"],
+    "full popup headings retain the same stable account ordinals"
+)
+assert.doesNotMatch(
+    repeatedAntigravity.map(entry => entry.tabLabel + entry.displayName).join(" "),
+    /private-/,
+    "popup labels never expose account data"
+)
+const activeSecondCodex = plain(context.activeEntryData(fixture.entries, "codex:2"))
+assert.equal(activeSecondCodex.index, 1)
+assert.equal(activeSecondCodex.entry.account, "second")
+assert.equal(activeSecondCodex.entry.selectionKey, "codex:2")
+const activeError = plain(context.activeEntryData(fixture.entries, "grok:1"))
+assert.equal(activeError.entry.errorMessage, "quota unavailable", "an error account remains selectable")
+const activeFallback = plain(context.activeEntryData(fixture.entries, "missing:9"))
+assert.equal(activeFallback.entry.selectionKey, "codex:1", "a stale selection falls back deterministically")
 
 assert.deepEqual(
     plain(context.acquisitionCandidates("detect")),
@@ -133,6 +180,16 @@ const resetOnlyRow = context.standardWindowRow(
 assert.equal(resetOnlyRow.compactKey, "tertiary")
 assert.equal(resetOnlyRow.percentLeft, null)
 assert.equal(resetOnlyRow.usageKnown, false, "reset-only standard rows mark usage as unknown")
+assert.equal(resetOnlyRow.windowBadge, "T", "standard rows carry compact window badges")
+assert.equal(context.quotaWindowBadge("flash", "Gemini 5-hour"), "5h")
+assert.equal(context.quotaWindowBadge("weekly-plan", "Weekly"), "W")
+assert.equal(context.quotaWindowBadge("weekly-limit", "Weekly rate limit"), "W")
+assert.equal(context.quotaWindowBadge("claude-weekly", "Claude weekly quota"), "W")
+assert.equal(
+    context.quotaWindowBadge("model-week", "Model week"),
+    "MO",
+    "arbitrary extra titles keep their deterministic badge"
+)
 assert.equal(
     context.standardWindowRow("primary", "Session", null, null, ""),
     null,
@@ -214,6 +271,80 @@ assert.equal(
     "final compact text distinguishes duplicate accounts, collisions, credits, and errors"
 )
 assert.doesNotMatch(composed.text, /private-account/, "compact output never exposes account identifiers")
+
+const compactDefault = plain(context.composeCompactBlocks(fixture.defaultCompactEntries, {
+    providerOrder: "codex,claude,grok,antigravity",
+    quotaSelection: "primary,weekly",
+    showProvider: true,
+    showUsed: true,
+    showCredits: false
+}))
+assert.equal(compactDefault.text, "Cx P19% W0% | Cl ERR | Gk P8% W31% | Ag P0% W1%")
+assert.deepEqual(
+    compactDefault.blocks.map(block => block.provider),
+    ["codex", "claude", "grok", "antigravity"],
+    "the default compact model keeps every configured provider in order"
+)
+assert.equal(compactDefault.blocks[1].displayText, "ERR", "compact errors stay visible")
+assert.deepEqual(
+    compactDefault.blocks.map(block => block.worstUsedPercent),
+    [19, null, 31, 1],
+    "each compact block exposes its worst selected used percentage"
+)
+assert.deepEqual(
+    compactDefault.blocks.map(block => block.status),
+    ["good", "error", "good", "good"],
+    "compact blocks expose deterministic usage severity"
+)
+
+const compactThresholds = plain(context.composeCompactBlocks([
+    { provider: "codex", compactPrimaryPercentLeft: 51, secondaryPercentLeft: 50, rows: [] },
+    { provider: "claude", compactPrimaryPercentLeft: 21, secondaryPercentLeft: 20, rows: [] },
+    { provider: "grok", primaryResetsAt: "2026-07-15T01:00:00Z", rows: [] }
+], {
+    providerOrder: "codex,claude,grok",
+    quotaSelection: "primary,weekly",
+    showProvider: true,
+    showUsed: true,
+    showCredits: false
+}))
+assert.deepEqual(
+    compactThresholds.blocks.map(block => block.worstUsedPercent),
+    [50, 80, null],
+    "compact severity uses the worst selected quota and leaves reset-only usage neutral"
+)
+assert.deepEqual(
+    compactThresholds.blocks.map(block => block.status),
+    ["warning", "error", "neutral"],
+    "compact severity matches the 50 and 80 percent metric thresholds"
+)
+
+assert.equal(context.entryHasReportedUsage({ rows: [] }), false)
+assert.equal(
+    context.entryHasReportedUsage({
+        rows: [{ percentLeft: null, usageKnown: false, resetsAt: "2026-07-15T01:00:00Z" }]
+    }),
+    false,
+    "reset-only provider data is not reported usage"
+)
+assert.equal(
+    context.entryHasReportedUsage({ rows: [{ percentLeft: 100, usageKnown: true }] }),
+    true,
+    "a numeric usage row is reported usage even at zero percent used"
+)
+
+const widthSafe = plain(context.composeCompactBlocks(fixture.composeEntries, {
+    providerOrder: "codex",
+    quotaSelection: "primary,extras",
+    showProvider: true,
+    showUsed: true,
+    showCredits: true,
+    maximumCharacters: 12
+}))
+assert.ok(widthSafe.blocks[0].displayText.length <= 12, "each visual compact block is width-safe")
+assert.match(widthSafe.blocks[0].displayText, /…$/, "width-safe compact text is visibly elided")
+assert.match(widthSafe.blocks[0].fullText, /Fas #1 20%/, "the complete selected extra remains available")
+assert.match(widthSafe.blocks[0].fullText, /Fal30%/, "multiple selected extras remain supported")
 
 const hiddenProviders = context.composeCompactText(fixture.composeEntries, {
     providerOrder: "codex,grok",
@@ -306,21 +437,53 @@ assert.deepEqual(
 const mainQml = fs.readFileSync(mainQmlPath, "utf8")
 const configQml = fs.readFileSync(configQmlPath, "utf8")
 const configXml = fs.readFileSync(configXmlPath, "utf8")
+const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"))
 assert.match(
     mainQml,
     /attachProviderCostSummaries\(result\.entries, root\.costSummaries\)/,
     "the popup data path retains every returned provider"
 )
-assert.match(mainQml, /composeCompactText/, "QML delegates final compact composition to tested pure logic")
-assert.match(mainQml, /QQC2\.ScrollView \{\s+id: providerChipScroll/, "popup provider chips use horizontal scrolling")
+assert.match(mainQml, /composeCompactBlocks/, "QML delegates compact visual composition to tested pure logic")
+assert.match(mainQml, /ListView \{\s+id: providerTabs/, "popup provider tabs use horizontal scrolling")
+assert.match(mainQml, /preferredWidth: 520/, "popup uses the normative 520 pixel width")
+assert.match(mainQml, /preferredHeight: 560/, "popup uses the normative 560 pixel height")
+assert.match(
+    mainQml,
+    /FontLoader\s*\{\s*id: manropeFont\s*source: Qt\.resolvedUrl\("\.\.\/fonts\/Manrope-Variable\.ttf"\)\s*\}/,
+    "popup loads the bundled Manrope variable font"
+)
+assert.match(
+    mainQml,
+    /readonly property string designFont: manropeFont\.status === FontLoader\.Ready && manropeFont\.name\.length > 0\s*\? manropeFont\.name\s*: Kirigami\.Theme\.defaultFont\.family/,
+    "popup uses the loaded Manrope family with the theme font as a safe fallback"
+)
 assert.match(mainQml, /"antigravity": "Gemini \(Antigravity\)"/, "popup distinguishes Antigravity from Gemini")
+assert.match(mainQml, /"antigravity": "antigravity"/, "Antigravity uses its own supplied icon")
+assert.doesNotMatch(mainQml, /"antigravity": "gemini"/, "Antigravity never reuses the Gemini icon")
 assert.doesNotMatch(configQml, /cfg_provider\b/, "legacy provider config stays hidden from the settings UI")
+assert.match(configQml, /placeholderText: "primary,weekly"/, "settings show the compact quota default")
 assert.match(configXml, /<entry name="provider" type="String">/, "legacy provider value remains readable for migration")
 assert.match(configXml, /<entry name="compactProviderMigrationDone" type="Bool">/, "one-time migration has a persistent flag")
+assert.match(
+    configXml,
+    /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
+    "the compact quota default excludes extras"
+)
+assert.equal(metadata.KPlugin.Version, "0.3.0", "package metadata uses version 0.3.0")
 assert.doesNotMatch(
     mainQml,
     /used\s*<\s*\d+/,
     "compact extra quotas are never hidden by an automatic usage threshold"
+)
+assert.match(
+    mainQml,
+    /if \(!ProviderLogic\.entryHasReportedUsage\(entry\)\) \{\s*return quietColor\s*\}/,
+    "a provider without reported usage has a neutral header status dot"
+)
+assert.match(
+    mainQml,
+    /root\.metricAccent\([\s\S]*modelData\.worstUsedPercent/,
+    "compact status dots use the same metric accent thresholds"
 )
 
 console.log("provider logic fixtures passed")

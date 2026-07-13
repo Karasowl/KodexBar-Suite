@@ -42,3 +42,5 @@ yarn-error.log*
 
 # Local worker handoff
 WORKER_RESULT.md
+FONT_WORKER_RESULT.md
+REVIEW_FIX_RESULT.md

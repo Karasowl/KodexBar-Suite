@@ -20,7 +20,7 @@
       <max>3600</max>
     </entry>
     <entry name="showCreditsInPanel" type="Bool">
-      <default>true</default>
+      <default>false</default>
     </entry>
     <entry name="showUsedPercentInPanel" type="Bool">
       <default>true</default>
@@ -41,7 +41,7 @@
       <default>codex,claude,grok,antigravity</default>
     </entry>
     <entry name="compactQuotaSelection" type="String">
-      <default>primary,weekly,extras</default>
+      <default>primary,weekly</default>
     </entry>
     <entry name="compactProviderMigrationDone" type="Bool">
       <default>false</default>

@@ -128,8 +128,35 @@ function standardWindowRow(quotaKey, title, percentLeft, resetsAt, detail) {
         detail: detail || "",
         usageKnown: usageKnown,
         compactKey: compactQuotaKey(quotaKey),
-        compactExtra: false
+        compactExtra: false,
+        windowBadge: quotaWindowBadge(quotaKey, title)
     }
+}
+
+function quotaWindowBadge(quotaKey, title) {
+    var key = compactQuotaKey(quotaKey)
+    var badges = {
+        "primary": "P",
+        "weekly": "W",
+        "tertiary": "T"
+    }
+    if (badges[key]) {
+        return badges[key]
+    }
+    var normalizedTitle = String(title || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/^\s+|\s+$/g, "")
+    if (/\bweekly\b/.test(normalizedTitle)) {
+        return "W"
+    }
+    var duration = String(title || "").match(/\b(\d+)\s*[- ]?\s*(hour|day|week|h|d|w)\b/i)
+    if (duration) {
+        return duration[1] + duration[2].charAt(0).toLowerCase()
+    }
+    var token = compactTitleToken(title)
+    return token.slice(0, Math.min(2, token.length)).toUpperCase()
 }
 
 function compactTitleToken(title) {
@@ -198,6 +225,53 @@ function compactNumber(value) {
     return String(rounded)
 }
 
+function compactUsedPercent(percentLeft) {
+    if (percentLeft === null || percentLeft === undefined || isNaN(percentLeft)) {
+        return null
+    }
+    return Math.max(0, Math.min(100, 100 - Number(percentLeft)))
+}
+
+function compactUsageStatus(usedPercent) {
+    if (usedPercent === null || usedPercent === undefined || isNaN(usedPercent)) {
+        return "neutral"
+    }
+    if (Number(usedPercent) >= 80) {
+        return "error"
+    }
+    if (Number(usedPercent) >= 50) {
+        return "warning"
+    }
+    return "good"
+}
+
+function entryHasReportedUsage(entry) {
+    if (!entry || typeof entry !== "object") {
+        return false
+    }
+    var rows = Array.isArray(entry.rows) ? entry.rows : []
+    for (var i = 0; i < rows.length; i++) {
+        var row = rows[i]
+        if (row && row.usageKnown !== false
+                && row.percentLeft !== null && row.percentLeft !== undefined
+                && !isNaN(row.percentLeft)) {
+            return true
+        }
+    }
+    var fallbackFields = [
+        entry.compactPrimaryPercentLeft,
+        entry.secondaryPercentLeft,
+        entry.tertiaryPercentLeft
+    ]
+    for (var j = 0; j < fallbackFields.length; j++) {
+        if (fallbackFields[j] !== null && fallbackFields[j] !== undefined
+                && !isNaN(fallbackFields[j])) {
+            return true
+        }
+    }
+    return false
+}
+
 function selectedExtraRows(entries, configuredSelection) {
     var byProvider = {}
     var list = Array.isArray(entries) ? entries : []
@@ -221,7 +295,16 @@ function selectedExtraRows(entries, configuredSelection) {
     return byProvider
 }
 
-function composeCompactText(entries, options) {
+function elideCompactText(value, maximumCharacters) {
+    var text = String(value || "")
+    var limit = Math.max(4, Number(maximumCharacters) || 28)
+    if (text.length <= limit) {
+        return text
+    }
+    return text.slice(0, limit - 1).replace(/\s+$/g, "") + "…"
+}
+
+function composeCompactBlocks(entries, options) {
     var settings = options || {}
     var quotaSelection = settings.showUsed === false ? "" : settings.quotaSelection
     var orderedEntries = filterAndOrderEntries(entries, settings.providerOrder)
@@ -230,7 +313,8 @@ function composeCompactText(entries, options) {
         return {
             hasSelection: false,
             provider: "",
-            text: settings.noSelectionText || "No selection"
+            text: settings.noSelectionText || "No selection",
+            blocks: []
         }
     }
 
@@ -253,6 +337,7 @@ function composeCompactText(entries, options) {
     }
 
     var blocks = []
+    var blockTexts = []
     for (var i = 0; i < selected.length; i++) {
         var entry = selected[i]
         var id = providerId(entry && entry.provider)
@@ -266,6 +351,7 @@ function composeCompactText(entries, options) {
             }
         }
         var block = []
+        var quotaParts = []
         var ordinal = providerCounts[id] > 1 ? "#" + providerOrdinal : ""
         if (settings.showProvider !== false) {
             var providerLabel = compactProviderLabel(entry.provider, entry.name)
@@ -275,21 +361,43 @@ function composeCompactText(entries, options) {
         }
         if (entry.errorMessage) {
             block.push("ERR")
-            blocks.push(block.join(" "))
+            var errorText = block.join(" ")
+            blockTexts.push(errorText)
+            blocks.push({
+                provider: id,
+                ordinal: ordinal,
+                error: true,
+                status: "error",
+                worstUsedPercent: null,
+                quotaText: "ERR",
+                fullText: errorText,
+                displayText: "ERR"
+            })
             continue
         }
+        var worstUsedPercent = null
         if (settings.showUsed !== false) {
             var standard = [
-                compactQuotaPart(settings.quotaSelection, id, "primary", "Primary",
-                    entry.compactPrimaryPercentLeft, entry.primaryResetsAt, false),
-                compactQuotaPart(settings.quotaSelection, id, "weekly", "Weekly",
-                    entry.secondaryPercentLeft, entry.secondaryResetsAt, false),
-                compactQuotaPart(settings.quotaSelection, id, "tertiary", "Tertiary",
-                    entry.tertiaryPercentLeft, entry.tertiaryResetsAt, true)
+                { key: "primary", title: "Primary", percentLeft: entry.compactPrimaryPercentLeft,
+                    resetsAt: entry.primaryResetsAt, extra: false },
+                { key: "weekly", title: "Weekly", percentLeft: entry.secondaryPercentLeft,
+                    resetsAt: entry.secondaryResetsAt, extra: false },
+                { key: "tertiary", title: "Tertiary", percentLeft: entry.tertiaryPercentLeft,
+                    resetsAt: entry.tertiaryResetsAt, extra: true }
             ]
             for (var standardIndex = 0; standardIndex < standard.length; standardIndex++) {
-                if (standard[standardIndex]) {
-                    block.push(standard[standardIndex])
+                var standardWindow = standard[standardIndex]
+                var standardPart = compactQuotaPart(
+                    settings.quotaSelection, id, standardWindow.key, standardWindow.title,
+                    standardWindow.percentLeft, standardWindow.resetsAt, standardWindow.extra)
+                if (standardPart) {
+                    block.push(standardPart)
+                    quotaParts.push(standardPart)
+                    var standardUsed = compactUsedPercent(standardWindow.percentLeft)
+                    if (standardUsed !== null
+                            && (worstUsedPercent === null || standardUsed > worstUsedPercent)) {
+                        worstUsedPercent = standardUsed
+                    }
                 }
             }
             var rows = entry && Array.isArray(entry.rows) ? entry.rows : []
@@ -309,21 +417,128 @@ function composeCompactText(entries, options) {
                 var extraPart = compactValuePart(label, row.percentLeft, row.resetsAt)
                 if (extraPart) {
                     block.push(extraPart)
+                    quotaParts.push(extraPart)
+                    var extraUsed = compactUsedPercent(row.percentLeft)
+                    if (extraUsed !== null
+                            && (worstUsedPercent === null || extraUsed > worstUsedPercent)) {
+                        worstUsedPercent = extraUsed
+                    }
                 }
             }
         }
         if (settings.showCredits !== false && entry.creditsRemaining !== null
                 && entry.creditsRemaining !== undefined && !isNaN(entry.creditsRemaining)) {
-            block.push("Cr " + compactNumber(entry.creditsRemaining))
+            var creditPart = "Cr " + compactNumber(entry.creditsRemaining)
+            block.push(creditPart)
+            quotaParts.push(creditPart)
         }
         if (block.length > 0) {
-            blocks.push(block.join(" "))
+            var blockText = block.join(" ")
+            var quotaText = quotaParts.join(" ")
+            blockTexts.push(blockText)
+            blocks.push({
+                provider: id,
+                ordinal: ordinal,
+                error: false,
+                status: compactUsageStatus(worstUsedPercent),
+                worstUsedPercent: worstUsedPercent,
+                quotaText: quotaText,
+                fullText: blockText,
+                displayText: elideCompactText(quotaText || blockText, settings.maximumCharacters || 28)
+            })
         }
     }
     return {
         hasSelection: true,
         provider: providerId(selected[0] && selected[0].provider),
-        text: blocks.length > 0 ? blocks.join(" | ") : (settings.noFieldsText || "No compact fields")
+        text: blockTexts.length > 0 ? blockTexts.join(" | ") : (settings.noFieldsText || "No compact fields"),
+        blocks: blocks
+    }
+}
+
+function composeCompactText(entries, options) {
+    return composeCompactBlocks(entries, options)
+}
+
+function popupProviderPriority(provider) {
+    var priorities = {
+        "codex": 0,
+        "claude": 1,
+        "grok": 2,
+        "antigravity": 3
+    }
+    var id = providerId(provider)
+    return priorities[id] === undefined ? 100 : priorities[id]
+}
+
+function orderPopupEntries(entries) {
+    var list = Array.isArray(entries) ? entries : []
+    var ordered = []
+    for (var priority = 0; priority < 4; priority++) {
+        for (var i = 0; i < list.length; i++) {
+            if (popupProviderPriority(list[i] && list[i].provider) === priority) {
+                ordered.push(list[i])
+            }
+        }
+    }
+    for (var j = 0; j < list.length; j++) {
+        if (popupProviderPriority(list[j] && list[j].provider) >= 100) {
+            ordered.push(list[j])
+        }
+    }
+    return ordered
+}
+
+function decoratePopupEntries(entries) {
+    var ordered = orderPopupEntries(entries)
+    var counts = {}
+    var occurrences = {}
+    var decorated = []
+    for (var i = 0; i < ordered.length; i++) {
+        var countId = providerId(ordered[i] && ordered[i].provider)
+        counts[countId] = (counts[countId] || 0) + 1
+    }
+    for (var j = 0; j < ordered.length; j++) {
+        var entry = ordered[j] || {}
+        var id = providerId(entry.provider)
+        occurrences[id] = (occurrences[id] || 0) + 1
+        var ordinal = counts[id] > 1 ? occurrences[id] : 0
+        var copy = {}
+        for (var property in entry) {
+            copy[property] = entry[property]
+        }
+        copy.providerId = id
+        copy.accountOrdinal = ordinal
+        copy.accountCount = counts[id]
+        copy.selectionKey = id + ":" + occurrences[id]
+        var displayBase = String(entry.name || entry.provider || "Provider")
+        var tabBase = id === "antigravity" ? "Antigravity" : displayBase
+        var ordinalSuffix = ordinal > 0 ? " #" + ordinal : ""
+        copy.tabLabel = tabBase + ordinalSuffix
+        copy.displayName = displayBase + ordinalSuffix
+        decorated.push(copy)
+    }
+    return decorated
+}
+
+function activeEntryData(entries, selectionKey) {
+    var decorated = decoratePopupEntries(entries)
+    var selectedIndex = 0
+    for (var i = 0; i < decorated.length; i++) {
+        if (decorated[i].selectionKey === selectionKey) {
+            selectedIndex = i
+            break
+        }
+    }
+    if (decorated.length === 0) {
+        return { hasEntry: false, selectionKey: "", index: -1, entry: null, entries: decorated }
+    }
+    return {
+        hasEntry: true,
+        selectionKey: decorated[selectedIndex].selectionKey,
+        index: selectedIndex,
+        entry: decorated[selectedIndex],
+        entries: decorated
     }
 }
 

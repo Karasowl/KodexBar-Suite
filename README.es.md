@@ -14,6 +14,10 @@ KodexBar es un widget para KDE Plasma 6 que permite consultar las cuotas de prov
 
 ## Funciones
 
+- Usa el diseño oscuro seleccionado de 520 por 560 con pestañas de proveedores, estado real, etiquetas de fuente, distintivos de ventana, barras de progreso y una vista previa compacta coincidente.
+- Muestra una cuenta de proveedor a la vez, ordenada como Codex, Claude, Grok, Antigravity y después todos los demás proveedores habilitados.
+- Mantiene separadas las cuentas repetidas con ordinales estables no sensibles en pestañas y salida compacta.
+- Usa los SVG suministrados de Codex, Claude, Grok, Antigravity y Gemini, y mantiene distintas las identidades de Antigravity y Gemini.
 - Agrega `compactProviderOrder`, una selección ordenada de proveedores para el panel compacto.
 - Agrega `compactQuotaSelection`, una selección de cuotas para el panel compacto.
 - Usa `codex,claude,grok,antigravity` como valor predeterminado.
@@ -28,9 +32,10 @@ KodexBar es un widget para KDE Plasma 6 que permite consultar las cuotas de prov
 - Muestra las ventanas adicionales seleccionadas con cualquier porcentaje de uso, sin umbral automático.
 - Muestra ventanas estándar primarias, secundarias y terciarias en el popup cuando se conoce su uso o reinicio.
 - Usa prefijos mínimos únicos y deterministas para cuotas adicionales, conservando `Fb` para Fable.
-- Mantiene desplazamiento horizontal en los chips cuando el popup contiene muchos proveedores o cuentas.
+- Mantiene desplazamiento horizontal en las pestañas cuando el popup contiene muchos proveedores o cuentas.
 - Muestra una sola vez cada resumen de costos por proveedor cuando varias cuentas comparten proveedor.
-- Presenta los datos de Antigravity como `Gemini (Antigravity)` en el popup.
+- Etiqueta la pestaña de Antigravity como `Antigravity` y presenta su encabezado completo como `Gemini (Antigravity)`.
+- Colorea los puntos de estado compactos según el peor uso seleccionado, con advertencia al 50 por ciento, error al 80 por ciento y estado neutro cuando no hay uso disponible.
 - Corrige el orden invertido de ventanas de Gemini cuando la CLI reporta una ventana primaria más larga que la secundaria.
 - Conserva detalles específicos, reinicios, créditos, estado y resúmenes de costos del popup upstream.
 
@@ -116,14 +121,14 @@ Esto elimina el paquete KodexBar que ocupe ese identificador, ya sea upstream o 
 La salida compacta predeterminada sigue esta forma:
 
 ```text
-Cx P24% W61% | Cl P18% W42% Fb67% | Gk ERR | Ag P8% W31%
+[icono Codex] P24% W61% | [icono Claude] ERR | [icono Grok] P8% W31% | [icono Antigravity] P0% W1%
 ```
 
-`P` es el porcentaje usado de la ventana primaria. `W` es el porcentaje usado de la ventana semanal o secundaria. `Fb` es una ventana exclusiva de Fable en Claude. Los valores anteriores son ilustrativos y no son datos reales de una cuenta.
+`P` es el porcentaje usado de la ventana primaria. `W` es el porcentaje usado de la ventana semanal o secundaria. Los valores anteriores son ilustrativos y no son datos reales de una cuenta.
 
 Cuando CodexBar devuelve varias cuentas del mismo proveedor, el panel compacto agrega ordinales no sensibles como `Cx #1` y `Cx #2`. Los ordinales permanecen visibles cuando se desactivan las etiquetas de proveedor. Los correos de cuenta permanecen limitados al campo opcional del popup.
 
-La selección de cuotas predeterminada es `primary,weekly,extras`. Estas claves globales se aplican a cada proveedor seleccionado para el panel compacto. `extras` incluye la ventana terciaria estándar y todas las entradas de `extraRateWindows`. Para elegir valores individuales, usa claves calificadas por proveedor como `codex.primary`, `antigravity.tertiary`, `claude.weekly` y `claude.fable-only`. Una clave `extras` calificada, como `claude.extras`, selecciona su ventana terciaria y todas sus ventanas adicionales detectadas. Los títulos de cuotas adicionales se convierten en claves estables en minúsculas con palabras separadas por guiones. Sus etiquetas visibles usan el prefijo único más corto, con un mínimo de dos caracteres dentro del proveedor. Los títulos idénticos reciben ordinales.
+La selección de cuotas predeterminada es `primary,weekly`. Estas claves globales se aplican a cada proveedor seleccionado para el panel compacto. Agrega `extras` para incluir la ventana terciaria estándar y todas las entradas de `extraRateWindows`. Para elegir valores individuales, usa claves calificadas por proveedor como `codex.primary`, `antigravity.tertiary`, `claude.weekly` y `claude.fable-only`. Una clave `extras` calificada, como `claude.extras`, selecciona su ventana terciaria y todas sus ventanas adicionales detectadas. Los títulos de cuotas adicionales se convierten en claves estables en minúsculas con palabras separadas por guiones. Sus etiquetas visibles usan el prefijo único más corto, con un mínimo de dos caracteres dentro del proveedor. Los títulos idénticos reciben ordinales. Cada bloque visual de proveedor tiene un límite y elide su texto con seguridad, mientras los valores completos permanecen disponibles en el modelo compacto.
 
 ### Adquisición y selección compacta
 
@@ -144,9 +149,9 @@ El popup usa `Gemini (Antigravity)` para Antigravity y `Gemini` para el proveedo
 | Refresh | Intervalo de consulta entre 10 y 3600 segundos. |
 | Compact providers | Identificadores ordenados y separados por comas que usa la bandeja del sistema. Vacío muestra todos los proveedores devueltos y nunca filtra el popup. |
 | Compact quotas | Claves de cuota separadas por comas. Admite claves globales y calificadas por proveedor. Vacío muestra solo etiquetas y nunca filtra el popup. |
-| Show provider in panel | Incluye la etiqueta de cada proveedor seleccionado en el resumen compacto. |
+| Show provider in panel | Incluye el icono de cada proveedor seleccionado en el resumen compacto. |
 | Show used percent in panel | Incluye porcentajes de uso en la salida compacta. |
-| Show credits in panel | Incluye créditos disponibles como valores `Cr` en cada bloque compacto. |
+| Show credits in panel | Incluye créditos disponibles como valores `Cr` en cada bloque compacto. Está desactivado de forma predeterminada. |
 | Show email in widget | Muestra el correo de la cuenta en el popup cuando está disponible. |
 | Fetch provider status | Solicita y muestra información del estado del proveedor. |
 | Show local cost summary | Muestra estimaciones locales de tokens y costos cuando están disponibles. |

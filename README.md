@@ -14,6 +14,10 @@ KodexBar is a KDE Plasma 6 widget for monitoring AI provider quotas through the 
 
 ## Features
 
+- Uses the selected dark 520 by 560 card with provider tabs, live status, source pills, metric badges, progress bars, and a matching compact preview.
+- Shows one provider account at a time, ordered as Codex, Claude, Grok, Antigravity, then every other enabled provider.
+- Keeps repeated accounts separate with stable non-sensitive ordinals in tabs and compact output.
+- Uses the supplied Codex, Claude, Grok, Antigravity, and Gemini SVG assets while keeping Antigravity and Gemini distinct.
 - Adds `compactProviderOrder`, an ordered comma-separated provider selection for the compact panel.
 - Adds `compactQuotaSelection`, a comma-separated quota selection for the compact panel.
 - Defaults to `codex,claude,grok,antigravity`.
@@ -28,9 +32,10 @@ KodexBar is a KDE Plasma 6 widget for monitoring AI provider quotas through the 
 - Shows selected extra windows at every usage percentage, with no automatic threshold.
 - Shows standard primary, secondary, and tertiary windows in the popup when usage or reset data is known.
 - Uses deterministic minimum unique prefixes for extra quota labels, while preserving `Fb` for Fable.
-- Keeps provider chips horizontally scrollable when the popup contains many enabled providers or accounts.
+- Keeps provider tabs horizontally scrollable when the popup contains many enabled providers or accounts.
 - Shows each provider-level cost summary only once when multiple accounts share a provider.
-- Presents Antigravity quota data as `Gemini (Antigravity)` in the popup.
+- Labels the Antigravity tab as `Antigravity` and presents its full heading as `Gemini (Antigravity)`.
+- Colors compact status dots from the worst selected usage, with warning at 50 percent, error at 80 percent, and neutral when usage is unavailable.
 - Corrects reversed Gemini window order when the CLI reports a longer primary window than secondary.
 - Preserves provider-specific popup details, reset times, credits, status, and cost summaries.
 
@@ -116,14 +121,14 @@ This removes whichever KodexBar package currently occupies that ID, whether it c
 The default compact output follows this shape:
 
 ```text
-Cx P24% W61% | Cl P18% W42% Fb67% | Gk ERR | Ag P8% W31%
+[Codex icon] P24% W61% | [Claude icon] ERR | [Grok icon] P8% W31% | [Antigravity icon] P0% W1%
 ```
 
-`P` is the used percentage for the primary window. `W` is the used percentage for the weekly or secondary window. `Fb` is a Claude Fable-only window. The values above are illustrative, not real account data.
+`P` is the used percentage for the primary window. `W` is the used percentage for the weekly or secondary window. The values above are illustrative, not real account data.
 
 When CodexBar returns multiple accounts for one provider, the compact panel adds non-sensitive ordinals such as `Cx #1` and `Cx #2`. The ordinals remain visible when provider labels are disabled. Account emails remain confined to the optional popup email field.
 
-The default quota selection is `primary,weekly,extras`. These global keys apply to every provider selected for the compact panel. `extras` includes the standard tertiary window and every entry from `extraRateWindows`. To choose individual values, use provider-qualified keys such as `codex.primary`, `antigravity.tertiary`, `claude.weekly`, and `claude.fable-only`. A provider-qualified `extras` key, such as `claude.extras`, selects its tertiary window and every detected extra rate-limit window. Extra quota titles become stable lowercase keys with words separated by hyphens. Their visible labels use the shortest unique prefix of at least two characters within the provider. Identical titles receive ordinals.
+The default quota selection is `primary,weekly`. These global keys apply to every provider selected for the compact panel. Add `extras` to include the standard tertiary window and every entry from `extraRateWindows`. To choose individual values, use provider-qualified keys such as `codex.primary`, `antigravity.tertiary`, `claude.weekly`, and `claude.fable-only`. A provider-qualified `extras` key, such as `claude.extras`, selects its tertiary window and every detected extra rate-limit window. Extra quota titles become stable lowercase keys with words separated by hyphens. Their visible labels use the shortest unique prefix of at least two characters within the provider. Identical titles receive ordinals. Each visual provider block is capped and elided safely, while its complete selected values remain available to the compact model.
 
 ### Acquisition and compact selection
 
@@ -144,9 +149,9 @@ The popup uses `Gemini (Antigravity)` for Antigravity and `Gemini` for the indep
 | Refresh | Poll interval from 10 to 3600 seconds. |
 | Compact providers | Display-only ordered comma-separated provider IDs used by the system tray. Empty shows every returned provider and never filters the popup. |
 | Compact quotas | Display-only comma-separated quota keys. Supports global keys and provider-qualified keys. Empty shows provider labels only and never filters the popup. |
-| Show provider in panel | Includes each selected provider label in the compact system tray summary. |
+| Show provider in panel | Includes each selected provider icon in the compact system tray summary. |
 | Show used percent in panel | Includes usage percentages in compact output. |
-| Show credits in panel | Includes available credits as `Cr` values in each compact provider block. |
+| Show credits in panel | Includes available credits as `Cr` values in each compact provider block. Disabled by default. |
 | Show email in widget | Shows the account email in the popup when available. |
 | Fetch provider status | Requests and displays provider status information. |
 | Show local cost summary | Displays local CodexBar token and cost estimates when available. |

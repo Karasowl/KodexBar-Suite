@@ -9,27 +9,33 @@
   "entries": [
     {
       "provider": "unlisted",
+      "name": "Other",
       "errorMessage": "must be filtered"
     },
     {
       "provider": "GROK",
+      "name": "Grok",
       "errorMessage": "quota unavailable"
     },
     {
       "provider": "antigravity",
+      "name": "Gemini (Antigravity)",
       "errorMessage": ""
     },
     {
       "provider": "codex",
+      "name": "Codex",
       "account": "first",
       "errorMessage": ""
     },
     {
       "provider": "claude",
+      "name": "Claude",
       "errorMessage": ""
     },
     {
       "provider": "codex",
+      "name": "Codex",
       "account": "second",
       "errorMessage": ""
     }
@@ -122,6 +128,38 @@
       "provider": "grok",
       "errorMessage": "quota unavailable",
       "rows": []
+    }
+  ],
+  "defaultCompactEntries": [
+    {
+      "provider": "codex",
+      "compactPrimaryPercentLeft": 81,
+      "secondaryPercentLeft": 100,
+      "rows": []
+    },
+    {
+      "provider": "claude",
+      "errorMessage": "rate limited",
+      "rows": []
+    },
+    {
+      "provider": "grok",
+      "compactPrimaryPercentLeft": 92,
+      "secondaryPercentLeft": 69,
+      "rows": []
+    },
+    {
+      "provider": "antigravity",
+      "compactPrimaryPercentLeft": 100,
+      "secondaryPercentLeft": 99,
+      "rows": [
+        {
+          "title": "Gemini 5-hour",
+          "compactKey": "gemini-5-hour",
+          "compactExtra": true,
+          "percentLeft": 75
+        }
+      ]
     }
   ],
   "costSummaries": {
