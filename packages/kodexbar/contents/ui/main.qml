@@ -1206,7 +1206,7 @@ PlasmoidItem {
                         anchors.centerIn: parent
                         width: 22
                         height: 22
-                        source: Qt.resolvedUrl("../icons/providers/openai.svg")
+                        source: Qt.resolvedUrl("../icons/kodexbar.svg")
                         fillMode: Image.PreserveAspectFit
                         smooth: true
                     }

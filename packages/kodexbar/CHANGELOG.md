@@ -8,6 +8,12 @@ All notable fork-specific changes are documented here.
 
 - Rename the public product to KodexBar Suite while preserving the technical plugin ID `org.kde.plasma.kodexbar` and upstream KodexBar attribution.
 
+## 0.3.3, 2026-07-14
+
+### Changed
+
+- Replace the inherited OpenAI app identity with the KodexBar K-meter mark across the popup and Plasma widget metadata.
+
 ## 0.3.2, 2026-07-14
 
 ### Fixed
