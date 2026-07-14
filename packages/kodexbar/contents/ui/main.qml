@@ -409,10 +409,16 @@ PlasmoidItem {
 
     function refreshOtherProviders() {
         var providers = knownProviderIds(false)
-        refreshCost()
         if (providers.length === 0) {
+            if (knownProviderIds(true).length === 0) {
+                initialUsageSeedPending = true
+                refresh()
+            } else {
+                refreshCost()
+            }
             return
         }
+        refreshCost()
         beginUsageRefresh(providerCandidates(providers), false)
     }
 
@@ -459,6 +465,9 @@ PlasmoidItem {
     function cancelUsageRefresh() {
         executable.connectedSources = []
         pendingCandidates = []
+        if (activeQueryReplacesAll) {
+            initialUsageSeedPending = true
+        }
         usageWatchdog.stop()
         loading = false
     }
@@ -1997,7 +2006,7 @@ PlasmoidItem {
         engine: "executable"
         onNewData: function(sourceName, data) {
             disconnectSource(sourceName)
-            root.usageWatchdog.stop()
+            usageWatchdog.stop()
             if (data["exit code"] && data["exit code"] !== 0 && !(data.stdout || "").length) {
                 var runtimeError = data.stderr || i18n("Exit code %1", data["exit code"])
                 if (root.handleUsageFailure(runtimeError, "")) {

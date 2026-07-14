@@ -591,6 +591,16 @@ assert.match(
 assert.match(mainQml, /provider: "all", source: selectedSource, replaceAll: true/, "startup seeds every enabled provider once")
 assert.match(mainQml, /provider === "all"/, "known provider IDs defensively exclude the synthetic all seed")
 assert.match(mainQml, /id: usageWatchdog[\s\S]*interval: 120000/, "a two-minute watchdog releases hung usage refreshes")
+assert.match(
+    mainQml,
+    /function cancelUsageRefresh\(\) \{[\s\S]*if \(activeQueryReplacesAll\) \{\s*initialUsageSeedPending = true/,
+    "cancelling an all-provider seed re-arms its retry"
+)
+assert.match(
+    mainQml,
+    /function refreshOtherProviders\(\) \{[\s\S]*if \(providers\.length === 0\) \{\s*if \(knownProviderIds\(true\)\.length === 0\) \{\s*initialUsageSeedPending = true\s*refresh\(\)/,
+    "an empty provider result re-enters the all-provider seed path"
+)
 assert.match(mainQml, /providerCandidates\(\["claude"\]\)/, "Claude refreshes through a provider-specific query")
 assert.match(mainQml, /id: claudeRefreshTimer/, "Claude uses a separate refresh timer")
 assert.match(mainQml, /i18n\("Banked resets"\)/, "the Codex popup labels banked rate-limit resets")
