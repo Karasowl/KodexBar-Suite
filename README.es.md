@@ -5,7 +5,7 @@
 KodexBar Suite es un pequeño conjunto de herramientas de escritorio para Linux con dos paquetes independientes:
 
 - `packages/kodexbar` es un widget de KDE Plasma 6 para mostrar cuotas ordenadas mediante CodexBar.
-- `packages/ai-cli-control` es el selector local `ai` para iniciar y actualizar las CLI de proveedores.
+- `packages/ai-cli-control` es el selector local `ai` para iniciar y actualizar las CLI de proveedores, con recuperación de conversaciones en solo lectura mediante `ai recover`.
 
 Los paquetes se mantienen en un solo repositorio y pueden instalarse juntos desde la raíz. Cada paquete sigue siendo utilizable y comprobable por separado.
 

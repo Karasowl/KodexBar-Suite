@@ -8,10 +8,14 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from contextlib import redirect_stdout
+from importlib.util import module_from_spec, spec_from_file_location
+from io import StringIO
 
 
 ROOT = Path(__file__).resolve().parents[1]
 AI = ROOT / "ai"
+RECOVER = ROOT / "recover.py"
 INSTALL = ROOT / "install.sh"
 UNINSTALL = ROOT / "uninstall.sh"
 
@@ -591,7 +595,7 @@ class AiSelectorTests(unittest.TestCase):
         version = self.run_ai("--version")
         help_result = self.run_ai("--language", "en", "--help")
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.1.0")
+        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.2.0")
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("Choose and launch Codex", help_result.stdout)
         self.assertIn("--language LANGUAGE", help_result.stdout)
@@ -642,23 +646,48 @@ class AiSelectorTests(unittest.TestCase):
     def test_install_is_durable_and_uninstall_is_idempotent(self) -> None:
         home = self.temp / "home"
         home.mkdir()
+        (home / ".claude").mkdir()
+        (home / ".grok").mkdir()
         first = self.run_script(INSTALL, home)
         second = self.run_script(INSTALL, home)
         installed = home / ".local/share/ai-cli-control/ai"
+        installed_recover = home / ".local/share/ai-cli-control/recover.py"
         installed_uninstall = home / ".local/share/ai-cli-control/uninstall.sh"
         target = home / ".local/bin/ai"
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertTrue(installed.is_file())
+        self.assertTrue(installed_recover.is_file())
         self.assertTrue(installed_uninstall.is_file())
         self.assertTrue(target.is_symlink())
         self.assertEqual(target.readlink(), installed)
         self.assertEqual(installed.read_text(encoding="utf-8"), AI.read_text(encoding="utf-8"))
+        self.assertEqual(installed_recover.read_text(encoding="utf-8"), RECOVER.read_text(encoding="utf-8"))
+        for cli in ("claude", "grok"):
+            adapter = home / f".{cli}/skills/recover-chat"
+            self.assertTrue((adapter / "SKILL.md").is_file())
+            self.assertEqual((adapter / ".ai-cli-control-owner").read_text(encoding="utf-8").strip(), "ai-cli-control")
         self.assertNotEqual(target.resolve(), AI.resolve())
         self.assertEqual(self.run_script(installed_uninstall, home).returncode, 0)
         self.assertEqual(self.run_script(UNINSTALL, home).returncode, 0)
         self.assertFalse(target.exists())
         self.assertFalse(installed.exists())
+        self.assertFalse(installed_recover.exists())
+        self.assertFalse((home / ".claude/skills/recover-chat").exists())
+        self.assertFalse((home / ".grok/skills/recover-chat").exists())
+
+    def test_recover_forwards_arguments_and_exit_code(self) -> None:
+        help_result = self.run_ai("recover")
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn("usage: ", help_result.stdout)
+        self.assertIn("Recupera conversaciones locales por proyecto", help_result.stdout)
+        listed = self.run_ai("recover", "list", "--provider", "grok", "--cwd", str(self.temp))
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        self.assertEqual(listed.stdout, "")
+        self.assertIn("No se encontraron conversaciones", listed.stderr)
+        failed = self.run_ai("recover", "dump", "--provider", "grok", "--id", "missing", "--cwd", str(self.temp))
+        self.assertEqual(failed.returncode, 2)
+        self.assertIn("no se encontró la sesión missing", failed.stderr)
 
     def test_install_and_uninstall_refuse_foreign_target(self) -> None:
         home = self.temp / "foreign-home"
@@ -679,6 +708,17 @@ class AiSelectorTests(unittest.TestCase):
         self.assertTrue((home / ".local/share/ai-cli-control/ai").exists())
         self.assertEqual(target.readlink(), foreign)
 
+    def test_install_preserves_foreign_recover_adapter(self) -> None:
+        home = self.temp / "foreign-adapter-home"
+        adapter = home / ".claude/skills/recover-chat"
+        adapter.mkdir(parents=True)
+        skill = adapter / "SKILL.md"
+        skill.write_text("skill ajeno", encoding="utf-8")
+        result = self.run_script(INSTALL, home)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(skill.read_text(encoding="utf-8"), "skill ajeno")
+        self.assertIn("Skipped", result.stderr)
+
     def test_spanish_install_and_uninstall_output_uses_accents(self) -> None:
         home = self.temp / "spanish-home"
         home.mkdir()
@@ -689,6 +729,44 @@ class AiSelectorTests(unittest.TestCase):
         self.assertIn(f"ai se instaló en {target}", install.stdout)
         self.assertEqual(uninstall.returncode, 0, uninstall.stderr)
         self.assertIn("ai-cli-control se desinstaló.", uninstall.stdout)
+
+
+class RecoverEngineTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        spec = spec_from_file_location("recover_engine", RECOVER)
+        assert spec is not None and spec.loader is not None
+        cls.engine = module_from_spec(spec)
+        spec.loader.exec_module(cls.engine)
+
+    def test_truncation_never_emits_the_full_transcript(self) -> None:
+        transcript = "INICIO_UNICO " + ("contenido " * 600) + "FINAL_UNICO"
+        session = {
+            "provider": "agy", "id": "test", "cwd": "", "started": "2026-01-01T00:00:00Z",
+            "last": "2026-01-01T00:00:00Z", "kind": "main", "turns": [("user", transcript)],
+            "path": Path("/tmp/recover-engine-test"),
+        }
+        original = self.engine.sessions_for
+        self.engine.sessions_for = lambda _provider, _cwd: [session]
+        try:
+            output = StringIO()
+            args = type("Args", (), {"provider": "agy", "cwd": ".", "id": "last", "max_chars": 300})()
+            with redirect_stdout(output):
+                self.assertEqual(self.engine.command_dump(args), 0)
+        finally:
+            self.engine.sessions_for = original
+        rendered = output.getvalue()
+        self.assertIn("[TRUNCADO:", rendered)
+        self.assertNotIn(transcript, rendered)
+        self.assertNotIn("INICIO_UNICO", rendered)
+
+    def test_codex_synthetic_message_filter(self) -> None:
+        self.assertTrue(self.engine.is_synthetic_user_message("<recommended_plugins>configuración</recommended_plugins>"))
+        self.assertFalse(self.engine.is_synthetic_user_message("<pedido>texto real del usuario</pedido>"))
+
+    def test_printable_ratio_keeps_short_ok(self) -> None:
+        self.assertEqual(self.engine.printable_ratio("OK"), 1.0)
+        self.assertEqual(self.engine.useful_protobuf_text(b"\x0a\x02OK"), "OK")
 
 
 if __name__ == "__main__":

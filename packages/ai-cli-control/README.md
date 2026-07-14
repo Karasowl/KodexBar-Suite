@@ -12,6 +12,7 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 - Use KDialog when available, Yad as a graphical fallback, and an interactive terminal fallback otherwise.
 - Read Codex models from the local model cache and query Grok and Antigravity catalogs when selected.
 - Run one or more CLI updates in a fixed order, while continuing after a failed update.
+- Recover read-only local conversation histories from Codex, Claude, Grok, and Antigravity with `ai recover`.
 - Preview launch and update commands with `--dry-run`.
 - Use English by default. Spanish locales receive Spanish interface text. `--language en` and `--language es` override locale detection.
 - Keep every launched and updated command as an argument array without shell evaluation.
@@ -40,6 +41,26 @@ Run from a clone or extracted release:
 The graphical selector uses KDialog first, then Yad. Without a graphical session it uses the text selector. Cancelling any selector step exits successfully and does not launch a CLI.
 
 The text selector accepts numbered choices. For the update checklist it accepts comma-separated numbers, `all`, or `0` to cancel.
+
+## Recover conversations
+
+`ai recover` is a standalone, read-only engine for transporting a previous local conversation into the current one. It reads provider history stores without changing them. Run it from a checkout or after installation:
+
+```bash
+./ai recover dump --provider grok --id last
+ai recover list --provider claude --cwd /path/to/project
+ai recover dump --provider agy --id SESSION_ID --max-chars 800
+```
+
+Use these three modes:
+
+- Direct recovery: `ai recover dump --provider PROVIDER --id last` recovers the latest eligible conversation for that provider and project.
+- List and choose: `ai recover list --provider PROVIDER`, then pass a listed id to `dump`.
+- Multiple providers: run `list` once per provider, choose an id for each, then run one `dump` command per chosen session.
+
+Providers are `codex`, `claude`, `grok`, `agy`, and `antigravity` as an alias for `agy`. For Claude, `--id last` skips the session that appears live and chooses the latest past session. Dumps display a `[TRUNCADO: ...]` marker when the output has been shortened.
+
+When the matching CLI home directory exists, installation adds thin `recover-chat` adapters for Claude at `~/.claude/skills/recover-chat/` and Grok at `~/.grok/skills/recover-chat/`. The Claude adapter uses its interactive question tool for selection, and the Grok adapter presents a numbered chat list. Codex and Antigravity users invoke `ai recover` directly because no verified user-level adapter mechanism is installed for them.
 
 ## Non-interactive launch
 
@@ -98,7 +119,7 @@ ai --version
 ~/.local/share/ai-cli-control/uninstall.sh
 ```
 
-The installed executable is `~/.local/share/ai-cli-control/ai`, with `~/.local/bin/ai` as its symlink. A copy of `uninstall.sh` is stored beside it for removal after a checkout has been deleted. No `sudo` is used. Installation refuses to replace an existing `~/.local/bin/ai` that is not owned by this project. Uninstallation checks its ownership marker and symlink before removing only project-owned files. Both scripts are idempotent.
+The installed executable is `~/.local/share/ai-cli-control/ai`, with `~/.local/bin/ai` as its symlink. Its standalone `recover.py` engine and a copy of `uninstall.sh` are stored beside it for removal after a checkout has been deleted. No `sudo` is used. Installation refuses to replace an existing `~/.local/bin/ai` that is not owned by this project. It installs adapters only when their CLI home directory exists and never replaces an unowned `recover-chat` skill. Uninstallation checks ownership markers and removes only project-owned files. Both scripts are idempotent.
 
 ## Development
 

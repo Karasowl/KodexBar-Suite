@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import NoReturn, Sequence
 
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 EXIT_INVALID = 2
 CODEX_CACHE = Path(
     os.environ.get("AI_CODEX_MODELS_CACHE", "~/.codex/models_cache.json")
@@ -105,6 +105,7 @@ TRANSLATIONS = {
         "help_text": "use menus in the terminal",
         "help_language": "use English or Spanish interface text",
         "help_update": "update codex, claude, grok, and antigravity, or a comma-separated list",
+        "help_recover": "use 'ai recover' to recover local conversations from provider CLIs",
         "field_provider": "provider",
         "field_model": "model",
         "field_effort": "effort",
@@ -193,6 +194,7 @@ TRANSLATIONS = {
         "help_text": "usa menús dentro de la terminal",
         "help_language": "usa texto de interfaz en inglés o español",
         "help_update": "actualiza codex, claude, grok y antigravity, o una lista separada por comas",
+        "help_recover": "usa 'ai recover' para recuperar conversaciones locales de las CLI de proveedores",
         "field_provider": "proveedor",
         "field_model": "modelo",
         "field_effort": "esfuerzo",
@@ -653,7 +655,13 @@ class LocalizedArgumentParser(argparse.ArgumentParser):
 
 
 def parse_arguments(language: str) -> argparse.Namespace:
-    parser = LocalizedArgumentParser(language, prog="ai", description=message(language, "help_description"), add_help=False)
+    parser = LocalizedArgumentParser(
+        language,
+        prog="ai",
+        description=message(language, "help_description"),
+        epilog=message(language, "help_recover"),
+        add_help=False,
+    )
     parser.add_argument("-h", "--help", action="help", help=message(language, "help_help"))
     parser.add_argument("--version", action="version", version=f"ai-cli-control {VERSION}", help=message(language, "help_version"))
     parser.add_argument("--dry-run", action="store_true", help=message(language, "help_dry_run"))
@@ -667,7 +675,16 @@ def parse_arguments(language: str) -> argparse.Namespace:
     return parser.parse_args()
 
 
+def run_recover(arguments: Sequence[str]) -> int:
+    """Run the standalone recovery engine located beside the real ai script."""
+    recover = Path(__file__).resolve().with_name("recover.py")
+    command = [sys.executable, str(recover), *(arguments or ("--help",))]
+    return subprocess.run(command, check=False).returncode
+
+
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "recover":
+        return run_recover(sys.argv[2:])
     language = requested_language(sys.argv[1:])
     args = parse_arguments(language)
     if args.update is not None:

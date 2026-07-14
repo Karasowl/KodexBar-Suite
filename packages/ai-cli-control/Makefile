@@ -10,6 +10,6 @@ uninstall:
 	./uninstall.sh
 
 check: test
-	python3 -m py_compile ai tests/test_ai.py tests/static_checks.py
+	python3 -m py_compile ai recover.py tests/test_ai.py tests/static_checks.py
 	bash -n install.sh uninstall.sh
 	python3 tests/static_checks.py

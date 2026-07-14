@@ -12,6 +12,7 @@ Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../REA
 - Usa KDialog cuando está disponible, Yad como respaldo gráfico y un selector interactivo de terminal como último respaldo.
 - Lee los modelos de Codex desde la caché local y consulta los catálogos de Grok y Antigravity al seleccionarlos.
 - Ejecuta una o varias actualizaciones de CLI en orden fijo y continúa después de un fallo.
+- Recupera historiales locales de conversación de Codex, Claude, Grok y Antigravity en modo de solo lectura con `ai recover`.
 - Muestra comandos de inicio y actualización con `--dry-run`.
 - Usa inglés de forma predeterminada. Los entornos en español reciben texto en español. `--language en` y `--language es` sustituyen la detección de locale.
 - Conserva cada comando de inicio y actualización como arreglo de argumentos sin evaluación de shell.
@@ -40,6 +41,26 @@ Ejecuta desde un clon o una versión extraída:
 El selector gráfico usa primero KDialog y después Yad. Sin sesión gráfica usa el selector de texto. Cancelar cualquier paso termina correctamente y no inicia una CLI.
 
 El selector de texto acepta opciones numeradas. Para la lista de actualizaciones acepta números separados por comas, `all` o `0` para cancelar.
+
+## Recuperar conversaciones
+
+`ai recover` es un motor independiente y de solo lectura para transportar una conversación local previa al contexto actual. Lee los historiales de los proveedores sin modificarlos. Funciona desde el clon o después de instalarlo:
+
+```bash
+./ai recover dump --provider grok --id last
+ai recover list --provider claude --cwd /ruta/al/proyecto
+ai recover dump --provider agy --id ID_DE_SESION --max-chars 800
+```
+
+Usa estos tres modos:
+
+- Recuperación directa: `ai recover dump --provider PROVEEDOR --id last` recupera la conversación elegible más reciente de ese proveedor y proyecto.
+- Listar y elegir: `ai recover list --provider PROVEEDOR`, después pasa un id listado a `dump`.
+- Varios proveedores: ejecuta `list` una vez por proveedor, elige un id de cada uno y ejecuta un `dump` por sesión elegida.
+
+Los proveedores son `codex`, `claude`, `grok`, `agy` y `antigravity` como alias de `agy`. Para Claude, `--id last` omite la sesión que parece activa y toma la sesión pasada más reciente. Los dumps muestran `[TRUNCADO: ...]` cuando la salida fue recortada.
+
+Cuando existe el directorio de configuración de la CLI correspondiente, la instalación agrega adaptadores delgados `recover-chat` para Claude en `~/.claude/skills/recover-chat/` y Grok en `~/.grok/skills/recover-chat/`. El adaptador de Claude usa su herramienta de preguntas interactivas para seleccionar y el de Grok presenta una lista numerada en el chat. Los usuarios de Codex y Antigravity invocan `ai recover` directamente, porque no hay un mecanismo de adaptadores de usuario verificado para ellos.
 
 ## Inicio no interactivo
 
@@ -98,7 +119,7 @@ ai --version
 ~/.local/share/ai-cli-control/uninstall.sh
 ```
 
-El ejecutable instalado queda en `~/.local/share/ai-cli-control/ai` y `~/.local/bin/ai` es su enlace simbólico. Una copia de `uninstall.sh` queda junto al ejecutable para eliminarlo después de borrar el clon. No usa `sudo`. La instalación no sustituye un `~/.local/bin/ai` existente que no pertenezca al proyecto. La eliminación verifica su marcador de propiedad y enlace simbólico antes de borrar solo archivos del proyecto. Ambos scripts son idempotentes.
+El ejecutable instalado queda en `~/.local/share/ai-cli-control/ai` y `~/.local/bin/ai` es su enlace simbólico. El motor independiente `recover.py` y una copia de `uninstall.sh` quedan junto al ejecutable para eliminarlos después de borrar el clon. No usa `sudo`. La instalación no sustituye un `~/.local/bin/ai` existente que no pertenezca al proyecto. Solo instala adaptadores si existe el directorio de su CLI y nunca reemplaza un skill `recover-chat` ajeno. La eliminación verifica los marcadores de propiedad y borra solo archivos del proyecto. Ambos scripts son idempotentes.
 
 ## Desarrollo
 
