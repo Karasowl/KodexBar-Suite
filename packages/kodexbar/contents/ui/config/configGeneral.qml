@@ -16,6 +16,8 @@ KCM.SimpleKCM {
     property string cfg_sourceDefault
     property alias cfg_refreshInterval: refreshInterval.value
     property int cfg_refreshIntervalDefault
+    property alias cfg_claudeRefreshInterval: claudeRefreshInterval.value
+    property int cfg_claudeRefreshIntervalDefault
     property alias cfg_showCreditsInPanel: showCreditsInPanel.checked
     property bool cfg_showCreditsInPanelDefault
     property alias cfg_showUsedPercentInPanel: showUsedPercentInPanel.checked
@@ -166,6 +168,17 @@ KCM.SimpleKCM {
                     from: 10
                     to: 3600
                     stepSize: 10
+                    textFromValue: function(value) { return i18np("%1 second", "%1 seconds", value) }
+                    valueFromText: function(text) { return Number(text.replace(/\D/g, "")) }
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 10
+                }
+
+                QQC2.SpinBox {
+                    id: claudeRefreshInterval
+                    Kirigami.FormData.label: i18n("Claude refresh:")
+                    from: 60
+                    to: 3600
+                    stepSize: 60
                     textFromValue: function(value) { return i18np("%1 second", "%1 seconds", value) }
                     valueFromText: function(text) { return Number(text.replace(/\D/g, "")) }
                     Layout.preferredWidth: Kirigami.Units.gridUnit * 10

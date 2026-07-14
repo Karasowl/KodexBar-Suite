@@ -8,6 +8,14 @@ All notable fork-specific changes are documented here.
 
 - Rename the public product to KodexBar Suite while preserving the technical plugin ID `org.kde.plasma.kodexbar` and upstream KodexBar attribution.
 
+## 0.3.1, 2026-07-14
+
+### Added
+
+- Retain the last successful provider-account usage when a later provider response fails, with a subtle cached indicator and neutral status dot.
+- Query Claude on its own configurable cadence to avoid repeatedly requesting its rate-limited usage endpoint.
+- Show available Codex banked rate-limit resets and their upcoming expirations in the popup.
+
 ## 0.3.0, 2026-07-13
 
 ### Added

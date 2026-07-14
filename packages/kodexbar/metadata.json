@@ -18,7 +18,7 @@
     "Id": "org.kde.plasma.kodexbar",
     "License": "MIT",
     "Name": "KodexBar Suite",
-    "Version": "0.3.0",
+    "Version": "0.3.1",
     "Website": "https://github.com/Karasowl/KodexBar"
   },
   "KPackageStructure": "Plasma/Applet",

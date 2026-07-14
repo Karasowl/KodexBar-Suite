@@ -33,6 +33,9 @@ PlasmoidItem {
     property string activeSource: selectedSource
     property var pendingCandidates: []
     property var failedCandidates: []
+    property var lastGoodEntries: []
+    property bool activeQueryReplacesAll: false
+    property bool initialUsageSeedPending: true
     property bool showCreditsInPanel: Plasmoid.configuration.showCreditsInPanel === undefined ? false : Plasmoid.configuration.showCreditsInPanel
     property bool showUsedPercentInPanel: Plasmoid.configuration.showUsedPercentInPanel === undefined ? true : Plasmoid.configuration.showUsedPercentInPanel
     property bool showProviderInPanel: Plasmoid.configuration.showProviderInPanel === undefined ? true : Plasmoid.configuration.showProviderInPanel
@@ -47,6 +50,8 @@ PlasmoidItem {
         ? "primary,weekly"
         : Plasmoid.configuration.compactQuotaSelection
     property int refreshSeconds: Math.max(10, Plasmoid.configuration.refreshInterval || 60)
+    property int claudeRefreshSeconds: Math.max(60, Math.min(3600,
+        Plasmoid.configuration.claudeRefreshInterval || 300))
     readonly property string designFont: manropeFont.status === FontLoader.Ready && manropeFont.name.length > 0
         ? manropeFont.name
         : Kirigami.Theme.defaultFont.family
@@ -225,12 +230,27 @@ PlasmoidItem {
         return String(raw)
     }
 
+    function formatResetTimes(values) {
+        var dates = Array.isArray(values) ? values : []
+        var formatted = []
+        for (var i = 0; i < dates.length; i++) {
+            var value = formatResetTime(dates[i])
+            if (value.length > 0) {
+                formatted.push(value.toLowerCase())
+            }
+        }
+        return formatted.join(" · ")
+    }
+
     function activeStatusColor(entry) {
         if (!entry || !entry.provider) {
             return loading ? warningColor : quietColor
         }
         if (entry.errorMessage) {
             return errorColor
+        }
+        if (entry.isCached === true) {
+            return quietColor
         }
         if (entry.statusIndicator === "major" || entry.statusIndicator === "critical") {
             return errorColor
@@ -264,6 +284,7 @@ PlasmoidItem {
         }
         return (!entry.rows || entry.rows.length === 0)
             && (entry.creditsRemaining === null || entry.creditsRemaining === undefined)
+            && (!entry.bankedResetCount || entry.bankedResetCount <= 0)
             && (!entry.costSummary)
             && (!entry.dashboardSummary || entry.dashboardSummary.length === 0)
     }
@@ -357,13 +378,69 @@ PlasmoidItem {
     }
 
     function refresh() {
+        if (loading) {
+            return
+        }
+        if (initialUsageSeedPending) {
+            initialUsageSeedPending = false
+            beginUsageRefresh([{ provider: "all", source: selectedSource, replaceAll: true }], true)
+            return
+        }
+        refreshOtherProviders()
+    }
+
+    function knownProviderIds(includeClaude) {
+        var providers = []
+        var seen = {}
+        var sources = [entries, lastGoodEntries]
+        for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {
+            var sourceEntries = sources[sourceIndex] || []
+            for (var i = 0; i < sourceEntries.length; i++) {
+                var provider = ProviderLogic.providerId(sourceEntries[i] && sourceEntries[i].provider)
+                if (provider.length === 0 || seen[provider] || (!includeClaude && provider === "claude")) {
+                    continue
+                }
+                seen[provider] = true
+                providers.push(provider)
+            }
+        }
+        return providers
+    }
+
+    function refreshOtherProviders() {
+        var providers = knownProviderIds(false)
+        refreshCost()
+        if (providers.length === 0) {
+            return
+        }
+        beginUsageRefresh(providerCandidates(providers), false)
+    }
+
+    function refreshClaude() {
+        if (loading || knownProviderIds(true).indexOf("claude") === -1) {
+            return
+        }
+        beginUsageRefresh(providerCandidates(["claude"]), false)
+    }
+
+    function providerCandidates(providers) {
+        var candidates = []
+        for (var i = 0; i < providers.length; i++) {
+            candidates.push({ provider: providers[i], source: selectedSource, replaceAll: false })
+        }
+        return candidates
+    }
+
+    function beginUsageRefresh(candidates, refreshCosts) {
         loading = true
         errorMessage = ""
         errorDetail = ""
         failedCandidates = []
-        pendingCandidates = candidateList()
+        pendingCandidates = candidates
         executable.connectedSources = []
-        refreshCost()
+        if (refreshCosts) {
+            refreshCost()
+        }
         tryNextCandidate()
     }
 
@@ -387,7 +464,6 @@ PlasmoidItem {
     function tryNextCandidate() {
         if (pendingCandidates.length === 0) {
             loading = false
-            entries = failedCandidates.slice()
             generatedAt = new Date().toLocaleString(Qt.locale(), Locale.ShortFormat)
             if (entries.length === 0) {
                 errorMessage = i18n("No usable CodexBar provider found")
@@ -399,8 +475,18 @@ PlasmoidItem {
         var candidate = pendingCandidates.shift()
         activeProvider = candidate.provider
         activeSource = candidate.source
+        activeQueryReplacesAll = candidate.replaceAll === true
         executable.connectedSources = []
         executable.connectSource(commandLine(activeProvider, activeSource))
+    }
+
+    function applyUsageEntries(normalized) {
+        var merged = ProviderLogic.mergeEntriesWithCache(normalized, lastGoodEntries)
+        lastGoodEntries = ProviderLogic.cacheLastGoodEntries(lastGoodEntries, normalized)
+        var providers = activeQueryReplacesAll ? [] : [activeProvider]
+        var updatedEntries = ProviderLogic.replaceProviderEntries(
+            entries, merged, providers, activeQueryReplacesAll)
+        entries = ProviderLogic.attachProviderCostSummaries(updatedEntries, costSummaries)
     }
 
     function hasUsableEntries(normalized) {
@@ -408,6 +494,7 @@ PlasmoidItem {
             if (!normalized[i].errorMessage
                     && ((normalized[i].rows && normalized[i].rows.length > 0)
                         || normalized[i].creditsRemaining !== null
+                        || normalized[i].bankedResetCount > 0
                         || normalized[i].codeReviewRemainingPercent !== null)) {
                 return true
             }
@@ -800,6 +887,7 @@ PlasmoidItem {
         secondary = normalizedWindows.secondary
         var providerCost = usage.providerCost && typeof usage.providerCost === "object" ? usage.providerCost : null
         var status = entry.status && typeof entry.status === "object" ? entry.status : null
+        var bankedResets = ProviderLogic.normalizeCodexResetCredits(usage.codexResetCredits)
         var rows = []
         var windows = [
             { key: "primary", title: i18n("Session"), data: primary },
@@ -860,6 +948,8 @@ PlasmoidItem {
             tertiaryPercentLeft: knownPercentLeft(tertiary),
             tertiaryResetsAt: resetAt(tertiary),
             creditsRemaining: credits ? credits.remaining : (typeof dashboard.creditsRemaining === "number" ? dashboard.creditsRemaining : null),
+            bankedResetCount: bankedResets.availableCount,
+            bankedResetExpiresAt: bankedResets.expiresAt,
             codeReviewRemainingPercent: typeof dashboard.codeReviewRemainingPercent === "number" ? dashboard.codeReviewRemainingPercent : null,
             dashboardSummary: dashboardSummary(dashboard),
             rows: rows,
@@ -965,6 +1055,8 @@ PlasmoidItem {
                         anchors.verticalCenter: parent.verticalCenter
                         color: modelData.error
                             ? root.errorColor
+                            : modelData.cached
+                                ? root.quietColor
                             : root.metricAccent(
                                 modelData.worstUsedPercent === null
                                     || modelData.worstUsedPercent === undefined
@@ -1339,6 +1431,7 @@ PlasmoidItem {
                         PlasmaComponents.Label {
                             visible: root.formatUpdatedTime(root.activeEntry.updatedAt).length > 0
                             text: i18n("updated %1", root.formatUpdatedTime(root.activeEntry.updatedAt))
+                                + (root.activeEntry.isCached === true ? " · " + i18n("cached") : "")
                             color: root.quietColor
                             font.family: root.designFont
                             font.pixelSize: 12
@@ -1644,6 +1737,51 @@ PlasmoidItem {
                             }
 
                             ColumnLayout {
+                                visible: root.popupState.hasEntry
+                                    && !root.activeEntry.errorMessage
+                                    && root.activeEntry.bankedResetCount > 0
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 1
+                                    color: "#22252f"
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+
+                                    PlasmaComponents.Label {
+                                        text: i18n("Banked resets")
+                                        color: root.textColor
+                                        font.family: root.designFont
+                                        font.pixelSize: 14
+                                        font.weight: Font.DemiBold
+                                        Layout.fillWidth: true
+                                    }
+
+                                    PlasmaComponents.Label {
+                                        text: root.formatCredits(root.activeEntry.bankedResetCount)
+                                        color: root.textColor
+                                        font.family: root.designFont
+                                        font.pixelSize: 26
+                                        font.weight: Font.ExtraBold
+                                    }
+                                }
+
+                                PlasmaComponents.Label {
+                                    text: root.formatResetTimes(root.activeEntry.bankedResetExpiresAt)
+                                    visible: text.length > 0
+                                    color: root.quietColor
+                                    font.family: root.designFont
+                                    font.pixelSize: 12
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                }
+                            }
+
+                            ColumnLayout {
                                 visible: root.showCostSummary
                                     && root.popupState.hasEntry
                                     && root.activeEntry.costSummary
@@ -1876,7 +2014,7 @@ PlasmoidItem {
                         message: data.stderr || i18n("Exit code %1", data["exit code"])
                     }
                 })
-                root.appendFailedEntries([errorEntry])
+                root.applyUsageEntries([errorEntry])
                 root.tryNextCandidate()
                 return
             }
@@ -1887,20 +2025,12 @@ PlasmoidItem {
                     source: root.activeSource,
                     error: { kind: "runtime", message: result.error + (result.detail ? ": " + result.detail : "") }
                 })
-                root.appendFailedEntries([parseErrorEntry])
+                root.applyUsageEntries([parseErrorEntry])
                 root.tryNextCandidate()
                 return
             }
-            if (!result.usable && root.pendingCandidates.length > 0) {
-                root.appendFailedEntries(result.entries)
-                root.tryNextCandidate()
-                return
-            }
-            root.loading = false
-            root.errorMessage = ""
-            root.errorDetail = ""
-            root.generatedAt = new Date().toLocaleString(Qt.locale(), Locale.ShortFormat)
-            root.entries = ProviderLogic.attachProviderCostSummaries(result.entries, root.costSummaries)
+            root.applyUsageEntries(result.entries)
+            root.tryNextCandidate()
         }
     }
 
@@ -1951,10 +2081,20 @@ PlasmoidItem {
         onTriggered: root.refresh()
     }
 
+    Timer {
+        id: claudeRefreshTimer
+        interval: root.claudeRefreshSeconds * 1000
+        repeat: true
+        running: true
+        onTriggered: root.refreshClaude()
+    }
+
     onRefreshSecondsChanged: {
         refreshTimer.restart()
         refresh()
     }
+
+    onClaudeRefreshSecondsChanged: claudeRefreshTimer.restart()
 
     onCodexbarCommandChanged: refresh()
     onAiControlCommandChanged: aiControlError = ""

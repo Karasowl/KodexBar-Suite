@@ -237,6 +237,51 @@ const unchangedClaude = context.normalizeUsageWindows(
 assert.equal(unchangedClaude.primary.windowMinutes, 10080, "other providers keep their original windows")
 assert.equal(unchangedClaude.secondary.windowMinutes, 300)
 
+assert.deepEqual(
+    plain(context.normalizeCodexResetCredits(fixture.codexResetCredits)),
+    {
+        availableCount: 2,
+        expiresAt: ["2026-08-11T21:09:53Z", "2026-08-12T18:07:45Z"]
+    },
+    "Codex banked reset credits retain their count and expiration dates"
+)
+
+const goodClaudeEntry = {
+    provider: "claude",
+    account: "account-one",
+    updatedAt: "2026-07-14T17:11:01Z",
+    compactPrimaryPercentLeft: 92,
+    secondaryPercentLeft: 95,
+    rows: [{ title: "Session", percentLeft: 92, usageKnown: true }],
+    errorMessage: ""
+}
+const claudeCache = context.cacheLastGoodEntries([], [goodClaudeEntry])
+const cachedClaudeResult = plain(context.mergeEntriesWithCache([
+    {
+        provider: "claude",
+        account: "account-one",
+        errorMessage: "Claude CLI usage endpoint is rate limited right now"
+    }
+], claudeCache))
+assert.equal(cachedClaudeResult[0].compactPrimaryPercentLeft, 92)
+assert.equal(cachedClaudeResult[0].updatedAt, "2026-07-14T17:11:01Z")
+assert.equal(cachedClaudeResult[0].errorMessage, "")
+assert.equal(cachedClaudeResult[0].isCached, true, "a Claude error retains the last successful account entry")
+
+const uncachedClaudeError = plain(context.mergeEntriesWithCache([
+    {
+        provider: "claude",
+        account: "new-account",
+        errorMessage: "Claude CLI usage endpoint is rate limited right now"
+    }
+], claudeCache))
+assert.equal(
+    uncachedClaudeError[0].errorMessage,
+    "Claude CLI usage endpoint is rate limited right now",
+    "an error without cached data stays visible"
+)
+assert.equal(uncachedClaudeError[0].isCached, false)
+
 assert.equal(context.compactProviderLabel("codex", "Codex"), "Cx")
 assert.equal(context.compactProviderLabel("claude", "Claude"), "Cl")
 assert.equal(context.compactProviderLabel("grok", "Grok"), "Gk")
@@ -442,8 +487,8 @@ const configXml = fs.readFileSync(configXmlPath, "utf8")
 const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"))
 assert.match(
     mainQml,
-    /attachProviderCostSummaries\(result\.entries, root\.costSummaries\)/,
-    "the popup data path retains every returned provider"
+    /ProviderLogic\.replaceProviderEntries\(/,
+    "the popup data path updates only the provider that was queried"
 )
 assert.match(mainQml, /composeCompactBlocks/, "QML delegates compact visual composition to tested pure logic")
 assert.match(mainQml, /Plasmoid\.contextualActions:\s*\[/, "the widget exposes user-facing contextual actions")
@@ -483,15 +528,21 @@ assert.match(configQml, /placeholderText: "primary,weekly"/, "settings show the 
 assert.match(configQml, /text: i18n\("Show all returned providers"\)/, "settings expose an explicit all-providers compact option")
 assert.match(configQml, /setCompactProviderSelected\(modelData\.providerId, checked\)/, "settings expose per-provider compact selection controls")
 assert.match(configQml, /cfg_aiControlCommand/, "settings expose the AI CLI Control command")
+assert.match(configQml, /cfg_claudeRefreshInterval/, "settings expose the Claude refresh interval")
 assert.match(configXml, /<entry name="aiControlCommand" type="String">\s*<default>ai<\/default>/, "AI CLI Control uses ai as its default command")
 assert.match(configXml, /<entry name="provider" type="String">/, "legacy provider value remains readable for migration")
 assert.match(configXml, /<entry name="compactProviderMigrationDone" type="Bool">/, "one-time migration has a persistent flag")
 assert.match(
     configXml,
+    /<entry name="claudeRefreshInterval" type="Int">\s*<default>300<\/default>\s*<min>60<\/min>\s*<max>3600<\/max>/,
+    "Claude refresh defaults to five minutes within its supported range"
+)
+assert.match(
+    configXml,
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.3.0", "package metadata uses version 0.3.0")
+assert.equal(metadata.KPlugin.Version, "0.3.1", "package metadata uses version 0.3.1")
 assert.equal(metadata.KPlugin.Name, "KodexBar Suite", "package metadata uses the public product name")
 assert.equal(metadata.KPlugin.Id, "org.kde.plasma.kodexbar", "the technical plugin ID remains compatible")
 assert.doesNotMatch(
@@ -509,5 +560,10 @@ assert.match(
     /root\.metricAccent\([\s\S]*modelData\.worstUsedPercent/,
     "compact status dots use the same metric accent thresholds"
 )
+assert.match(mainQml, /provider: "all", source: selectedSource, replaceAll: true/, "startup seeds every enabled provider once")
+assert.match(mainQml, /providerCandidates\(\["claude"\]\)/, "Claude refreshes through a provider-specific query")
+assert.match(mainQml, /id: claudeRefreshTimer/, "Claude uses a separate refresh timer")
+assert.match(mainQml, /i18n\("Banked resets"\)/, "the Codex popup labels banked rate-limit resets")
+assert.match(mainQml, /root\.activeEntry\.isCached === true/, "cached popup data has a visible staleness note")
 
 console.log("provider logic fixtures passed")

@@ -46,6 +46,153 @@ function costArguments() {
     return ["cost", "--format", "json", "--json-only"]
 }
 
+function normalizeCodexResetCredits(value) {
+    var credits = value && typeof value === "object" ? value : {}
+    var list = Array.isArray(credits.credits) ? credits.credits : []
+    var expiresAt = []
+    for (var i = 0; i < list.length; i++) {
+        if (list[i] && list[i].expires_at) {
+            expiresAt.push(String(list[i].expires_at))
+        }
+    }
+    expiresAt.sort(function(left, right) {
+        return new Date(left).getTime() - new Date(right).getTime()
+    })
+    return {
+        availableCount: typeof credits.availableCount === "number" ? credits.availableCount : 0,
+        expiresAt: expiresAt
+    }
+}
+
+function providerAccountKey(entry) {
+    var provider = providerId(entry && entry.provider)
+    var account = String(entry && entry.account || "").trim().toLowerCase()
+    return provider + "\u001f" + account
+}
+
+function copyEntry(entry) {
+    var copy = {}
+    for (var property in entry) {
+        copy[property] = entry[property]
+    }
+    return copy
+}
+
+function cacheLastGoodEntries(previous, entries) {
+    var cached = Array.isArray(previous) ? previous.slice() : []
+    var incoming = Array.isArray(entries) ? entries : []
+    for (var i = 0; i < incoming.length; i++) {
+        var entry = incoming[i]
+        if (!entry || entry.errorMessage) {
+            continue
+        }
+        var key = providerAccountKey(entry)
+        var replaced = false
+        for (var j = 0; j < cached.length; j++) {
+            if (providerAccountKey(cached[j]) === key) {
+                cached[j] = copyEntry(entry)
+                replaced = true
+                break
+            }
+        }
+        if (!replaced) {
+            cached.push(copyEntry(entry))
+        }
+    }
+    return cached
+}
+
+function cachedEntryForError(entry, cachedEntries) {
+    var cached = Array.isArray(cachedEntries) ? cachedEntries : []
+    var key = providerAccountKey(entry)
+    for (var i = 0; i < cached.length; i++) {
+        if (providerAccountKey(cached[i]) === key) {
+            return cached[i]
+        }
+    }
+
+    if (String(entry && entry.account || "").trim().length > 0) {
+        return null
+    }
+    var provider = providerId(entry && entry.provider)
+    var providerMatches = []
+    for (var j = 0; j < cached.length; j++) {
+        if (providerId(cached[j] && cached[j].provider) === provider) {
+            providerMatches.push(cached[j])
+        }
+    }
+    return providerMatches.length === 1 ? providerMatches[0] : null
+}
+
+function mergeEntriesWithCache(entries, cachedEntries) {
+    var incoming = Array.isArray(entries) ? entries : []
+    var merged = []
+    for (var i = 0; i < incoming.length; i++) {
+        var entry = incoming[i] || {}
+        if (!entry.errorMessage) {
+            var fresh = copyEntry(entry)
+            fresh.isCached = false
+            merged.push(fresh)
+            continue
+        }
+        var cached = cachedEntryForError(entry, cachedEntries)
+        if (cached) {
+            var retained = copyEntry(cached)
+            retained.isCached = true
+            retained.cachedErrorMessage = entry.errorMessage
+            merged.push(retained)
+        } else {
+            var failed = copyEntry(entry)
+            failed.isCached = false
+            merged.push(failed)
+        }
+    }
+    return merged
+}
+
+function replaceProviderEntries(currentEntries, incomingEntries, providers, replaceAll) {
+    var incoming = Array.isArray(incomingEntries) ? incomingEntries : []
+    if (replaceAll === true) {
+        return incoming.slice()
+    }
+
+    var current = Array.isArray(currentEntries) ? currentEntries : []
+    var requested = Array.isArray(providers) ? providers : []
+    var targets = {}
+    for (var i = 0; i < requested.length; i++) {
+        targets[providerId(requested[i])] = true
+    }
+    var inserted = {}
+    var result = []
+    for (var j = 0; j < current.length; j++) {
+        var currentEntry = current[j]
+        var currentProvider = providerId(currentEntry && currentEntry.provider)
+        if (!targets[currentProvider]) {
+            result.push(currentEntry)
+            continue
+        }
+        if (!inserted[currentProvider]) {
+            for (var incomingIndex = 0; incomingIndex < incoming.length; incomingIndex++) {
+                if (providerId(incoming[incomingIndex] && incoming[incomingIndex].provider) === currentProvider) {
+                    result.push(incoming[incomingIndex])
+                }
+            }
+            inserted[currentProvider] = true
+        }
+    }
+    for (var target in targets) {
+        if (inserted[target]) {
+            continue
+        }
+        for (var pendingIndex = 0; pendingIndex < incoming.length; pendingIndex++) {
+            if (providerId(incoming[pendingIndex] && incoming[pendingIndex].provider) === target) {
+                result.push(incoming[pendingIndex])
+            }
+        }
+    }
+    return result
+}
+
 function compactQuotaKey(value) {
     return String(value || "")
         .trim()
@@ -370,6 +517,7 @@ function composeCompactBlocks(entries, options) {
                 provider: id,
                 ordinal: ordinal,
                 error: true,
+                cached: false,
                 status: "error",
                 worstUsedPercent: null,
                 quotaText: "ERR",
@@ -443,7 +591,8 @@ function composeCompactBlocks(entries, options) {
                 provider: id,
                 ordinal: ordinal,
                 error: false,
-                status: compactUsageStatus(worstUsedPercent),
+                cached: entry.isCached === true,
+                status: entry.isCached === true ? "neutral" : compactUsageStatus(worstUsedPercent),
                 worstUsedPercent: worstUsedPercent,
                 quotaText: quotaText,
                 fullText: blockText,

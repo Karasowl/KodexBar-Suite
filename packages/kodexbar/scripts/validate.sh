@@ -57,5 +57,5 @@ if rg -n '[ \t]+$' --hidden \
     exit 1
 fi
 
-git --git-dir="$repo_root/.git" --work-tree="$repo_root" diff --check
+git -C "$repo_root" diff --check -- .
 echo "static validation passed"

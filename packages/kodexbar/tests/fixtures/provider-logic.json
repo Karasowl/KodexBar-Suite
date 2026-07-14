@@ -181,5 +181,20 @@
       "windowMinutes": 300,
       "usedPercent": 24
     }
+  },
+  "codexResetCredits": {
+    "availableCount": 2,
+    "credits": [
+      {
+        "title": "Full reset",
+        "status": "available",
+        "expires_at": "2026-08-11T21:09:53Z"
+      },
+      {
+        "title": "Full reset",
+        "status": "available",
+        "expires_at": "2026-08-12T18:07:45Z"
+      }
+    ]
   }
 }
