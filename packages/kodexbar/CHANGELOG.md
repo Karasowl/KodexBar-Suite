@@ -2,6 +2,12 @@
 
 All notable fork-specific changes are documented here.
 
+## 0.4.0, 2026-07-14
+
+### Added
+
+- Use the installed `kodexbar-quotas` engine before upstream `codexbar` when the command setting remains at its default, retrying upstream only when the engine command is unavailable.
+
 ## Unreleased
 
 ### Changed

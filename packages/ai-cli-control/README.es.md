@@ -16,6 +16,7 @@ Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../REA
 - Muestra comandos de inicio y actualización con `--dry-run`.
 - Usa inglés de forma predeterminada. Los entornos en español reciben texto en español. `--language en` y `--language es` sustituyen la detección de locale.
 - Conserva cada comando de inicio y actualización como arreglo de argumentos sin evaluación de shell.
+- Incluye `kodexbar-quotas`, un motor local de cuotas para el widget KodexBar Suite.
 
 ## Requisitos
 
@@ -120,6 +121,12 @@ ai --version
 ```
 
 El ejecutable instalado queda en `~/.local/share/ai-cli-control/ai` y `~/.local/bin/ai` es su enlace simbólico. El motor independiente `recover.py` y una copia de `uninstall.sh` quedan junto al ejecutable para eliminarlos después de borrar el clon. No usa `sudo`. La instalación no sustituye un `~/.local/bin/ai` existente que no pertenezca al proyecto. Solo instala adaptadores si existe el directorio de su CLI y nunca reemplaza un skill `recover-chat` ajeno. La eliminación verifica los marcadores de propiedad y borra solo archivos del proyecto. Ambos scripts son idempotentes.
+
+## Motor de cuotas
+
+`kodexbar-quotas` es el comando local predeterminado del widget. Lee los proveedores habilitados desde `~/.config/codexbar/config.json`. Consulta Claude directamente en `https://api.anthropic.com/api/oauth/usage` con el token OAuth de Claude y un límite de 15 segundos. Codex, Antigravity, Grok, credenciales ausentes, respuestas inesperadas y fallos normales de solicitud usan `codexbar` upstream por proveedor. El HTTP 429 de Claude se conserva como error de proveedor para que el widget mantenga la lectura en caché. `cost --format json --json-only` se reenvía a upstream, o devuelve `[]` si upstream no está instalado.
+
+El instalador lo coloca en `~/.local/share/ai-cli-control/kodexbar-quotas` y enlaza `~/.local/bin/kodexbar-quotas` solo cuando ese enlace pertenece a este paquete.
 
 ## Desarrollo
 

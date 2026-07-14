@@ -16,6 +16,7 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 - Preview launch and update commands with `--dry-run`.
 - Use English by default. Spanish locales receive Spanish interface text. `--language en` and `--language es` override locale detection.
 - Keep every launched and updated command as an argument array without shell evaluation.
+- Provide `kodexbar-quotas`, a local quota engine for the KodexBar Suite widget.
 
 ## Requirements
 
@@ -120,6 +121,12 @@ ai --version
 ```
 
 The installed executable is `~/.local/share/ai-cli-control/ai`, with `~/.local/bin/ai` as its symlink. Its standalone `recover.py` engine and a copy of `uninstall.sh` are stored beside it for removal after a checkout has been deleted. No `sudo` is used. Installation refuses to replace an existing `~/.local/bin/ai` that is not owned by this project. It installs adapters only when their CLI home directory exists and never replaces an unowned `recover-chat` skill. Uninstallation checks ownership markers and removes only project-owned files. Both scripts are idempotent.
+
+## Quotas engine
+
+`kodexbar-quotas` is the widget's default local command. It reads the enabled providers from `~/.config/codexbar/config.json`. Claude is queried directly from `https://api.anthropic.com/api/oauth/usage` with the Claude OAuth token and a 15-second timeout. Codex, Antigravity, Grok, missing credentials, unexpected responses, and ordinary request failures use upstream `codexbar` per provider. Claude HTTP 429 remains a provider error so the widget can retain its cached reading. `cost --format json --json-only` is an upstream passthrough, or `[]` when upstream is absent.
+
+The installer places it at `~/.local/share/ai-cli-control/kodexbar-quotas` and links `~/.local/bin/kodexbar-quotas` only when that link is owned by this package.
 
 ## Development
 

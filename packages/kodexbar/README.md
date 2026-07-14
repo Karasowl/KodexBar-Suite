@@ -45,7 +45,7 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 
 - KDE Plasma 6
 - `kpackagetool6`
-- The upstream `codexbar` CLI on `PATH`, or a full command path configured in the widget settings
+- `kodexbar-quotas` on `PATH` for the default local engine, with upstream `codexbar` on `PATH` as its per-provider fallback
 
 Install the CLI with Homebrew on Linux:
 
@@ -147,7 +147,7 @@ The popup uses `Gemini (Antigravity)` for Antigravity and `Gemini` for the indep
 
 | Setting | Purpose |
 | --- | --- |
-| Command | `codexbar` binary name or full path. |
+| Command | Empty or default uses `kodexbar-quotas`, then retries `codexbar` only if the engine command is missing. A custom command is used alone. |
 | AI CLI Control | `ai` binary name or full path used by the widget actions. |
 | Source | `Best available`, `auto`, `web`, `cli`, `oauth`, or `api`. |
 | Refresh | Poll interval from 10 to 3600 seconds. |
@@ -162,7 +162,7 @@ The popup uses `Gemini (Antigravity)` for Antigravity and `Gemini` for the indep
 
 ## Data and Privacy
 
-The widget runs `codexbar usage --format json --json-only` locally and renders the returned JSON. Optional cost summaries come from `codexbar cost`. This repository does not add a provider backend, credential store, telemetry service, or remote account service.
+The widget runs `kodexbar-quotas usage --format json --json-only` locally by default and renders the returned JSON. The engine uses upstream `codexbar` as a per-provider fallback. Optional cost summaries come from upstream `codexbar cost`. This repository does not add a provider backend, credential store, telemetry service, or remote account service.
 
 CodexBar owns provider authentication, provider configuration, API calls, and CLI probing. Review the [CodexBar project](https://github.com/steipete/CodexBar) for its supported providers and data handling.
 

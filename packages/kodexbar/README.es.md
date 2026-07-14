@@ -45,7 +45,7 @@ Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../REA
 
 - KDE Plasma 6
 - `kpackagetool6`
-- La CLI upstream `codexbar` disponible en `PATH`, o una ruta completa configurada en los ajustes del widget
+- `kodexbar-quotas` disponible en `PATH` para el motor local predeterminado, con `codexbar` upstream en `PATH` como respaldo por proveedor
 
 Instala la CLI con Homebrew en Linux:
 
@@ -147,7 +147,7 @@ El popup usa `Gemini (Antigravity)` para Antigravity y `Gemini` para el proveedo
 
 | Ajuste | Propósito |
 | --- | --- |
-| Command | Nombre del binario `codexbar` o su ruta completa. |
+| Command | Vacío o predeterminado usa `kodexbar-quotas` y reintenta con `codexbar` solo si falta el comando del motor. Un comando personalizado se usa solo. |
 | AI CLI Control | Nombre o ruta completa del binario `ai` usado por las acciones del widget. |
 | Source | `Best available`, `auto`, `web`, `cli`, `oauth` o `api`. |
 | Refresh | Intervalo de consulta entre 10 y 3600 segundos. |
@@ -162,7 +162,7 @@ El popup usa `Gemini (Antigravity)` para Antigravity y `Gemini` para el proveedo
 
 ## Datos y privacidad
 
-El widget ejecuta localmente `codexbar usage --format json --json-only` y presenta el JSON devuelto. Los resúmenes opcionales de costos vienen de `codexbar cost`. Este repositorio no agrega un backend de proveedor, almacén de credenciales, servicio de telemetría ni servicio remoto de cuentas.
+El widget ejecuta localmente `kodexbar-quotas usage --format json --json-only` de forma predeterminada y presenta el JSON devuelto. El motor usa `codexbar` upstream como respaldo por proveedor. Los resúmenes opcionales de costos vienen de `codexbar cost` upstream. Este repositorio no agrega un backend de proveedor, almacén de credenciales, servicio de telemetría ni servicio remoto de cuentas.
 
 CodexBar administra autenticación, configuración de proveedores, llamadas API y consultas de CLI. Revisa el [proyecto CodexBar](https://github.com/steipete/CodexBar) para conocer sus proveedores compatibles y el manejo de datos.
 

@@ -6,7 +6,7 @@
   <kcfgfile name=""/>
   <group name="General">
     <entry name="codexbarCommand" type="String">
-      <default>codexbar</default>
+      <default>kodexbar-quotas</default>
     </entry>
     <entry name="aiControlCommand" type="String">
       <default>ai</default>

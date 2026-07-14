@@ -1,0 +1,270 @@
+#!/usr/bin/env python3
+"""KodexBar Suite quota engine with a conservative CodexBar fallback."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+
+VERSION = "0.3.0"
+TIMEOUT_SECONDS = 15
+CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok"}
+
+
+class FetchFallback(Exception):
+    """The caller should ask the upstream CodexBar binary for this provider."""
+
+
+def home_directory() -> Path:
+    return Path(os.environ.get("HOME", str(Path.home()))).expanduser()
+
+
+def read_json(path: Path) -> Any:
+    with path.open(encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def enabled_providers(home: Path | None = None) -> list[str]:
+    """Read the ordered enabled provider list from CodexBar's public config."""
+    root = home or home_directory()
+    config = read_json(root / ".config" / "codexbar" / "config.json")
+    providers = config.get("providers")
+    if not isinstance(providers, list):
+        raise ValueError("CodexBar config has no providers array")
+    result = []
+    for provider in providers:
+        if not isinstance(provider, dict) or provider.get("enabled") is not True:
+            continue
+        provider_id = provider.get("id")
+        if isinstance(provider_id, str) and provider_id:
+            result.append(provider_id.lower())
+    return result
+
+
+def claude_access_token(home: Path | None = None) -> str:
+    root = home or home_directory()
+    credentials = read_json(root / ".claude" / ".credentials.json")
+    token = credentials.get("claudeAiOauth", {}).get("accessToken")
+    if not isinstance(token, str) or not token.strip():
+        raise FetchFallback("Claude OAuth credentials are unavailable")
+    return token.strip()
+
+
+def http_get(url: str, headers: dict[str, str]) -> tuple[int, bytes]:
+    if os.environ.get("KODEXBAR_QUOTAS_FIXTURE_429") == "1":
+        return 429, b"{}"
+    request = Request(url, headers=headers, method="GET")
+    try:
+        with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            return response.status, response.read()
+    except HTTPError as error:
+        return error.code, error.read()
+    except (URLError, OSError, TimeoutError) as error:
+        raise FetchFallback(f"network failure: {error}") from error
+
+
+def iso_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def usage_window(value: Any, minutes: int) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    utilization = value.get("utilization")
+    if not isinstance(utilization, (int, float)):
+        return None
+    window: dict[str, Any] = {
+        "usedPercent": utilization,
+        "windowMinutes": minutes,
+    }
+    resets_at = value.get("resets_at")
+    if isinstance(resets_at, str) and resets_at:
+        window["resetsAt"] = resets_at
+    return window
+
+
+def map_claude_usage(payload: Any, updated_at: str | None = None) -> dict[str, Any]:
+    """Map Anthropic OAuth fields to the CodexBar CLI JSON envelope."""
+    if not isinstance(payload, dict):
+        raise FetchFallback("unexpected Claude OAuth response")
+    primary = usage_window(payload.get("five_hour"), 300)
+    fallback_keys = ("seven_day", "seven_day_oauth_apps", "seven_day_sonnet", "seven_day_opus")
+    if primary is None:
+        for key in fallback_keys:
+            primary = usage_window(payload.get(key), 10080)
+            if primary is not None:
+                break
+    if primary is None:
+        raise FetchFallback("Claude OAuth response has no usage window")
+    secondary = usage_window(payload.get("seven_day"), 10080)
+    tertiary = usage_window(payload.get("seven_day_sonnet"), 10080)
+    if tertiary is None:
+        tertiary = usage_window(payload.get("seven_day_opus"), 10080)
+    return {
+        "provider": "claude",
+        "source": "claude",
+        "usage": {
+            "identity": {"providerID": "claude"},
+            "primary": primary,
+            "secondary": secondary,
+            "tertiary": tertiary,
+            "updatedAt": updated_at or iso_now(),
+        },
+        "engine": "kodexbar",
+    }
+
+
+def provider_error(provider: str, source: str, message: str) -> dict[str, Any]:
+    return {
+        "provider": provider,
+        "source": source,
+        "error": {"code": 1, "message": message, "kind": "provider"},
+        "engine": "kodexbar",
+    }
+
+
+def fetch_claude(home: Path | None = None) -> dict[str, Any]:
+    token = claude_access_token(home)
+    status, body = http_get(
+        CLAUDE_USAGE_URL,
+        {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "anthropic-beta": "oauth-2025-04-20",
+            "User-Agent": "claude-code/2.1.0",
+        },
+    )
+    if status == 429:
+        return provider_error(
+            "claude",
+            "claude",
+            "Claude OAuth usage endpoint is rate limited by Anthropic right now. Wait a few minutes, then click Refresh.",
+        )
+    if status != 200:
+        raise FetchFallback(f"Claude OAuth HTTP {status}")
+    try:
+        return map_claude_usage(json.loads(body.decode("utf-8")))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise FetchFallback("unexpected Claude OAuth response") from error
+
+
+def upstream_path() -> str | None:
+    candidate = shutil.which("codexbar")
+    if candidate and os.path.realpath(candidate) != os.path.realpath(__file__):
+        return candidate
+    return None
+
+
+def upstream_entries(provider: str, source: str | None) -> list[Any] | None:
+    executable = upstream_path()
+    if executable is None:
+        return None
+    command = [executable, "usage", "--format", "json", "--json-only", "--provider", provider]
+    if source:
+        command.extend(["--source", source])
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=TIMEOUT_SECONDS, check=False)
+        value = json.loads(completed.stdout)
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, list) else [value]
+
+
+def fallback_entry(provider: str, source: str | None) -> list[Any]:
+    entries = upstream_entries(provider, source)
+    if entries is not None:
+        return entries
+    return [provider_error(provider, source or "auto", "upstream codexbar is not installed")]
+
+
+def fetch_provider(provider: str, source: str | None, home: Path | None = None) -> list[Any]:
+    normalized = provider.lower()
+    if normalized == "claude" and source in (None, "auto", "oauth"):
+        try:
+            return [fetch_claude(home)]
+        except FetchFallback:
+            pass
+    return fallback_entry(normalized, source)
+
+
+def parse_usage(arguments: list[str]) -> tuple[str, str | None, bool] | None:
+    provider = None
+    source = None
+    pretty = False
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in ("--json", "--json-only"):
+            index += 1
+        elif argument == "--pretty":
+            pretty = True
+            index += 1
+        elif argument == "--format" and index + 1 < len(arguments) and arguments[index + 1] == "json":
+            index += 2
+        elif argument == "--provider" and index + 1 < len(arguments):
+            provider = arguments[index + 1].lower()
+            index += 2
+        elif argument == "--source" and index + 1 < len(arguments):
+            source = arguments[index + 1].lower()
+            index += 2
+        else:
+            return None
+    return provider or "enabled", source, pretty
+
+
+def delegate_whole_call(arguments: list[str]) -> int:
+    executable = upstream_path()
+    if executable is None:
+        print("kodexbar-quotas: upstream codexbar is not installed", file=sys.stderr)
+        return 127
+    return subprocess.call([executable, *arguments])
+
+
+def print_json(value: Any, pretty: bool) -> None:
+    print(json.dumps(value, indent=2 if pretty else None, ensure_ascii=False))
+
+
+def main(arguments: list[str]) -> int:
+    if not arguments:
+        return delegate_whole_call(arguments)
+    if arguments[0] == "cost":
+        if arguments[1:] == ["--format", "json", "--json-only"]:
+            executable = upstream_path()
+            if executable is None:
+                print_json([], False)
+                return 0
+        return delegate_whole_call(arguments)
+    if arguments[0] != "usage":
+        return delegate_whole_call(arguments)
+    parsed = parse_usage(arguments[1:])
+    if parsed is None:
+        return delegate_whole_call(arguments)
+    requested, source, pretty = parsed
+    try:
+        enabled = enabled_providers()
+    except (OSError, ValueError, json.JSONDecodeError):
+        return delegate_whole_call(arguments)
+    providers = enabled if requested in ("enabled", "all") else [requested]
+    entries: list[Any] = []
+    for provider in providers:
+        if provider not in SUPPORTED_PROVIDERS:
+            entries.extend(fallback_entry(provider, source))
+        else:
+            entries.extend(fetch_provider(provider, source))
+    print_json(entries, pretty)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

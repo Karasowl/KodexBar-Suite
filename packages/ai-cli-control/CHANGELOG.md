@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.3.0, 2026-07-14
+
+- Added `kodexbar-quotas`, a stdlib-only quota engine that reads enabled CodexBar providers, fetches Claude OAuth usage directly, and falls back per provider to upstream `codexbar`.
+- Installed and safely removed the owned `kodexbar-quotas` user-local executable with the existing `ai` ownership rules.
+
 ## 0.2.1, 2026-07-14
 
 - Made the test harness locale-independent by forcing a deterministic English locale for subprocesses.

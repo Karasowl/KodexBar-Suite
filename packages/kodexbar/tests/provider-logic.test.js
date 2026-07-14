@@ -96,6 +96,26 @@ assert.deepEqual(
     "default acquisition uses the sentinel that honors enabled providers"
 )
 assert.deepEqual(
+    plain(context.commandCandidates("")),
+    ["kodexbar-quotas", "codexbar"],
+    "the empty command uses the local quota engine before upstream CodexBar"
+)
+assert.deepEqual(
+    plain(context.commandCandidates("codexbar")),
+    ["kodexbar-quotas", "codexbar"],
+    "the legacy default command receives the same compatibility chain"
+)
+assert.deepEqual(
+    plain(context.commandCandidates("kodexbar-quotas")),
+    ["kodexbar-quotas", "codexbar"],
+    "the configured default command keeps its upstream compatibility fallback"
+)
+assert.deepEqual(
+    plain(context.commandCandidates("/opt/custom-codexbar")),
+    ["/opt/custom-codexbar"],
+    "a custom command remains the user's only candidate"
+)
+assert.deepEqual(
     plain(context.acquisitionCandidates("OAuth")),
     [{ provider: "", source: "oauth" }],
     "source selection never narrows provider acquisition"
@@ -627,7 +647,7 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.3.4", "package metadata uses version 0.3.4")
+assert.equal(metadata.KPlugin.Version, "0.4.0", "package metadata uses version 0.4.0")
 assert.equal(metadata.KPlugin.Name, "KodexBar Suite", "package metadata uses the public product name")
 assert.equal(metadata.KPlugin.Id, "org.kde.plasma.kodexbar", "the technical plugin ID remains compatible")
 assert.doesNotMatch(
@@ -645,7 +665,10 @@ assert.match(
     /root\.metricAccent\([\s\S]*modelData\.worstUsedPercent/,
     "compact status dots use the same metric accent thresholds"
 )
-assert.match(mainQml, /provider: "all", source: selectedSource, replaceAll: true/, "startup seeds every enabled provider once")
+assert.match(mainQml, /function commandCandidatesForSeed\(\)/, "startup seeds every enabled provider through the command candidate chain")
+assert.match(mainQml, /activeFallbackCommand/, "the active candidate remembers its upstream fallback")
+assert.match(mainQml, /commandWasNotFound\(data\)/, "only command-not-found failures advance to upstream")
+assert.match(configXml, /<entry name="codexbarCommand" type="String">\s*<default>kodexbar-quotas<\/default>/, "the default command is the quota engine")
 assert.match(mainQml, /property double lastSuccessfulSeedAt: 0/, "the widget records when the last full seed succeeded")
 assert.match(
     mainQml,

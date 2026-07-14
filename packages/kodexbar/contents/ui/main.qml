@@ -24,13 +24,16 @@ PlasmoidItem {
     property bool costLoading: false
     property string costErrorMessage: ""
     property var costSummaries: ({})
-    property string codexbarCommand: Plasmoid.configuration.codexbarCommand || "codexbar"
+    property string configuredCodexbarCommand: String(Plasmoid.configuration.codexbarCommand || "")
+    property string codexbarCommand: configuredCodexbarCommand.trim() || "codexbar"
     property string aiControlCommand: Plasmoid.configuration.aiControlCommand || "ai"
     property string aiControlError: ""
     property string selectedSource: Plasmoid.configuration.source || "detect"
     property string selectedEntryKey: ""
     property string activeProvider: ""
     property string activeSource: selectedSource
+    property string activeCommand: codexbarCommand
+    property string activeFallbackCommand: ""
     property var pendingCandidates: []
     property var lastGoodEntries: []
     property bool activeQueryReplacesAll: false
@@ -342,13 +345,13 @@ PlasmoidItem {
         return candidate.toISOString()
     }
 
-    function commandLine(provider, source) {
+    function commandLine(provider, source, command) {
         var args = ProviderLogic.usageArguments(provider, source, includeStatus)
-        var command = shellQuote(codexbarCommand)
+        var line = shellQuote(command || codexbarCommand)
         for (var i = 0; i < args.length; i++) {
-            command += " " + shellQuote(args[i])
+            line += " " + shellQuote(args[i])
         }
-        return command
+        return line
     }
 
     function costCommandLine() {
@@ -386,7 +389,7 @@ PlasmoidItem {
         if (initialUsageSeedPending || (fastRefreshCyclesSinceSeed >= 10
                 && Date.now() - lastSuccessfulSeedAt >= claudeRefreshSeconds * 1000)) {
             initialUsageSeedPending = false
-            beginUsageRefresh([{ provider: "all", source: selectedSource, replaceAll: true }], true)
+            beginUsageRefresh(commandCandidatesForSeed(), true)
             return
         }
         fastRefreshCyclesSinceSeed += 1
@@ -436,10 +439,28 @@ PlasmoidItem {
 
     function providerCandidates(providers) {
         var candidates = []
+        var commands = ProviderLogic.commandCandidates(configuredCodexbarCommand)
         for (var i = 0; i < providers.length; i++) {
-            candidates.push({ provider: providers[i], source: selectedSource, replaceAll: false })
+            candidates.push({
+                provider: providers[i],
+                source: selectedSource,
+                command: commands[0],
+                fallbackCommand: commands.length > 1 ? commands[1] : "",
+                replaceAll: false
+            })
         }
         return candidates
+    }
+
+    function commandCandidatesForSeed() {
+        var commands = ProviderLogic.commandCandidates(configuredCodexbarCommand)
+        return [{
+            provider: "all",
+            source: selectedSource,
+            command: commands[0],
+            fallbackCommand: commands.length > 1 ? commands[1] : "",
+            replaceAll: true
+        }]
     }
 
     function beginUsageRefresh(candidates, refreshCosts) {
@@ -492,9 +513,11 @@ PlasmoidItem {
         var candidate = pendingCandidates.shift()
         activeProvider = candidate.provider
         activeSource = candidate.source
+        activeCommand = candidate.command || codexbarCommand
+        activeFallbackCommand = candidate.fallbackCommand || ""
         activeQueryReplacesAll = candidate.replaceAll === true
         executable.connectedSources = []
-        executable.connectSource(commandLine(activeProvider, activeSource))
+        executable.connectSource(commandLine(activeProvider, activeSource, activeCommand))
         usageWatchdog.restart()
     }
 
@@ -530,6 +553,12 @@ PlasmoidItem {
         pendingCandidates = []
         tryNextCandidate()
         return true
+    }
+
+    function commandWasNotFound(data) {
+        var exitCode = data["exit code"] || 0
+        var detail = String(data.stderr || data.stdout || "")
+        return exitCode === 127 || /not found|no such file|failed to start/i.test(detail)
     }
 
     function parsePayload(text) {
@@ -2067,6 +2096,16 @@ PlasmoidItem {
             disconnectSource(sourceName)
             usageWatchdog.stop()
             if (data["exit code"] && data["exit code"] !== 0 && !(data.stdout || "").length) {
+                if (root.commandWasNotFound(data) && root.activeFallbackCommand.length > 0) {
+                    root.pendingCandidates.unshift({
+                        provider: root.activeProvider,
+                        source: root.activeSource,
+                        command: root.activeFallbackCommand,
+                        replaceAll: root.activeQueryReplacesAll
+                    })
+                    root.tryNextCandidate()
+                    return
+                }
                 var runtimeError = data.stderr || i18n("Exit code %1", data["exit code"])
                 if (root.handleUsageFailure(runtimeError, "")) {
                     return

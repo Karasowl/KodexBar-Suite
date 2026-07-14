@@ -28,6 +28,14 @@ function acquisitionCandidates(source) {
     return [{ provider: "", source: normalizedSource }]
 }
 
+function commandCandidates(configuredCommand) {
+    var command = String(configuredCommand || "").trim()
+    if (command.length === 0 || command === "codexbar" || command === "kodexbar-quotas") {
+        return ["kodexbar-quotas", "codexbar"]
+    }
+    return [command]
+}
+
 function usageArguments(provider, source, includeStatus) {
     var args = ["usage", "--format", "json", "--json-only"]
     if (provider && provider !== "detect") {

@@ -1,0 +1,16 @@
+{
+  "provider": "claude",
+  "source": "claude",
+  "usage": {
+    "primary": {
+      "usedPercent": 25,
+      "resetsAt": "2026-07-15T03:29:00Z",
+      "windowMinutes": 300
+    },
+    "secondary": {
+      "usedPercent": 26,
+      "resetsAt": "2026-07-21T07:59:00Z",
+      "windowMinutes": 10080
+    }
+  }
+}

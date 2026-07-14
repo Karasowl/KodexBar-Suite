@@ -123,7 +123,7 @@ KCM.SimpleKCM {
                 QQC2.TextField {
                     id: codexbarCommand
                     Kirigami.FormData.label: i18n("Command:")
-                    placeholderText: "codexbar"
+                    placeholderText: "kodexbar-quotas"
                     Layout.preferredWidth: Kirigami.Units.gridUnit * 16
                 }
 

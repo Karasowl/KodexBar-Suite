@@ -20,8 +20,22 @@ say() {
 
 data_dir="${HOME}/.local/share/ai-cli-control"
 installed_ai="${data_dir}/ai"
+installed_quotas="${data_dir}/kodexbar-quotas"
 marker="${data_dir}/.ai-cli-control-owner"
 target="${HOME}/.local/bin/ai"
+quotas_target="${HOME}/.local/bin/kodexbar-quotas"
+
+remove_owned_link() {
+    local link="$1"
+    local destination="$2"
+    if [[ -e "$link" || -L "$link" ]]; then
+        if [[ ! -L "$link" || "$(readlink -- "$link")" != "$destination" ]]; then
+            say "No se eliminó ${link} porque no pertenece a ai-cli-control." "Did not remove ${link} because it does not belong to ai-cli-control." >&2
+            exit 1
+        fi
+        rm -- "$link"
+    fi
+}
 
 remove_owned_adapter() {
     local cli_home="$1"
@@ -46,13 +60,8 @@ if [[ ! -e "$marker" || "$(<"$marker")" != 'ai-cli-control' ]]; then
     say "ai-cli-control ya estaba desinstalado." "ai-cli-control was already uninstalled."
     exit 0
 fi
-if [[ -e "$target" || -L "$target" ]]; then
-    if [[ ! -L "$target" || "$(readlink -- "$target")" != "$installed_ai" ]]; then
-        say "No se eliminó ${target} porque no pertenece a ai-cli-control." "Did not remove ${target} because it does not belong to ai-cli-control." >&2
-        exit 1
-    fi
-    rm -- "$target"
-fi
+remove_owned_link "$target" "$installed_ai"
+remove_owned_link "$quotas_target" "$installed_quotas"
 remove_owned_adapter "${HOME}/.claude"
 remove_owned_adapter "${HOME}/.grok"
 rm -rf -- "$data_dir"
