@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.2.1, 2026-07-14
+
+- Made the test harness locale-independent by forcing a deterministic English locale for subprocesses.
+
 ## 0.2.0, 2026-07-14
 
 - Added `ai recover`, a read-only conversation recovery command for Codex, Claude, Grok, and Antigravity histories.

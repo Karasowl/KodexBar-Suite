@@ -113,8 +113,11 @@ class AiSelectorTests(unittest.TestCase):
         self.codex = self.make_update_cli("codex")
         self.claude = self.make_update_cli("claude")
         self.env = os.environ.copy()
+        self.env.pop("LANGUAGE", None)
         self.env.update(
             {
+                "LANG": "C",
+                "LC_ALL": "C",
                 "AI_CODEX_MODELS_CACHE": str(self.cache),
                 "AI_GROK_EXECUTABLE": str(self.grok),
                 "AI_ANTIGRAVITY_EXECUTABLE": str(self.antigravity),
@@ -595,7 +598,7 @@ class AiSelectorTests(unittest.TestCase):
         version = self.run_ai("--version")
         help_result = self.run_ai("--language", "en", "--help")
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.2.0")
+        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.2.1")
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("Choose and launch Codex", help_result.stdout)
         self.assertIn("--language LANGUAGE", help_result.stdout)
