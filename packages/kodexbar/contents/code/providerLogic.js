@@ -107,12 +107,12 @@ function cachedEntryForError(entry, cachedEntries) {
     var key = providerAccountKey(entry)
     for (var i = 0; i < cached.length; i++) {
         if (providerAccountKey(cached[i]) === key) {
-            return cached[i]
+            return [cached[i]]
         }
     }
 
     if (String(entry && entry.account || "").trim().length > 0) {
-        return null
+        return []
     }
     var provider = providerId(entry && entry.provider)
     var providerMatches = []
@@ -121,7 +121,7 @@ function cachedEntryForError(entry, cachedEntries) {
             providerMatches.push(cached[j])
         }
     }
-    return providerMatches.length === 1 ? providerMatches[0] : null
+    return providerMatches
 }
 
 function mergeEntriesWithCache(entries, cachedEntries) {
@@ -136,11 +136,13 @@ function mergeEntriesWithCache(entries, cachedEntries) {
             continue
         }
         var cached = cachedEntryForError(entry, cachedEntries)
-        if (cached) {
-            var retained = copyEntry(cached)
-            retained.isCached = true
-            retained.cachedErrorMessage = entry.errorMessage
-            merged.push(retained)
+        if (cached.length > 0) {
+            for (var cachedIndex = 0; cachedIndex < cached.length; cachedIndex++) {
+                var retained = copyEntry(cached[cachedIndex])
+                retained.isCached = true
+                retained.cachedErrorMessage = entry.errorMessage
+                merged.push(retained)
+            }
         } else {
             var failed = copyEntry(entry)
             failed.isCached = false
@@ -160,7 +162,11 @@ function replaceProviderEntries(currentEntries, incomingEntries, providers, repl
     var requested = Array.isArray(providers) ? providers : []
     var targets = {}
     for (var i = 0; i < requested.length; i++) {
-        targets[providerId(requested[i])] = true
+        var requestedProvider = providerId(requested[i])
+        if (requestedProvider.length === 0 || requestedProvider === "all") {
+            continue
+        }
+        targets[requestedProvider] = true
     }
     var inserted = {}
     var result = []

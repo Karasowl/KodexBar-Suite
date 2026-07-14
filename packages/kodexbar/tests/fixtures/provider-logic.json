@@ -196,5 +196,48 @@
         "expires_at": "2026-08-12T18:07:45Z"
       }
     ]
+  },
+  "multiAccountErrorCache": {
+    "cachedEntries": [
+      {
+        "provider": "codex",
+        "account": "work",
+        "updatedAt": "2026-07-14T17:11:01Z",
+        "compactPrimaryPercentLeft": 91,
+        "errorMessage": ""
+      },
+      {
+        "provider": "codex",
+        "account": "personal",
+        "updatedAt": "2026-07-14T17:12:01Z",
+        "compactPrimaryPercentLeft": 73,
+        "errorMessage": ""
+      }
+    ],
+    "error": {
+      "provider": "codex",
+      "errorMessage": "Codex CLI usage endpoint is rate limited right now"
+    }
+  },
+  "allTargetReplacement": {
+    "currentEntries": [
+      {
+        "provider": "codex",
+        "account": "work",
+        "compactPrimaryPercentLeft": 91
+      },
+      {
+        "provider": "claude",
+        "account": "personal",
+        "compactPrimaryPercentLeft": 73
+      }
+    ],
+    "incomingEntries": [
+      {
+        "provider": "codex",
+        "account": "work",
+        "compactPrimaryPercentLeft": 88
+      }
+    ]
   }
 }

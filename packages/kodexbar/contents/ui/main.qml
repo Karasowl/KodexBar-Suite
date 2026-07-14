@@ -32,7 +32,6 @@ PlasmoidItem {
     property string activeProvider: ""
     property string activeSource: selectedSource
     property var pendingCandidates: []
-    property var failedCandidates: []
     property var lastGoodEntries: []
     property bool activeQueryReplacesAll: false
     property bool initialUsageSeedPending: true
@@ -397,7 +396,8 @@ PlasmoidItem {
             var sourceEntries = sources[sourceIndex] || []
             for (var i = 0; i < sourceEntries.length; i++) {
                 var provider = ProviderLogic.providerId(sourceEntries[i] && sourceEntries[i].provider)
-                if (provider.length === 0 || seen[provider] || (!includeClaude && provider === "claude")) {
+                if (provider.length === 0 || provider === "all" || seen[provider]
+                        || (!includeClaude && provider === "claude")) {
                     continue
                 }
                 seen[provider] = true
@@ -435,7 +435,6 @@ PlasmoidItem {
         loading = true
         errorMessage = ""
         errorDetail = ""
-        failedCandidates = []
         pendingCandidates = candidates
         executable.connectedSources = []
         if (refreshCosts) {
@@ -457,15 +456,19 @@ PlasmoidItem {
         costExecutable.connectSource(costCommandLine())
     }
 
-    function candidateList() {
-        return ProviderLogic.acquisitionCandidates(selectedSource)
+    function cancelUsageRefresh() {
+        executable.connectedSources = []
+        pendingCandidates = []
+        usageWatchdog.stop()
+        loading = false
     }
 
     function tryNextCandidate() {
         if (pendingCandidates.length === 0) {
+            usageWatchdog.stop()
             loading = false
             generatedAt = new Date().toLocaleString(Qt.locale(), Locale.ShortFormat)
-            if (entries.length === 0) {
+            if (entries.length === 0 && errorMessage.length === 0) {
                 errorMessage = i18n("No usable CodexBar provider found")
                 errorDetail = i18n("Configure at least one provider in CodexBar or choose a compatible source.")
             }
@@ -478,6 +481,7 @@ PlasmoidItem {
         activeQueryReplacesAll = candidate.replaceAll === true
         executable.connectedSources = []
         executable.connectSource(commandLine(activeProvider, activeSource))
+        usageWatchdog.restart()
     }
 
     function applyUsageEntries(normalized) {
@@ -489,27 +493,16 @@ PlasmoidItem {
         entries = ProviderLogic.attachProviderCostSummaries(updatedEntries, costSummaries)
     }
 
-    function hasUsableEntries(normalized) {
-        for (var i = 0; i < normalized.length; i++) {
-            if (!normalized[i].errorMessage
-                    && ((normalized[i].rows && normalized[i].rows.length > 0)
-                        || normalized[i].creditsRemaining !== null
-                        || normalized[i].bankedResetCount > 0
-                        || normalized[i].codeReviewRemainingPercent !== null)) {
-                return true
-            }
+    function handleUsageFailure(message, detail) {
+        if (!activeQueryReplacesAll) {
+            return false
         }
-        return false
-    }
-
-    function appendFailedEntries(normalized) {
-        var existing = failedCandidates
-        for (var i = 0; i < normalized.length; i++) {
-            if (normalized[i].errorMessage) {
-                existing.push(normalized[i])
-            }
-        }
-        failedCandidates = existing
+        errorMessage = message
+        errorDetail = detail || ""
+        initialUsageSeedPending = true
+        pendingCandidates = []
+        tryNextCandidate()
+        return true
     }
 
     function parsePayload(text) {
@@ -531,8 +524,7 @@ PlasmoidItem {
             }
             return {
                 ok: true,
-                entries: normalized,
-                usable: hasUsableEntries(normalized)
+                entries: normalized
             }
         } catch (error) {
             return {
@@ -2005,13 +1997,18 @@ PlasmoidItem {
         engine: "executable"
         onNewData: function(sourceName, data) {
             disconnectSource(sourceName)
+            root.usageWatchdog.stop()
             if (data["exit code"] && data["exit code"] !== 0 && !(data.stdout || "").length) {
+                var runtimeError = data.stderr || i18n("Exit code %1", data["exit code"])
+                if (root.handleUsageFailure(runtimeError, "")) {
+                    return
+                }
                 var errorEntry = root.normalizeEntry({
                     provider: root.activeProvider,
                     source: root.activeSource,
                     error: {
                         kind: "runtime",
-                        message: data.stderr || i18n("Exit code %1", data["exit code"])
+                        message: runtimeError
                     }
                 })
                 root.applyUsageEntries([errorEntry])
@@ -2020,10 +2017,14 @@ PlasmoidItem {
             }
             var result = root.parsePayload(data.stdout || "")
             if (!result.ok) {
+                var parseError = result.error + (result.detail ? ": " + result.detail : "")
+                if (root.handleUsageFailure(parseError, "")) {
+                    return
+                }
                 var parseErrorEntry = root.normalizeEntry({
                     provider: root.activeProvider,
                     source: root.activeSource,
-                    error: { kind: "runtime", message: result.error + (result.detail ? ": " + result.detail : "") }
+                    error: { kind: "runtime", message: parseError }
                 })
                 root.applyUsageEntries([parseErrorEntry])
                 root.tryNextCandidate()
@@ -2073,6 +2074,13 @@ PlasmoidItem {
     }
 
     Timer {
+        id: usageWatchdog
+        interval: 120000
+        repeat: false
+        onTriggered: root.cancelUsageRefresh()
+    }
+
+    Timer {
         id: refreshTimer
         interval: root.refreshSeconds * 1000
         repeat: true
@@ -2096,9 +2104,17 @@ PlasmoidItem {
 
     onClaudeRefreshSecondsChanged: claudeRefreshTimer.restart()
 
-    onCodexbarCommandChanged: refresh()
+    onCodexbarCommandChanged: {
+        cancelUsageRefresh()
+        initialUsageSeedPending = true
+        refresh()
+    }
     onAiControlCommandChanged: aiControlError = ""
-    onSelectedSourceChanged: refresh()
+    onSelectedSourceChanged: {
+        cancelUsageRefresh()
+        initialUsageSeedPending = true
+        refresh()
+    }
     onShowCostSummaryChanged: refreshCost()
     onShowCreditsInPanelChanged: panelText()
     onShowUsedPercentInPanelChanged: panelText()

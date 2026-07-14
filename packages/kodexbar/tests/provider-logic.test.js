@@ -282,6 +282,34 @@ assert.equal(
 )
 assert.equal(uncachedClaudeError[0].isCached, false)
 
+const accountlessCodexError = plain(context.mergeEntriesWithCache(
+    [fixture.multiAccountErrorCache.error], fixture.multiAccountErrorCache.cachedEntries))
+assert.deepEqual(
+    accountlessCodexError.map(entry => entry.account),
+    ["work", "personal"],
+    "an account-less provider error retains every cached account"
+)
+assert.deepEqual(
+    accountlessCodexError.map(entry => entry.isCached),
+    [true, true],
+    "every cached account is marked stale after an account-less provider error"
+)
+assert.deepEqual(
+    accountlessCodexError.map(entry => entry.cachedErrorMessage),
+    [fixture.multiAccountErrorCache.error.errorMessage, fixture.multiAccountErrorCache.error.errorMessage],
+    "every retained account carries the provider error"
+)
+
+assert.deepEqual(
+    plain(context.replaceProviderEntries(
+        fixture.allTargetReplacement.currentEntries,
+        fixture.allTargetReplacement.incomingEntries,
+        ["all"],
+        false)),
+    fixture.allTargetReplacement.currentEntries,
+    "a targeted replacement never treats the synthetic all provider as a real target"
+)
+
 assert.equal(context.compactProviderLabel("codex", "Codex"), "Cx")
 assert.equal(context.compactProviderLabel("claude", "Claude"), "Cl")
 assert.equal(context.compactProviderLabel("grok", "Grok"), "Gk")
@@ -561,6 +589,8 @@ assert.match(
     "compact status dots use the same metric accent thresholds"
 )
 assert.match(mainQml, /provider: "all", source: selectedSource, replaceAll: true/, "startup seeds every enabled provider once")
+assert.match(mainQml, /provider === "all"/, "known provider IDs defensively exclude the synthetic all seed")
+assert.match(mainQml, /id: usageWatchdog[\s\S]*interval: 120000/, "a two-minute watchdog releases hung usage refreshes")
 assert.match(mainQml, /providerCandidates\(\["claude"\]\)/, "Claude refreshes through a provider-specific query")
 assert.match(mainQml, /id: claudeRefreshTimer/, "Claude uses a separate refresh timer")
 assert.match(mainQml, /i18n\("Banked resets"\)/, "the Codex popup labels banked rate-limit resets")
