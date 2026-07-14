@@ -12,7 +12,7 @@ All notable fork-specific changes are documented here.
 
 ### Fixed
 
-- Reconcile the widget against the successful all-provider seed at startup and every ten fast refreshes, removing providers no longer returned by CodexBar from the panel, popup, cache, and future refresh cycle.
+- Reconcile the widget against the successful all-provider seed at startup and after every ten fast refreshes, no sooner than the configured Claude cadence, removing providers no longer returned by CodexBar from the panel, popup, cache, and future refresh cycle.
 - Drop non-transient provider errors that report no available fetch strategy instead of creating permanent compact ERR blocks.
 - Coerce the optional cost-source visibility binding to a boolean to avoid Plasma's undefined-to-bool warning.
 

@@ -36,6 +36,7 @@ PlasmoidItem {
     property bool activeQueryReplacesAll: false
     property bool initialUsageSeedPending: true
     property int fastRefreshCyclesSinceSeed: 0
+    property double lastSuccessfulSeedAt: 0
     property bool showCreditsInPanel: Plasmoid.configuration.showCreditsInPanel === undefined ? false : Plasmoid.configuration.showCreditsInPanel
     property bool showUsedPercentInPanel: Plasmoid.configuration.showUsedPercentInPanel === undefined ? true : Plasmoid.configuration.showUsedPercentInPanel
     property bool showProviderInPanel: Plasmoid.configuration.showProviderInPanel === undefined ? true : Plasmoid.configuration.showProviderInPanel
@@ -381,7 +382,8 @@ PlasmoidItem {
         if (loading) {
             return
         }
-        if (initialUsageSeedPending || fastRefreshCyclesSinceSeed >= 10) {
+        if (initialUsageSeedPending || (fastRefreshCyclesSinceSeed >= 10
+                && Date.now() - lastSuccessfulSeedAt >= claudeRefreshSeconds * 1000)) {
             initialUsageSeedPending = false
             beginUsageRefresh([{ provider: "all", source: selectedSource, replaceAll: true }], true)
             return
@@ -506,6 +508,7 @@ PlasmoidItem {
         if (activeQueryReplacesAll) {
             lastGoodEntries = ProviderLogic.reconcileSeedCache(cached, incoming)
             fastRefreshCyclesSinceSeed = 0
+            lastSuccessfulSeedAt = Date.now()
         } else {
             lastGoodEntries = ProviderLogic.cacheLastGoodEntries(cached, incoming)
         }
@@ -1092,7 +1095,7 @@ PlasmoidItem {
                     }
 
                     PlasmaComponents.Label {
-                        visible: modelData.ordinal && modelData.ordinal.length > 0
+                        visible: !!(modelData.ordinal && modelData.ordinal.length > 0)
                         text: modelData.ordinal || ""
                         color: root.quietColor
                         font.family: root.designFont
@@ -1599,10 +1602,10 @@ PlasmoidItem {
                             }
 
                             PlasmaComponents.Label {
-                                visible: root.popupState.hasEntry
+                                visible: !!(root.popupState.hasEntry
                                     && root.activeEntry.statusIndicator
                                     && root.activeEntry.statusIndicator.length > 0
-                                    && !root.activeEntry.errorMessage
+                                    && !root.activeEntry.errorMessage)
                                 text: root.statusText(root.activeEntry.statusIndicator, root.activeEntry.statusDescription)
                                 color: root.statusColor(root.activeEntry.statusIndicator)
                                 font.family: root.designFont
@@ -1693,7 +1696,7 @@ PlasmoidItem {
                                     }
 
                                     PlasmaComponents.Label {
-                                        visible: modelData.detail && modelData.detail.length > 0
+                                        visible: !!(modelData.detail && modelData.detail.length > 0)
                                         text: modelData.detail || ""
                                         color: root.quietColor
                                         font.family: root.designFont
@@ -1741,7 +1744,7 @@ PlasmoidItem {
                                 }
 
                                 PlasmaComponents.Label {
-                                    visible: root.showEmailInWidget && root.activeEntry.account
+                                    visible: !!(root.showEmailInWidget && root.activeEntry.account)
                                     text: root.activeEntry.account || ""
                                     color: root.quietColor
                                     font.family: root.designFont
@@ -1797,10 +1800,10 @@ PlasmoidItem {
                             }
 
                             ColumnLayout {
-                                visible: root.showCostSummary
+                                visible: !!(root.showCostSummary
                                     && root.popupState.hasEntry
                                     && root.activeEntry.costSummary
-                                    && root.costSummaryRows(root.activeEntry.costSummary).length > 0
+                                    && root.costSummaryRows(root.activeEntry.costSummary).length > 0)
                                 Layout.fillWidth: true
                                 spacing: 8
 
@@ -1863,9 +1866,9 @@ PlasmoidItem {
                             }
 
                             ColumnLayout {
-                                visible: root.popupState.hasEntry
+                                visible: !!(root.popupState.hasEntry
                                     && root.activeEntry.dashboardSummary
-                                    && root.activeEntry.dashboardSummary.length > 0
+                                    && root.activeEntry.dashboardSummary.length > 0)
                                 Layout.fillWidth: true
                                 spacing: 6
 

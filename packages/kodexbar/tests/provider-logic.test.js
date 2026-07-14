@@ -637,10 +637,26 @@ assert.match(
     "compact status dots use the same metric accent thresholds"
 )
 assert.match(mainQml, /provider: "all", source: selectedSource, replaceAll: true/, "startup seeds every enabled provider once")
-assert.match(mainQml, /fastRefreshCyclesSinceSeed >= 10/, "the widget repeats the authoritative full seed every ten fast refreshes")
+assert.match(mainQml, /property double lastSuccessfulSeedAt: 0/, "the widget records when the last full seed succeeded")
+assert.match(
+    mainQml,
+    /fastRefreshCyclesSinceSeed >= 10\s*&& Date\.now\(\) - lastSuccessfulSeedAt >= claudeRefreshSeconds \* 1000/,
+    "the periodic full seed requires both ten fast refreshes and the Claude cadence"
+)
+assert.match(
+    mainQml,
+    /if \(activeQueryReplacesAll\) \{\s*lastGoodEntries = ProviderLogic\.reconcileSeedCache\(cached, incoming\)\s*fastRefreshCyclesSinceSeed = 0\s*lastSuccessfulSeedAt = Date\.now\(\)/,
+    "only a successful full seed advances its time gate"
+)
 assert.match(mainQml, /ProviderLogic\.excludeUnfetchableProviderEntries\(normalized\)/, "unfetchable provider responses are excluded before state is updated")
 assert.match(mainQml, /ProviderLogic\.reconcileSeedCache\(cached, incoming\)/, "a successful full seed purges stale cached providers")
 assert.match(mainQml, /visible: !!\(root\.activeEntry\.costSummary/, "the optional cost-source binding always evaluates to a boolean")
+assert.match(mainQml, /visible: !!\(root\.showEmailInWidget && root\.activeEntry\.account\)/, "the optional email binding always evaluates to a boolean")
+assert.match(mainQml, /visible: !!\(modelData\.ordinal && modelData\.ordinal\.length > 0\)/, "the optional ordinal binding always evaluates to a boolean")
+assert.match(mainQml, /visible: !!\(modelData\.detail && modelData\.detail\.length > 0\)/, "the optional metric-detail binding always evaluates to a boolean")
+assert.match(mainQml, /visible: !!\(root\.popupState\.hasEntry\s*&& root\.activeEntry\.statusIndicator/, "the optional status binding always evaluates to a boolean")
+assert.match(mainQml, /visible: !!\(root\.showCostSummary\s*&& root\.popupState\.hasEntry\s*&& root\.activeEntry\.costSummary/, "the optional cost-summary binding always evaluates to a boolean")
+assert.match(mainQml, /visible: !!\(root\.popupState\.hasEntry\s*&& root\.activeEntry\.dashboardSummary/, "the optional dashboard binding always evaluates to a boolean")
 assert.match(mainQml, /provider === "all"/, "known provider IDs defensively exclude the synthetic all seed")
 assert.match(mainQml, /id: usageWatchdog[\s\S]*interval: 120000/, "a two-minute watchdog releases hung usage refreshes")
 assert.match(
