@@ -239,5 +239,44 @@
         "compactPrimaryPercentLeft": 88
       }
     ]
+  },
+  "seedReconciliation": {
+    "previousCache": [
+      {
+        "provider": "codex",
+        "account": "work",
+        "compactPrimaryPercentLeft": 91,
+        "errorMessage": ""
+      },
+      {
+        "provider": "claude",
+        "account": "personal",
+        "compactPrimaryPercentLeft": 73,
+        "errorMessage": ""
+      },
+      {
+        "provider": "openai",
+        "account": "legacy",
+        "compactPrimaryPercentLeft": 88,
+        "errorMessage": ""
+      }
+    ],
+    "seedEntries": [
+      {
+        "provider": "codex",
+        "account": "work",
+        "compactPrimaryPercentLeft": 82,
+        "errorMessage": ""
+      },
+      {
+        "provider": "claude",
+        "account": "personal",
+        "errorMessage": "Claude CLI usage endpoint is rate limited right now"
+      }
+    ]
+  },
+  "unfetchableProvider": {
+    "provider": "openai",
+    "errorMessage": "No available fetch strategy for openai."
   }
 }

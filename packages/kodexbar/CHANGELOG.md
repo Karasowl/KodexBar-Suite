@@ -8,6 +8,14 @@ All notable fork-specific changes are documented here.
 
 - Rename the public product to KodexBar Suite while preserving the technical plugin ID `org.kde.plasma.kodexbar` and upstream KodexBar attribution.
 
+## 0.3.2, 2026-07-14
+
+### Fixed
+
+- Reconcile the widget against the successful all-provider seed at startup and every ten fast refreshes, removing providers no longer returned by CodexBar from the panel, popup, cache, and future refresh cycle.
+- Drop non-transient provider errors that report no available fetch strategy instead of creating permanent compact ERR blocks.
+- Coerce the optional cost-source visibility binding to a boolean to avoid Plasma's undefined-to-bool warning.
+
 ## 0.3.1, 2026-07-14
 
 ### Added

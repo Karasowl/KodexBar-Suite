@@ -300,6 +300,54 @@ assert.deepEqual(
     "every retained account carries the provider error"
 )
 
+const filteredUnfetchable = plain(context.excludeUnfetchableProviderEntries([
+    fixture.unfetchableProvider,
+    {
+        provider: "claude",
+        errorMessage: "Claude CLI usage endpoint is rate limited right now"
+    }
+]))
+assert.deepEqual(
+    filteredUnfetchable.droppedProviderIds,
+    ["openai"],
+    "no-fetch-strategy errors remove the provider from future refresh candidates"
+)
+assert.deepEqual(
+    filteredUnfetchable.entries.map(entry => entry.provider),
+    ["claude"],
+    "transient provider errors remain visible for cache recovery"
+)
+assert.equal(
+    context.isUnfetchableProviderError(fixture.unfetchableProvider),
+    true,
+    "the CodexBar no-fetch-strategy response is classified as non-transient"
+)
+
+const reconciledSeedCache = plain(context.reconcileSeedCache(
+    fixture.seedReconciliation.previousCache, fixture.seedReconciliation.seedEntries))
+assert.deepEqual(
+    reconciledSeedCache.map(entry => entry.provider),
+    ["codex", "claude"],
+    "a successful seed purges cached providers it no longer returns"
+)
+assert.equal(
+    reconciledSeedCache[0].compactPrimaryPercentLeft,
+    82,
+    "a successful seed replaces cached data for its healthy provider"
+)
+assert.equal(
+    reconciledSeedCache[1].compactPrimaryPercentLeft,
+    73,
+    "a transient seed error retains cache only for the provider returned by the seed"
+)
+const seededEntries = plain(context.replaceProviderEntries(
+    fixture.seedReconciliation.previousCache, fixture.seedReconciliation.seedEntries, [], true))
+assert.deepEqual(
+    seededEntries.map(entry => entry.provider),
+    ["codex", "claude"],
+    "a successful seed replaces visible entries and purges providers it did not return"
+)
+
 assert.deepEqual(
     plain(context.replaceProviderEntries(
         fixture.allTargetReplacement.currentEntries,
@@ -570,7 +618,7 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.3.1", "package metadata uses version 0.3.1")
+assert.equal(metadata.KPlugin.Version, "0.3.2", "package metadata uses version 0.3.2")
 assert.equal(metadata.KPlugin.Name, "KodexBar Suite", "package metadata uses the public product name")
 assert.equal(metadata.KPlugin.Id, "org.kde.plasma.kodexbar", "the technical plugin ID remains compatible")
 assert.doesNotMatch(
@@ -589,6 +637,10 @@ assert.match(
     "compact status dots use the same metric accent thresholds"
 )
 assert.match(mainQml, /provider: "all", source: selectedSource, replaceAll: true/, "startup seeds every enabled provider once")
+assert.match(mainQml, /fastRefreshCyclesSinceSeed >= 10/, "the widget repeats the authoritative full seed every ten fast refreshes")
+assert.match(mainQml, /ProviderLogic\.excludeUnfetchableProviderEntries\(normalized\)/, "unfetchable provider responses are excluded before state is updated")
+assert.match(mainQml, /ProviderLogic\.reconcileSeedCache\(cached, incoming\)/, "a successful full seed purges stale cached providers")
+assert.match(mainQml, /visible: !!\(root\.activeEntry\.costSummary/, "the optional cost-source binding always evaluates to a boolean")
 assert.match(mainQml, /provider === "all"/, "known provider IDs defensively exclude the synthetic all seed")
 assert.match(mainQml, /id: usageWatchdog[\s\S]*interval: 120000/, "a two-minute watchdog releases hung usage refreshes")
 assert.match(

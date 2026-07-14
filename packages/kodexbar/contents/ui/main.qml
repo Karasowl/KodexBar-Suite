@@ -35,6 +35,7 @@ PlasmoidItem {
     property var lastGoodEntries: []
     property bool activeQueryReplacesAll: false
     property bool initialUsageSeedPending: true
+    property int fastRefreshCyclesSinceSeed: 0
     property bool showCreditsInPanel: Plasmoid.configuration.showCreditsInPanel === undefined ? false : Plasmoid.configuration.showCreditsInPanel
     property bool showUsedPercentInPanel: Plasmoid.configuration.showUsedPercentInPanel === undefined ? true : Plasmoid.configuration.showUsedPercentInPanel
     property bool showProviderInPanel: Plasmoid.configuration.showProviderInPanel === undefined ? true : Plasmoid.configuration.showProviderInPanel
@@ -380,11 +381,12 @@ PlasmoidItem {
         if (loading) {
             return
         }
-        if (initialUsageSeedPending) {
+        if (initialUsageSeedPending || fastRefreshCyclesSinceSeed >= 10) {
             initialUsageSeedPending = false
             beginUsageRefresh([{ provider: "all", source: selectedSource, replaceAll: true }], true)
             return
         }
+        fastRefreshCyclesSinceSeed += 1
         refreshOtherProviders()
     }
 
@@ -494,9 +496,21 @@ PlasmoidItem {
     }
 
     function applyUsageEntries(normalized) {
-        var merged = ProviderLogic.mergeEntriesWithCache(normalized, lastGoodEntries)
-        lastGoodEntries = ProviderLogic.cacheLastGoodEntries(lastGoodEntries, normalized)
-        var providers = activeQueryReplacesAll ? [] : [activeProvider]
+        var filtered = ProviderLogic.excludeUnfetchableProviderEntries(normalized)
+        for (var i = 0; i < filtered.droppedProviderIds.length; i++) {
+            console.warn("KodexBar: dropping unfetchable provider "
+                + filtered.droppedProviderIds[i] + " from refresh results")
+        }
+        var incoming = filtered.entries
+        var cached = ProviderLogic.withoutProviders(lastGoodEntries, filtered.droppedProviderIds)
+        if (activeQueryReplacesAll) {
+            lastGoodEntries = ProviderLogic.reconcileSeedCache(cached, incoming)
+            fastRefreshCyclesSinceSeed = 0
+        } else {
+            lastGoodEntries = ProviderLogic.cacheLastGoodEntries(cached, incoming)
+        }
+        var merged = ProviderLogic.mergeEntriesWithCache(incoming, lastGoodEntries)
+        var providers = activeQueryReplacesAll ? [] : [activeProvider].concat(filtered.droppedProviderIds)
         var updatedEntries = ProviderLogic.replaceProviderEntries(
             entries, merged, providers, activeQueryReplacesAll)
         entries = ProviderLogic.attachProviderCostSummaries(updatedEntries, costSummaries)
@@ -1832,9 +1846,9 @@ PlasmoidItem {
                                 }
 
                                 PlasmaComponents.Label {
-                                    visible: root.activeEntry.costSummary
+                                    visible: !!(root.activeEntry.costSummary
                                         && root.activeEntry.costSummary.source
-                                        && root.activeEntry.costSummary.source.length > 0
+                                        && root.activeEntry.costSummary.source.length > 0)
                                     text: root.activeEntry.costSummary
                                         && root.activeEntry.costSummary.source === "local"
                                         ? i18n("Local token-cost estimate")

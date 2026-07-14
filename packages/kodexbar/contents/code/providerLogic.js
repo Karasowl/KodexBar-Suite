@@ -102,6 +102,78 @@ function cacheLastGoodEntries(previous, entries) {
     return cached
 }
 
+function providerIds(entries) {
+    var list = Array.isArray(entries) ? entries : []
+    var ids = []
+    var seen = {}
+    for (var i = 0; i < list.length; i++) {
+        var id = providerId(list[i] && list[i].provider)
+        if (id.length === 0 || id === "all" || seen[id] === true) {
+            continue
+        }
+        seen[id] = true
+        ids.push(id)
+    }
+    return ids
+}
+
+function withoutProviders(entries, providers) {
+    var list = Array.isArray(entries) ? entries : []
+    var ids = Array.isArray(providers) ? providers : []
+    var excluded = {}
+    for (var i = 0; i < ids.length; i++) {
+        var id = providerId(ids[i])
+        if (id.length > 0) {
+            excluded[id] = true
+        }
+    }
+    var retained = []
+    for (var j = 0; j < list.length; j++) {
+        if (excluded[providerId(list[j] && list[j].provider)] !== true) {
+            retained.push(list[j])
+        }
+    }
+    return retained
+}
+
+function reconcileSeedCache(previous, seedEntries) {
+    var seed = Array.isArray(seedEntries) ? seedEntries : []
+    var cached = Array.isArray(previous) ? previous : []
+    var allowed = providerIds(seed)
+    var allowedEntries = []
+    for (var i = 0; i < cached.length; i++) {
+        if (allowed.indexOf(providerId(cached[i] && cached[i].provider)) !== -1) {
+            allowedEntries.push(cached[i])
+        }
+    }
+    return cacheLastGoodEntries(allowedEntries, seed)
+}
+
+function isUnfetchableProviderError(entry) {
+    if (!entry || !entry.errorMessage) {
+        return false
+    }
+    return /\bno\s+(?:available\s+)?fetch\s+strategy\b|\bunfetchable\s+provider\b|\bprovider\s+cannot\s+be\s+fetched\b/i.test(String(entry.errorMessage))
+}
+
+function excludeUnfetchableProviderEntries(entries) {
+    var list = Array.isArray(entries) ? entries : []
+    var retained = []
+    var droppedProviderIds = []
+    for (var i = 0; i < list.length; i++) {
+        var entry = list[i]
+        if (!isUnfetchableProviderError(entry)) {
+            retained.push(entry)
+            continue
+        }
+        var id = providerId(entry && entry.provider)
+        if (id.length > 0 && droppedProviderIds.indexOf(id) === -1) {
+            droppedProviderIds.push(id)
+        }
+    }
+    return { entries: retained, droppedProviderIds: droppedProviderIds }
+}
+
 function cachedEntryForError(entry, cachedEntries) {
     var cached = Array.isArray(cachedEntries) ? cachedEntries : []
     var key = providerAccountKey(entry)
