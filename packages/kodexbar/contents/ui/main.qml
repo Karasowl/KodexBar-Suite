@@ -67,6 +67,7 @@ PlasmoidItem {
     readonly property color goodColor: "#45d483"
     readonly property color warningColor: "#f0b429"
     readonly property color errorColor: "#f76b6b"
+    readonly property var configureAction: Plasmoid.internalAction("configure")
     readonly property var popupState: ProviderLogic.activeEntryData(entries, selectedEntryKey)
     readonly property var popupEntries: popupState.entries || []
     readonly property var activeEntry: popupState.entry || ({})
@@ -1230,6 +1231,47 @@ PlasmoidItem {
                         color: root.mutedColor
                         font.family: root.designFont
                         font.pixelSize: 12
+                    }
+                }
+
+                QQC2.ToolButton {
+                    id: configureButton
+                    visible: root.configureAction !== null
+                    width: 34
+                    height: 34
+                    anchors.right: aiControlButton.left
+                    anchors.rightMargin: 8
+                    y: 19
+                    text: i18n("Configure")
+                    display: QQC2.AbstractButton.IconOnly
+                    Accessible.name: text
+                    onClicked: {
+                        if (root.configureAction !== null) {
+                            root.configureAction.trigger()
+                        }
+                    }
+
+                    QQC2.ToolTip.visible: hovered
+                    QQC2.ToolTip.text: text
+
+                    contentItem: Item {
+                        implicitWidth: 16
+                        implicitHeight: 16
+
+                        Kirigami.Icon {
+                            anchors.centerIn: parent
+                            width: 16
+                            height: 16
+                            source: "configure"
+                            color: configureButton.enabled ? root.mutedColor : root.quietColor
+                        }
+                    }
+
+                    background: Rectangle {
+                        radius: 10
+                        color: root.raisedColor
+                        border.color: parent.hovered ? root.accentColor : "#2b303c"
+                        border.width: 1
                     }
                 }
 

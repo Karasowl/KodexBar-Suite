@@ -8,6 +8,12 @@ All notable fork-specific changes are documented here.
 
 - Rename the public product to KodexBar Suite while preserving the technical plugin ID `org.kde.plasma.kodexbar` and upstream KodexBar attribution.
 
+## 0.3.4, 2026-07-14
+
+### Added
+
+- Add a guarded Configure button to the popup header that opens the standard Plasma widget configuration dialog.
+
 ## 0.3.3, 2026-07-14
 
 ### Changed

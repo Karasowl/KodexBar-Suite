@@ -572,6 +572,15 @@ assert.match(mainQml, /text: i18n\("Open AI CLI Control"\)/, "the widget can ope
 assert.match(mainQml, /launchAiControl\(\["--update", "all"\]\)/, "the widget can invoke the multi-CLI update flow")
 assert.match(mainQml, /konsole --hold -e/, "multi-CLI updates keep terminal output visible")
 assert.match(mainQml, /aiControlExecutable\.connectSource\(aiControlCommandLine/, "AI actions use the executable bridge")
+assert.match(mainQml, /readonly property var configureAction: Plasmoid\.internalAction\("configure"\)/, "the popup resolves Plasma's standard configure action")
+assert.match(mainQml, /id: configureButton/, "the popup exposes a discoverable configuration button")
+assert.match(mainQml, /visible: root\.configureAction !== null/, "the configuration button stays hidden when Plasma does not expose configure")
+assert.match(
+    mainQml,
+    /if \(root\.configureAction !== null\) \{\s*root\.configureAction\.trigger\(\)/,
+    "the configuration button guards the Plasma action before triggering it"
+)
+assert.match(mainQml, /text: i18n\("Configure"\)/, "the configuration button has a translated tooltip label")
 assert.match(mainQml, /id: aiControlButton/, "the popup exposes a discoverable AI CLI Control button")
 assert.match(mainQml, /id: aiControlMenu/, "the popup AI button offers selector and update actions")
 assert.match(mainQml, /ListView \{\s+id: providerTabs/, "popup provider tabs use horizontal scrolling")
@@ -618,7 +627,7 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.3.3", "package metadata uses version 0.3.3")
+assert.equal(metadata.KPlugin.Version, "0.3.4", "package metadata uses version 0.3.4")
 assert.equal(metadata.KPlugin.Name, "KodexBar Suite", "package metadata uses the public product name")
 assert.equal(metadata.KPlugin.Id, "org.kde.plasma.kodexbar", "the technical plugin ID remains compatible")
 assert.doesNotMatch(
