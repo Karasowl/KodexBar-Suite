@@ -7,6 +7,7 @@ desde una copia temporal abierta por SQLite en modo de solo lectura.
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
 import tempfile
@@ -19,6 +20,12 @@ from urllib.parse import quote
 HOME = Path.home()
 PROVIDERS = {"codex", "grok", "agy", "claude"}
 ALIASES = {"antigravity": "agy"}
+UUID_SHAPE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+LONG_HEX_RUN = re.compile(r"[0-9a-fA-F]{24,}")
+LONG_DECIMAL_RUN = re.compile(r"[0-9]{12,}")
+OPAQUE_TOKEN = re.compile(r"(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])[A-Za-z0-9_-]{20,}")
 
 
 def warn(message):
@@ -376,20 +383,28 @@ def useful_protobuf_text(blob):
             continue
         seen.add(text)
         # Un envoltorio protobuf puede ser mayormente ASCII por contener rutas o
-        # UUID, pero sin espacios y con controles internos no es un turno humano.
-        if (any(ord(character) < 32 and character not in "\n\r\t" for character in text)
-                and not any(character.isspace() for character in text)):
+        # UUID, pero sus controles internos no forman parte de un turno humano.
+        if any(ord(character) < 32 and character not in "\n\r\t" for character in text):
             continue
         if text.startswith(("{", "[")) or "trajectory_id" in text or "sessionID" in text:
             continue
         candidates.append(text)
     if not candidates:
         return ""
-    # Si el mismo payload contiene el texto anidado sin controles, prefierelo
-    # sobre su envoltorio protobuf parcialmente legible.
+    # Un payload suele mezclar el turno con IDs internos. Los envoltorios
+    # protobuf parcialmente legibles pueden incluir una etiqueta de campo
+    # imprimible antes del texto, por lo que el texto limpio anidado debe ganar.
     def candidate_score(value):
-        clean = not any(ord(character) < 32 and character not in "\n\r\t" for character in value)
-        return clean, len(value)
+        identifier_noise = (
+            UUID_SHAPE.search(value)
+            or LONG_HEX_RUN.search(value)
+            or LONG_DECIMAL_RUN.search(value)
+            or OPAQUE_TOKEN.search(value)
+            or value.startswith(("file://", "http://", "https://", "/"))
+        )
+        has_internal_space = any(character.isspace() for character in value.strip())
+        clean = not any(ord(character) < 32 for character in value)
+        return not identifier_noise, has_internal_space, clean, len(value)
 
     return max(candidates, key=candidate_score)
 
@@ -537,6 +552,10 @@ def newest(sessions):
     return sorted(sessions, key=lambda item: item["last"], reverse=True)
 
 
+def has_text_turns(session):
+    return any(role in {"user", "assistant"} and str(value).strip() for role, value in session["turns"])
+
+
 def command_list(args):
     providers = parse_provider_list(args.provider)
     cwd = Path(args.cwd).expanduser().resolve()
@@ -563,7 +582,7 @@ def command_dump(args):
     cwd = Path(args.cwd).expanduser().resolve()
     sessions = newest(sessions_for(provider, cwd))
     if args.id == "last":
-        sessions = [item for item in sessions if item["kind"] != "subagent"]
+        sessions = [item for item in sessions if item["kind"] != "subagent" and has_text_turns(item)]
         if provider == "claude":
             cutoff = time.time() - 180
             past_sessions = [item for item in sessions if item["path"].stat().st_mtime <= cutoff]

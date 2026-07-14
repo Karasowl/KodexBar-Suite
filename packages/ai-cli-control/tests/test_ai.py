@@ -766,7 +766,78 @@ class RecoverEngineTests(unittest.TestCase):
 
     def test_printable_ratio_keeps_short_ok(self) -> None:
         self.assertEqual(self.engine.printable_ratio("OK"), 1.0)
-        self.assertEqual(self.engine.useful_protobuf_text(b"\x0a\x02OK"), "OK")
+        uuid = "8418cc72-9e8a-434d-a210-7d709527da15"
+
+        def pb(field, value):
+            if isinstance(value, str):
+                value = value.encode("utf-8")
+            return bytes(((field << 3) | 2, len(value))) + value
+
+        payload = (
+            pb(1, "OK") + pb(2, uuid) + pb(3, uuid + uuid)
+            + pb(4, "file:///workspace/project")
+            + pb(5, "8D1UasqREpCIz7IPwZGB-QY")
+            + pb(6, "-3750763034362895579")
+        )
+        self.assertEqual(self.engine.useful_protobuf_text(payload), "OK")
+
+    def test_protobuf_keeps_nested_turns_and_drops_printable_tag_bytes(self) -> None:
+        uuid = "8418cc72-9e8a-434d-a210-7d709527da15"
+
+        def pb(field, value):
+            if isinstance(value, str):
+                value = value.encode("utf-8")
+            return bytes(((field << 3) | 2, len(value))) + value
+
+        nested = pb(1, "UNIDAD FINAL autorizada") + pb(2, uuid)
+        payload = pb(1, nested) + pb(2, uuid)
+        self.assertEqual(self.engine.useful_protobuf_text(payload), "UNIDAD FINAL autorizada")
+        tagged = (
+            pb(1, b"\nKPOST ONLY de FINAL")
+            + pb(2, pb(1, "POST ONLY de FINAL") + pb(2, uuid))
+            + pb(3, uuid)
+        )
+        self.assertEqual(
+            self.engine.useful_protobuf_text(tagged),
+            "POST ONLY de FINAL",
+        )
+
+    def test_dump_last_skips_sessions_without_text_turns(self) -> None:
+        empty = {
+            "provider": "grok", "id": "empty", "cwd": "", "started": "2026-01-02T00:00:00Z",
+            "last": "2026-01-02T00:00:00Z", "kind": "main", "turns": [("tool", 1)],
+            "path": Path("/tmp/recover-engine-empty"),
+        }
+        populated = {
+            "provider": "grok", "id": "populated", "cwd": "", "started": "2026-01-01T00:00:00Z",
+            "last": "2026-01-01T00:00:00Z", "kind": "main", "turns": [("user", "texto real")],
+            "path": Path("/tmp/recover-engine-populated"),
+        }
+        original = self.engine.sessions_for
+        self.engine.sessions_for = lambda _provider, _cwd: [empty, populated]
+        try:
+            output = StringIO()
+            args = type("Args", (), {"provider": "grok", "cwd": ".", "id": "last", "max_chars": 800})()
+            with redirect_stdout(output):
+                self.assertEqual(self.engine.command_dump(args), 0)
+            self.assertIn("Sesión: populated", output.getvalue())
+        finally:
+            self.engine.sessions_for = original
+
+    def test_dump_last_rejects_only_empty_sessions(self) -> None:
+        empty = {
+            "provider": "grok", "id": "empty", "cwd": "", "started": "2026-01-02T00:00:00Z",
+            "last": "2026-01-02T00:00:00Z", "kind": "main", "turns": [("tool", 1)],
+            "path": Path("/tmp/recover-engine-empty"),
+        }
+        original = self.engine.sessions_for
+        self.engine.sessions_for = lambda _provider, _cwd: [empty]
+        try:
+            args = type("Args", (), {"provider": "grok", "cwd": ".", "id": "last", "max_chars": 800})()
+            with self.assertRaisesRegex(ValueError, "no hay una sesión pasada reciente"):
+                self.engine.command_dump(args)
+        finally:
+            self.engine.sessions_for = original
 
 
 if __name__ == "__main__":
