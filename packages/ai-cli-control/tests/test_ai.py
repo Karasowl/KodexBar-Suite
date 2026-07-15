@@ -8,7 +8,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from importlib.util import module_from_spec, spec_from_file_location
 from io import StringIO
 
@@ -874,6 +874,36 @@ class RecoverEngineTests(unittest.TestCase):
             output.getvalue(),
             "1) Copiar al portapapeles\n2) Guardar como Markdown\n3) Mostrar aquí\nDestino [1-3]: ",
         )
+
+    def test_menu_keyboard_interrupt_exits_130_without_traceback(self) -> None:
+        def interrupted_input() -> str:
+            raise KeyboardInterrupt
+
+        original_command = self.engine.command_positional
+        self.engine.command_positional = lambda _args: self.engine.destination_menu(interrupted_input)
+        try:
+            stderr = StringIO()
+            with redirect_stderr(stderr):
+                self.assertEqual(self.engine.main(["codex"]), 130)
+        finally:
+            self.engine.command_positional = original_command
+        self.assertTrue(stderr.getvalue().endswith("Cancelado.\n"))
+        self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_menu_eof_emits_dignified_message(self) -> None:
+        def closed_input() -> str:
+            raise EOFError
+
+        original_command = self.engine.command_positional
+        self.engine.command_positional = lambda _args: self.engine.destination_menu(closed_input)
+        try:
+            stderr = StringIO()
+            with redirect_stderr(stderr):
+                self.assertEqual(self.engine.main(["codex"]), 1)
+        finally:
+            self.engine.command_positional = original_command
+        self.assertTrue(stderr.getvalue().endswith("Entrada cerrada.\n"))
+        self.assertNotIn("Error inesperado: ", stderr.getvalue())
 
     def test_unknown_positional_provider_has_clear_error(self) -> None:
         result = self.run_recover("unknown-provider", "--cwd", str(self.project))

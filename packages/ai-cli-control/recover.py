@@ -831,7 +831,7 @@ def command_positional(args):
     return export_positional_dump(args, selected, dump)
 
 
-def main(argv=None):
+def _main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in {"-h", "--help"}:
         build_help_parser().parse_args(argv)
@@ -853,9 +853,20 @@ def main(argv=None):
     except ValueError as error:
         print("Error de uso: " + str(error), file=sys.stderr)
         return 2
+    except EOFError:
+        print("Entrada cerrada.", file=sys.stderr)
+        return 1
     except Exception as error:
         print("Error inesperado: " + str(error), file=sys.stderr)
         return 1
+
+
+def main(argv=None):
+    try:
+        return _main(argv)
+    except KeyboardInterrupt:
+        print("Cancelado.", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":
