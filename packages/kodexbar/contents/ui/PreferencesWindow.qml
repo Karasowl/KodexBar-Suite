@@ -10,6 +10,11 @@ QQC2.ApplicationWindow {
 
     property var appletRoot
     property string currentPage: "general"
+    readonly property int fontSizeTitle: 26
+    readonly property int fontSizeCardTitle: 17
+    readonly property int fontSizeBody: 13
+    readonly property int fontSizeSecondary: 12
+    readonly property int fontSizeMicro: 10
     property string savedState: ""
     property string workingCommand: ""
     property string workingAiControlCommand: ""
@@ -325,12 +330,14 @@ QQC2.ApplicationWindow {
                         Layout.fillHeight: true
 
                         QQC2.ScrollView {
+                            id: pageScroll
                             anchors.fill: parent
                             anchors.margins: 28
+                            contentWidth: pageScroll.availableWidth
                             clip: true
 
                             ColumnLayout {
-                                width: parent.width
+                                width: pageScroll.availableWidth
                                 spacing: 18
 
                                 StackLayout {
@@ -349,7 +356,7 @@ QQC2.ApplicationWindow {
                                                     text: i18n("General")
                                                     color: "#e9ebf2"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
-                                                    font.pixelSize: 24
+                                                    font.pixelSize: preferences.fontSizeTitle
                                                     font.bold: true
                                                 }
 
@@ -357,6 +364,7 @@ QQC2.ApplicationWindow {
                                                     text: i18n("Configure how KodexBar Suite reads and presents usage.")
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeBody
                                                 }
                                             }
 
@@ -383,7 +391,7 @@ QQC2.ApplicationWindow {
                                                         text: i18n("PANEL PREVIEW")
                                                         color: "#8b91a3"
                                                         font.family: appletRoot ? appletRoot.designFont : ""
-                                                        font.pixelSize: 10
+                                                        font.pixelSize: preferences.fontSizeMicro
                                                         font.weight: Font.DemiBold
                                                     }
 
@@ -400,7 +408,7 @@ QQC2.ApplicationWindow {
                                                         text: i18n("LIVE")
                                                         color: "#45d483"
                                                         font.family: appletRoot ? appletRoot.designFont : ""
-                                                        font.pixelSize: 10
+                                                        font.pixelSize: preferences.fontSizeMicro
                                                         font.weight: Font.DemiBold
                                                     }
                                                 }
@@ -515,6 +523,7 @@ QQC2.ApplicationWindow {
                                                     text: i18n("Leave empty to use the kodexbar-quotas engine with its upstream fallback chain.")
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeSecondary
                                                     wrapMode: Text.WordWrap
                                                 }
 
@@ -534,6 +543,7 @@ QQC2.ApplicationWindow {
                                                     text: i18n("Opens the AI CLI Control selector and updates provider CLIs.")
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeSecondary
                                                     wrapMode: Text.WordWrap
                                                 }
 
@@ -572,6 +582,7 @@ QQC2.ApplicationWindow {
                                                     text: i18n("Auto picks the best available source.")
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeSecondary
                                                 }
                                             }
                                         }
@@ -602,6 +613,7 @@ QQC2.ApplicationWindow {
                                                     text: i18n("Applies to all providers.")
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeSecondary
                                                 }
 
                                                 PreferenceField {
@@ -622,6 +634,7 @@ QQC2.ApplicationWindow {
                                                     text: i18n("Uses a dedicated interval to avoid exhausting its API.")
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeSecondary
                                                 }
                                             }
                                         }
@@ -642,6 +655,7 @@ QQC2.ApplicationWindow {
                                                         text: i18n("Show all returned providers")
                                                         color: "#e9ebf2"
                                                         font.family: appletRoot ? appletRoot.designFont : ""
+                                                        font.pixelSize: preferences.fontSizeBody
                                                     }
 
                                                     QQC2.Switch {
@@ -655,7 +669,7 @@ QQC2.ApplicationWindow {
                                                     text: i18n("PROVIDERS")
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
-                                                    font.pixelSize: 10
+                                                    font.pixelSize: preferences.fontSizeMicro
                                                     font.weight: Font.DemiBold
                                                 }
 
@@ -725,7 +739,7 @@ QQC2.ApplicationWindow {
                                                                         color: preferences.isProviderActive(providerChip.modelData)
                                                                             ? "#e9ebf2" : "#8b91a3"
                                                                         font.family: appletRoot ? appletRoot.designFont : ""
-                                                                        font.pixelSize: 12
+                                                                        font.pixelSize: preferences.fontSizeBody
                                                                     }
                                                                 }
 
@@ -752,6 +766,7 @@ QQC2.ApplicationWindow {
                                                         : preferences.providerIds.length - preferences.activeKnownProviderIds.length)
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeSecondary
                                                 }
                                             }
                                         }
@@ -764,7 +779,7 @@ QQC2.ApplicationWindow {
                                             text: i18n("Keyboard shortcuts")
                                             color: "#e9ebf2"
                                             font.family: appletRoot ? appletRoot.designFont : ""
-                                            font.pixelSize: 24
+                                            font.pixelSize: preferences.fontSizeTitle
                                             font.bold: true
                                         }
 
@@ -800,7 +815,7 @@ QQC2.ApplicationWindow {
                                             text: i18n("About")
                                             color: "#e9ebf2"
                                             font.family: appletRoot ? appletRoot.designFont : ""
-                                            font.pixelSize: 24
+                                            font.pixelSize: preferences.fontSizeTitle
                                             font.bold: true
                                         }
 
@@ -828,18 +843,21 @@ QQC2.ApplicationWindow {
                                                     text: i18n("Version %1", Plasmoid.metaData.version || "0.5.0")
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeSecondary
                                                 }
 
                                                 QQC2.Label {
                                                     text: i18n("Built on the upstream CodexBar CLI.")
                                                     color: "#c3c7d2"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeBody
                                                 }
 
                                                 QQC2.Label {
                                                     text: i18n("Licensed under the MIT License.")
                                                     color: "#c3c7d2"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeBody
                                                 }
 
                                                 QQC2.TextField {
@@ -945,7 +963,7 @@ QQC2.ApplicationWindow {
                     text: title
                     color: "#e9ebf2"
                     font.family: appletRoot ? appletRoot.designFont : ""
-                    font.pixelSize: 16
+                    font.pixelSize: preferences.fontSizeCardTitle
                     font.weight: Font.DemiBold
                 }
 
@@ -954,6 +972,7 @@ QQC2.ApplicationWindow {
                     text: subtitle
                     color: "#8b91a3"
                     font.family: appletRoot ? appletRoot.designFont : ""
+                    font.pixelSize: preferences.fontSizeSecondary
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }
@@ -979,6 +998,7 @@ QQC2.ApplicationWindow {
             text: label
             color: "#c3c7d2"
             font.family: appletRoot ? appletRoot.designFont : ""
+            font.pixelSize: preferences.fontSizeBody
         }
 
         RowLayout {
