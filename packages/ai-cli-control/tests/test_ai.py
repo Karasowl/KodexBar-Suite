@@ -867,6 +867,41 @@ class RecoverEngineTests(unittest.TestCase):
         self.assertIn("Copiados", copied.stdout)
         self.assertIn("newer-session", copied.stdout)
 
+    def test_copy_flag_falls_back_after_available_candidate_fails(self) -> None:
+        fake_bin = self.temp / "clipboard-fallback-bin"
+        fake_bin.mkdir()
+        clipboard = self.temp / "clipboard-fallback.txt"
+        wl_copy = fake_bin / "wl-copy"
+        xclip = fake_bin / "xclip"
+        wl_copy.write_text("#!/bin/sh\nexit 23\n", encoding="utf-8")
+        xclip.write_text("#!/bin/sh\n/bin/cat > \"$AI_TEST_CLIPBOARD\"\n", encoding="utf-8")
+        wl_copy.chmod(0o755)
+        xclip.chmod(0o755)
+        expected = self.run_recover("codex", "newer-session", "--cwd", str(self.project), "--stdout")
+        copied = self.run_recover(
+            "codex", "newer-session", "--cwd", str(self.project), "--copy",
+            environment={"PATH": str(fake_bin) + os.pathsep + os.environ["PATH"], "AI_TEST_CLIPBOARD": str(clipboard)},
+        )
+        self.assertEqual(expected.returncode, 0, expected.stderr)
+        self.assertEqual(copied.returncode, 0, copied.stderr)
+        self.assertEqual(clipboard.read_text(encoding="utf-8"), expected.stdout)
+        self.assertIn("Copiados", copied.stdout)
+
+    def test_copy_flag_reports_error_only_after_all_available_candidates_fail(self) -> None:
+        fake_bin = self.temp / "clipboard-failures-bin"
+        fake_bin.mkdir()
+        for command in ("wl-copy", "xclip", "xsel"):
+            executable = fake_bin / command
+            executable.write_text("#!/bin/sh\nexit 23\n", encoding="utf-8")
+            executable.chmod(0o755)
+        failed = self.run_recover(
+            "codex", "newer-session", "--cwd", str(self.project), "--copy",
+            environment={"PATH": str(fake_bin) + os.pathsep + os.environ["PATH"]},
+        )
+        self.assertEqual(failed.returncode, 2)
+        self.assertIn("xsel no pudo copiar al portapapeles", failed.stderr)
+        self.assertNotIn("Traceback", failed.stderr)
+
     def test_save_writes_markdown_header_and_uses_collision_suffix(self) -> None:
         destination = self.temp / "recovered.md"
         first = self.run_recover("codex", "1", "--cwd", str(self.project), "--save", str(destination))

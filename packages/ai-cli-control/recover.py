@@ -686,17 +686,21 @@ class ClipboardUnavailable(ValueError):
 def copy_to_clipboard(dump, provider, session_id):
     candidates = (("wl-copy",), ("xclip", "-selection", "clipboard"), ("xsel", "--clipboard", "--input"))
     copied = dump + "\n"
+    failure = None
     for command in candidates:
         if shutil.which(command[0]) is None:
             continue
         try:
             result = subprocess.run(command, input=copied, text=True, check=False)
         except OSError as error:
-            raise ClipboardUnavailable(f"no se pudo ejecutar {command[0]}: {error}") from error
+            failure = ClipboardUnavailable(f"no se pudo ejecutar {command[0]}: {error}")
+            continue
         if result.returncode == 0:
             print(f"Copiados {len(copied)} caracteres al portapapeles de {provider}, sesión {session_id}.")
             return command[0]
-        raise ClipboardUnavailable(f"{command[0]} no pudo copiar al portapapeles")
+        failure = ClipboardUnavailable(f"{command[0]} no pudo copiar al portapapeles")
+    if failure is not None:
+        raise failure
     raise ClipboardUnavailable("no se encontró wl-copy, xclip ni xsel para copiar al portapapeles")
 
 
