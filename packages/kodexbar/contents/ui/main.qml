@@ -77,6 +77,11 @@ PlasmoidItem {
 
     Plasmoid.contextualActions: [
         PlasmaCore.Action {
+            text: i18n("Configure KodexBar Suite…")
+            icon.name: "configure"
+            onTriggered: root.openPreferences()
+        },
+        PlasmaCore.Action {
             text: i18n("Open AI CLI Control")
             icon.name: "applications-development"
             onTriggered: root.launchAiControl([])
@@ -2257,6 +2262,10 @@ PlasmoidItem {
     }
 
     Component.onCompleted: {
+        const configureAction = Plasmoid.internalAction("configure")
+        if (configureAction) {
+            configureAction.visible = false
+        }
         if (Plasmoid.configuration.sourceDefaultMigrationDone !== true) {
             if (Plasmoid.configuration.source && Plasmoid.configuration.source !== "detect") {
                 Plasmoid.configuration.sourceDefault = Plasmoid.configuration.source
