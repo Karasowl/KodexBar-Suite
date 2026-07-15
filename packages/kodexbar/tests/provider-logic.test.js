@@ -668,6 +668,21 @@ assert.match(
 assert.match(mainQml, /function commandCandidatesForSeed\(\)/, "startup seeds every enabled provider through the command candidate chain")
 assert.match(mainQml, /activeFallbackCommand/, "the active candidate remembers its upstream fallback")
 assert.match(mainQml, /commandWasNotFound\(data\)/, "only command-not-found failures advance to upstream")
+assert.match(
+    mainQml,
+    /function refreshCost\(\) \{[\s\S]*pendingCostCommands = ProviderLogic\.commandCandidates\(configuredCodexbarCommand\)[\s\S]*startNextCostCandidate\(\)/,
+    "cost acquisition starts with the same command candidate chain"
+)
+assert.match(
+    mainQml,
+    /function startNextCostCandidate\(\) \{[\s\S]*costExecutable\.connectSource\(costCommandLine\(pendingCostCommands\.shift\(\)\)\)/,
+    "cost acquisition advances through command candidates"
+)
+assert.match(
+    mainQml,
+    /if \(root\.commandWasNotFound\(data\) && root\.startNextCostCandidate\(\)\) \{[\s\S]*root\.costLoading = true/,
+    "a missing quota engine retries the cost query through upstream CodexBar"
+)
 assert.match(configXml, /<entry name="codexbarCommand" type="String">\s*<default>kodexbar-quotas<\/default>/, "the default command is the quota engine")
 assert.match(mainQml, /property double lastSuccessfulSeedAt: 0/, "the widget records when the last full seed succeeded")
 assert.match(

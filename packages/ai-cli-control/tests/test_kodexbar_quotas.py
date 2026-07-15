@@ -115,6 +115,44 @@ class QuotasEngineTests(unittest.TestCase):
             self.assertEqual(entries[1]["source"], "upstream")
             self.assertEqual(entries[2]["source"], "upstream")
 
+    def test_missing_or_corrupt_claude_credentials_fallback_without_losing_other_providers(self) -> None:
+        for credentials_text in (None, "{corrupt json"):
+            with self.subTest(credentials_text=credentials_text), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                home = root / "home"
+                bin_dir = root / "bin"
+                config = home / ".config/codexbar/config.json"
+                config.parent.mkdir(parents=True)
+                config.write_text(json.dumps({"providers": [
+                    {"id": "claude", "enabled": True},
+                    {"id": "codex", "enabled": True},
+                    {"id": "grok", "enabled": True},
+                ]}), encoding="utf-8")
+                if credentials_text is not None:
+                    credentials = home / ".claude/.credentials.json"
+                    credentials.parent.mkdir(parents=True)
+                    credentials.write_text(credentials_text, encoding="utf-8")
+                bin_dir.mkdir()
+                upstream = bin_dir / "codexbar"
+                upstream.write_text("#!" + os.sys.executable + "\n" + textwrap.dedent("""\
+                    import json, sys
+                    provider = sys.argv[sys.argv.index("--provider") + 1]
+                    print(json.dumps([{"provider": provider, "source": "upstream", "usage": {"primary": None}}]))
+                """), encoding="utf-8")
+                upstream.chmod(0o755)
+                env = os.environ.copy()
+                env.update({"HOME": str(home), "PATH": str(bin_dir)})
+                result = subprocess.run(
+                    [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                )
+                entries = json.loads(result.stdout)
+                self.assertEqual([entry["provider"] for entry in entries], ["claude", "codex", "grok"])
+                self.assertEqual([entry["source"] for entry in entries], ["upstream", "upstream", "upstream"])
+
     def test_cost_is_empty_without_upstream(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             env = os.environ.copy()

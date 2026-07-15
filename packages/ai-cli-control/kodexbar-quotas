@@ -53,7 +53,10 @@ def enabled_providers(home: Path | None = None) -> list[str]:
 
 def claude_access_token(home: Path | None = None) -> str:
     root = home or home_directory()
-    credentials = read_json(root / ".claude" / ".credentials.json")
+    try:
+        credentials = read_json(root / ".claude" / ".credentials.json")
+    except (OSError, json.JSONDecodeError) as error:
+        raise FetchFallback("Claude OAuth credentials are unavailable") from error
     token = credentials.get("claudeAiOauth", {}).get("accessToken")
     if not isinstance(token, str) or not token.strip():
         raise FetchFallback("Claude OAuth credentials are unavailable")

@@ -35,6 +35,7 @@ PlasmoidItem {
     property string activeCommand: codexbarCommand
     property string activeFallbackCommand: ""
     property var pendingCandidates: []
+    property var pendingCostCommands: []
     property var lastGoodEntries: []
     property bool activeQueryReplacesAll: false
     property bool initialUsageSeedPending: true
@@ -354,13 +355,13 @@ PlasmoidItem {
         return line
     }
 
-    function costCommandLine() {
+    function costCommandLine(command) {
         var args = ProviderLogic.costArguments()
-        var command = shellQuote(codexbarCommand)
+        var line = shellQuote(command || codexbarCommand)
         for (var i = 0; i < args.length; i++) {
-            command += " " + shellQuote(args[i])
+            line += " " + shellQuote(args[i])
         }
-        return command
+        return line
     }
 
     function aiControlCommandLine(arguments, showTerminal) {
@@ -485,7 +486,17 @@ PlasmoidItem {
         }
         costLoading = true
         costExecutable.connectedSources = []
-        costExecutable.connectSource(costCommandLine())
+        pendingCostCommands = ProviderLogic.commandCandidates(configuredCodexbarCommand)
+        startNextCostCandidate()
+    }
+
+    function startNextCostCandidate() {
+        if (pendingCostCommands.length === 0) {
+            return false
+        }
+        costExecutable.connectedSources = []
+        costExecutable.connectSource(costCommandLine(pendingCostCommands.shift()))
+        return true
     }
 
     function cancelUsageRefresh() {
@@ -2149,6 +2160,10 @@ PlasmoidItem {
             disconnectSource(sourceName)
             root.costLoading = false
             if (data["exit code"] && data["exit code"] !== 0 && !(data.stdout || "").length) {
+                if (root.commandWasNotFound(data) && root.startNextCostCandidate()) {
+                    root.costLoading = true
+                    return
+                }
                 root.costErrorMessage = data.stderr || i18n("Cost scan failed with exit code %1", data["exit code"])
                 root.costSummaries = ({})
                 root.applyCostSummaries()

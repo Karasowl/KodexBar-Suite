@@ -126,6 +126,10 @@ El ejecutable instalado queda en `~/.local/share/ai-cli-control/ai` y `~/.local/
 
 `kodexbar-quotas` es el comando local predeterminado del widget. Lee los proveedores habilitados desde `~/.config/codexbar/config.json`. Consulta Claude directamente en `https://api.anthropic.com/api/oauth/usage` con el token OAuth de Claude y un límite de 15 segundos. Codex, Antigravity, Grok, credenciales ausentes, respuestas inesperadas y fallos normales de solicitud usan `codexbar` upstream por proveedor. El HTTP 429 de Claude se conserva como error de proveedor para que el widget mantenga la lectura en caché. `cost --format json --json-only` se reenvía a upstream, o devuelve `[]` si upstream no está instalado.
 
+Codex, Antigravity y Grok siguen como pasos directos a upstream en esta versión. Durante el port desde el código Swift, sus rutas de adquisición dependían de cookies y sesiones del dashboard, además de esquemas de respuesta privados de cada proveedor, incluidos endpoints protobuf, que no se pueden reproducir fielmente con Python de la biblioteca estándar. Solo Claude expuso la solicitud OAuth JSON directa que se implementa aquí.
+
+Las invocaciones de uso con banderas que el motor no implementa, como `--status`, se delegan por completo a `codexbar` upstream.
+
 El instalador lo coloca en `~/.local/share/ai-cli-control/kodexbar-quotas` y enlaza `~/.local/bin/kodexbar-quotas` solo cuando ese enlace pertenece a este paquete.
 
 ## Desarrollo
