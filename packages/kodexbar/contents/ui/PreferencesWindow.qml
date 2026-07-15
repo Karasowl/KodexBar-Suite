@@ -22,6 +22,13 @@ QQC2.ApplicationWindow {
     property int workingRefreshInterval: 60
     property int workingClaudeRefreshInterval: 300
     property string workingCompactProviderOrder: "codex,claude,grok,antigravity"
+    property string workingCompactQuotaSelection: "primary,weekly"
+    property bool workingShowProviderInPanel: true
+    property bool workingShowUsedPercentInPanel: true
+    property bool workingShowCreditsInPanel: false
+    property bool workingIncludeStatus: false
+    property bool workingShowEmailInWidget: false
+    property bool workingShowCostSummary: true
     property string workingShortcut: ""
     readonly property bool showAllProviders: workingCompactProviderOrder.trim().length === 0
     readonly property var providerIds: providerList()
@@ -30,7 +37,12 @@ QQC2.ApplicationWindow {
     readonly property var compactProviderChipIds: orderedProviderIds()
     readonly property bool dirty: snapshot() !== savedState
     readonly property var previewState: appletRoot
-        ? appletRoot.compactResultForOrder(workingCompactProviderOrder)
+        ? appletRoot.compactResultForOrder(workingCompactProviderOrder, {
+            quotaSelection: workingCompactQuotaSelection,
+            showProvider: workingShowProviderInPanel,
+            showUsed: workingShowUsedPercentInPanel,
+            showCredits: workingShowCreditsInPanel
+        })
         : ({ blocks: [], text: "" })
 
     visible: false
@@ -117,6 +129,13 @@ QQC2.ApplicationWindow {
             refreshInterval: workingRefreshInterval,
             claudeRefreshInterval: workingClaudeRefreshInterval,
             compactProviderOrder: workingCompactProviderOrder,
+            compactQuotaSelection: workingCompactQuotaSelection,
+            showProviderInPanel: workingShowProviderInPanel,
+            showUsedPercentInPanel: workingShowUsedPercentInPanel,
+            showCreditsInPanel: workingShowCreditsInPanel,
+            includeStatus: workingIncludeStatus,
+            showEmailInWidget: workingShowEmailInWidget,
+            showCostSummary: workingShowCostSummary,
             shortcut: workingShortcut
         })
     }
@@ -133,6 +152,21 @@ QQC2.ApplicationWindow {
         workingCompactProviderOrder = Plasmoid.configuration.compactProviderOrder === undefined
             ? "codex,claude,grok,antigravity"
             : String(Plasmoid.configuration.compactProviderOrder)
+        workingCompactQuotaSelection = Plasmoid.configuration.compactQuotaSelection === undefined
+            ? "primary,weekly"
+            : String(Plasmoid.configuration.compactQuotaSelection)
+        workingShowProviderInPanel = Plasmoid.configuration.showProviderInPanel === undefined
+            ? true : Plasmoid.configuration.showProviderInPanel
+        workingShowUsedPercentInPanel = Plasmoid.configuration.showUsedPercentInPanel === undefined
+            ? true : Plasmoid.configuration.showUsedPercentInPanel
+        workingShowCreditsInPanel = Plasmoid.configuration.showCreditsInPanel === undefined
+            ? false : Plasmoid.configuration.showCreditsInPanel
+        workingIncludeStatus = Plasmoid.configuration.includeStatus === undefined
+            ? false : Plasmoid.configuration.includeStatus
+        workingShowEmailInWidget = Plasmoid.configuration.showEmailInWidget === undefined
+            ? false : Plasmoid.configuration.showEmailInWidget
+        workingShowCostSummary = Plasmoid.configuration.showCostSummary === undefined
+            ? true : Plasmoid.configuration.showCostSummary
         workingShortcut = String(Plasmoid.globalShortcut || "")
         savedState = snapshot()
     }
@@ -144,6 +178,13 @@ QQC2.ApplicationWindow {
         Plasmoid.configuration.refreshInterval = workingRefreshInterval
         Plasmoid.configuration.claudeRefreshInterval = workingClaudeRefreshInterval
         Plasmoid.configuration.compactProviderOrder = workingCompactProviderOrder
+        Plasmoid.configuration.compactQuotaSelection = workingCompactQuotaSelection
+        Plasmoid.configuration.showProviderInPanel = workingShowProviderInPanel
+        Plasmoid.configuration.showUsedPercentInPanel = workingShowUsedPercentInPanel
+        Plasmoid.configuration.showCreditsInPanel = workingShowCreditsInPanel
+        Plasmoid.configuration.includeStatus = workingIncludeStatus
+        Plasmoid.configuration.showEmailInWidget = workingShowEmailInWidget
+        Plasmoid.configuration.showCostSummary = workingShowCostSummary
         Plasmoid.globalShortcut = workingShortcut
         savedState = snapshot()
     }
@@ -155,6 +196,13 @@ QQC2.ApplicationWindow {
         workingRefreshInterval = 60
         workingClaudeRefreshInterval = 300
         workingCompactProviderOrder = "codex,claude,grok,antigravity"
+        workingCompactQuotaSelection = "primary,weekly"
+        workingShowProviderInPanel = true
+        workingShowUsedPercentInPanel = true
+        workingShowCreditsInPanel = false
+        workingIncludeStatus = false
+        workingShowEmailInWidget = false
+        workingShowCostSummary = true
         workingShortcut = ""
     }
 
@@ -458,7 +506,7 @@ QQC2.ApplicationWindow {
                                                                 }
 
                                                                 Image {
-                                                                    visible: appletRoot && appletRoot.showProviderInPanel
+                                                                    visible: preferences.workingShowProviderInPanel
                                                                     width: visible ? 15 : 0
                                                                     height: 15
                                                                     anchors.verticalCenter: parent.verticalCenter
@@ -583,6 +631,22 @@ QQC2.ApplicationWindow {
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
                                                     font.pixelSize: preferences.fontSizeSecondary
+                                                }
+
+                                                QQC2.CheckBox {
+                                                    objectName: "includeStatusCheck"
+                                                    text: i18n("Include provider status in usage queries")
+                                                    checked: preferences.workingIncludeStatus
+                                                    onToggled: preferences.workingIncludeStatus = checked
+                                                }
+
+                                                QQC2.Label {
+                                                    Layout.fillWidth: true
+                                                    text: i18n("Adds the status field to each CLI query.")
+                                                    color: "#8b91a3"
+                                                    font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeSecondary
+                                                    wrapMode: Text.WordWrap
                                                 }
                                             }
                                         }
@@ -767,6 +831,78 @@ QQC2.ApplicationWindow {
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
                                                     font.pixelSize: preferences.fontSizeSecondary
+                                                }
+
+                                                PreferenceField {
+                                                    label: i18n("Quotas")
+
+                                                    QQC2.TextField {
+                                                        objectName: "quotaSelectionField"
+                                                        Layout.fillWidth: true
+                                                        text: preferences.workingCompactQuotaSelection
+                                                        placeholderText: "primary,weekly"
+                                                        selectByMouse: true
+                                                        onTextEdited: preferences.workingCompactQuotaSelection = text
+                                                    }
+                                                }
+
+                                                QQC2.Label {
+                                                    Layout.fillWidth: true
+                                                    text: i18n("Comma-separated quota keys, default primary,weekly. Use provider.key for a single provider, e.g. antigravity.tertiary. Leave empty to show provider icons only. The popup always shows every quota.")
+                                                    color: "#8b91a3"
+                                                    font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeSecondary
+                                                    wrapMode: Text.WordWrap
+                                                }
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 4
+
+                                                    QQC2.CheckBox {
+                                                        objectName: "showProviderCheck"
+                                                        text: i18n("Show provider label")
+                                                        checked: preferences.workingShowProviderInPanel
+                                                        onToggled: preferences.workingShowProviderInPanel = checked
+                                                    }
+
+                                                    QQC2.CheckBox {
+                                                        objectName: "showUsedCheck"
+                                                        text: i18n("Show used percent")
+                                                        checked: preferences.workingShowUsedPercentInPanel
+                                                        onToggled: preferences.workingShowUsedPercentInPanel = checked
+                                                    }
+
+                                                    QQC2.CheckBox {
+                                                        objectName: "showCreditsCheck"
+                                                        text: i18n("Show credits")
+                                                        checked: preferences.workingShowCreditsInPanel
+                                                        onToggled: preferences.workingShowCreditsInPanel = checked
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        PreferenceCard {
+                                            title: i18n("Popup")
+                                            subtitle: i18n("What the expanded view shows.")
+
+                                            ColumnLayout {
+                                                width: parent.width
+                                                spacing: 4
+
+                                                QQC2.CheckBox {
+                                                    objectName: "showEmailCheck"
+                                                    text: i18n("Show account email")
+                                                    checked: preferences.workingShowEmailInWidget
+                                                    onToggled: preferences.workingShowEmailInWidget = checked
+                                                }
+
+                                                QQC2.CheckBox {
+                                                    objectName: "showCostCheck"
+                                                    text: i18n("Show cost summary")
+                                                    checked: preferences.workingShowCostSummary
+                                                    onToggled: preferences.workingShowCostSummary = checked
                                                 }
                                             }
                                         }

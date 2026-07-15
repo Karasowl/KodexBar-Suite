@@ -117,13 +117,14 @@ PlasmoidItem {
         return compactResultForOrder(compactProviderOrder)
     }
 
-    function compactResultForOrder(providerOrder) {
+    function compactResultForOrder(providerOrder, overrides) {
+        var values = overrides || {}
         return ProviderLogic.composeCompactBlocks(entries, {
             providerOrder: providerOrder,
-            quotaSelection: compactQuotaSelection,
-            showProvider: showProviderInPanel,
-            showUsed: showUsedPercentInPanel,
-            showCredits: showCreditsInPanel,
+            quotaSelection: values.quotaSelection === undefined ? compactQuotaSelection : values.quotaSelection,
+            showProvider: values.showProvider === undefined ? showProviderInPanel : values.showProvider,
+            showUsed: values.showUsed === undefined ? showUsedPercentInPanel : values.showUsed,
+            showCredits: values.showCredits === undefined ? showCreditsInPanel : values.showCredits,
             maximumCharacters: 24,
             noSelectionText: i18n("No selection"),
             noFieldsText: i18n("No compact fields")
