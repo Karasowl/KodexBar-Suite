@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.4.0, 2026-07-14
+
+- Added `kodexbar-panel`, a stdlib-only compact quota adapter for Waybar and the XFCE Generic Monitor plugin.
+- Added safe installation and removal of the owned `kodexbar-panel` user-local executable.
+
 ## 0.3.0, 2026-07-14
 
 - Added `kodexbar-quotas`, a stdlib-only quota engine that reads enabled CodexBar providers, fetches Claude OAuth usage directly, and falls back per provider to upstream `codexbar`.

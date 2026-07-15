@@ -16,7 +16,7 @@ Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../REA
 - Muestra comandos de inicio y actualización con `--dry-run`.
 - Usa inglés de forma predeterminada. Los entornos en español reciben texto en español. `--language en` y `--language es` sustituyen la detección de locale.
 - Conserva cada comando de inicio y actualización como arreglo de argumentos sin evaluación de shell.
-- Incluye `kodexbar-quotas`, un motor local de cuotas para el widget KodexBar Suite.
+- Incluye `kodexbar-quotas`, un motor local de cuotas para el widget KodexBar Suite, y `kodexbar-panel`, un adaptador compacto para barras no KDE.
 
 ## Requisitos
 
@@ -120,7 +120,7 @@ ai --version
 ~/.local/share/ai-cli-control/uninstall.sh
 ```
 
-El ejecutable instalado queda en `~/.local/share/ai-cli-control/ai` y `~/.local/bin/ai` es su enlace simbólico. El motor independiente `recover.py` y una copia de `uninstall.sh` quedan junto al ejecutable para eliminarlos después de borrar el clon. No usa `sudo`. La instalación no sustituye un `~/.local/bin/ai` existente que no pertenezca al proyecto. Solo instala adaptadores si existe el directorio de su CLI y nunca reemplaza un skill `recover-chat` ajeno. La eliminación verifica los marcadores de propiedad y borra solo archivos del proyecto. Ambos scripts son idempotentes.
+El ejecutable instalado queda en `~/.local/share/ai-cli-control/ai` y `~/.local/bin/ai` es su enlace simbólico. El motor independiente `recover.py`, `kodexbar-quotas`, `kodexbar-panel` y una copia de `uninstall.sh` quedan junto al ejecutable para eliminarlos después de borrar el clon. No usa `sudo`. La instalación no sustituye un comando local existente que no pertenezca al proyecto. Solo instala adaptadores si existe el directorio de su CLI y nunca reemplaza un skill `recover-chat` ajeno. La eliminación verifica los marcadores de propiedad y borra solo archivos del proyecto. Ambos scripts son idempotentes.
 
 ## Motor de cuotas
 
@@ -131,6 +131,34 @@ Codex, Antigravity y Grok siguen como pasos directos a upstream en esta versión
 Las invocaciones de uso con banderas que el motor no implementa, como `--status`, se delegan por completo a `codexbar` upstream.
 
 El instalador lo coloca en `~/.local/share/ai-cli-control/kodexbar-quotas` y enlaza `~/.local/bin/kodexbar-quotas` solo cuando ese enlace pertenece a este paquete.
+
+## Adaptadores de panel
+
+`kodexbar-panel` invoca primero el motor `kodexbar-quotas` que está a su lado y después el comando disponible en `PATH`. Muestra la línea compacta de cuotas `Cx`, `Cl`, `Gk` y `Ag` usada por el conjunto, con uso de sesión y semanal cuando está disponible. Tiene un límite total de 20 segundos para el motor y devuelve un error corto en vez de un traceback cuando no hay datos de cuotas.
+
+```bash
+kodexbar-panel --format text
+kodexbar-panel --format text --pango
+kodexbar-panel --format waybar
+kodexbar-panel --format json --providers codex,claude
+kodexbar-panel --waybar-snippet
+```
+
+### Waybar en Hyprland y Omarchy
+
+Imprime el módulo listo para pegar y el ejemplo CSS con `kodexbar-panel --waybar-snippet`. Agrega el bloque `custom/kodexbar` a la configuración de Waybar y añade `custom/kodexbar` a `modules-left`, `modules-center` o `modules-right`. El módulo ejecuta `kodexbar-panel --format waybar`, usa el tipo de retorno JSON de Waybar y se actualiza cada 60 segundos.
+
+En Hyprland, agrega las reglas CSS comentadas del snippet a la hoja de estilo usada por tu configuración de Waybar, normalmente `~/.config/waybar/style.css`. En Omarchy, los temas sobrescriben el CSS de Waybar mediante `~/.config/omarchy/current/theme/waybar.css`, así que agrega las reglas en ese punto de enganche del tema. El instalador nunca modifica ninguna de esas configuraciones de usuario.
+
+### Monitor genérico de XFCE
+
+Agrega el complemento de panel **Generic Monitor**, abre sus propiedades y define **Command** como:
+
+```bash
+kodexbar-panel --format text --pango
+```
+
+Activa el marcado Pango en el complemento cuando esa opción esté disponible y usa un periodo de 60 segundos. El comando también funciona sin Pango, pero los colores de severidad solo se muestran con Pango activado.
 
 ## Desarrollo
 

@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 AI = ROOT / "ai"
 RECOVER = ROOT / "recover.py"
 QUOTAS = ROOT / "kodexbar-quotas"
+PANEL = ROOT / "kodexbar-panel"
 FORBIDDEN = ("eval(", "shell=True", "shell = True", "os.system(")
 SECRET_PATTERNS = {
     "private key": re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"),
@@ -62,8 +63,12 @@ def main() -> int:
     if not QUOTAS.is_file():
         print("Missing kodexbar-quotas engine", file=sys.stderr)
         return 1
+    if not PANEL.is_file():
+        print("Missing kodexbar-panel adapter", file=sys.stderr)
+        return 1
     recover_source = RECOVER.read_text(encoding="utf-8")
     quotas_source = QUOTAS.read_text(encoding="utf-8")
+    panel_source = PANEL.read_text(encoding="utf-8")
     failures = [token for token in FORBIDDEN if token in source]
     if failures:
         print(f"Forbidden execution tokens found: {', '.join(failures)}", file=sys.stderr)
@@ -82,6 +87,9 @@ def main() -> int:
         return 1
     if any(token in quotas_source for token in FORBIDDEN):
         print("Forbidden execution tokens found in kodexbar-quotas", file=sys.stderr)
+        return 1
+    if any(token in panel_source for token in FORBIDDEN):
+        print("Forbidden execution tokens found in kodexbar-panel", file=sys.stderr)
         return 1
     findings = find_secrets()
     if findings:

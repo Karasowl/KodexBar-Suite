@@ -1,0 +1,27 @@
+[
+  {
+    "provider": "codex",
+    "usage": {
+      "primary": {"usedPercent": 12, "resetsAt": "2026-07-15T03:00:00Z"},
+      "secondary": {"usedPercent": 52, "resetsAt": "2026-07-21T03:00:00Z"}
+    }
+  },
+  {
+    "provider": "claude",
+    "usage": {
+      "primary": {"usedPercent": 50},
+      "secondary": {"usedPercent": 79.9}
+    }
+  },
+  {
+    "provider": "grok",
+    "error": {"code": 1, "message": "rate limited"}
+  },
+  {
+    "provider": "antigravity",
+    "usage": {
+      "primary": {"usedPercent": 80},
+      "secondary": {"usedPercent": 5}
+    }
+  }
+]

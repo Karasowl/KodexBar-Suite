@@ -21,9 +21,11 @@ say() {
 data_dir="${HOME}/.local/share/ai-cli-control"
 installed_ai="${data_dir}/ai"
 installed_quotas="${data_dir}/kodexbar-quotas"
+installed_panel="${data_dir}/kodexbar-panel"
 marker="${data_dir}/.ai-cli-control-owner"
 target="${HOME}/.local/bin/ai"
 quotas_target="${HOME}/.local/bin/kodexbar-quotas"
+panel_target="${HOME}/.local/bin/kodexbar-panel"
 
 remove_owned_link() {
     local link="$1"
@@ -62,6 +64,7 @@ if [[ ! -e "$marker" || "$(<"$marker")" != 'ai-cli-control' ]]; then
 fi
 remove_owned_link "$target" "$installed_ai"
 remove_owned_link "$quotas_target" "$installed_quotas"
+remove_owned_link "$panel_target" "$installed_panel"
 remove_owned_adapter "${HOME}/.claude"
 remove_owned_adapter "${HOME}/.grok"
 rm -rf -- "$data_dir"

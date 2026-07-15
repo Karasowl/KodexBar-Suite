@@ -598,7 +598,7 @@ class AiSelectorTests(unittest.TestCase):
         version = self.run_ai("--version")
         help_result = self.run_ai("--language", "en", "--help")
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.3.0")
+        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.4.0")
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("Choose and launch Codex", help_result.stdout)
         self.assertIn("--language LANGUAGE", help_result.stdout)
@@ -655,20 +655,25 @@ class AiSelectorTests(unittest.TestCase):
         second = self.run_script(INSTALL, home)
         installed = home / ".local/share/ai-cli-control/ai"
         installed_quotas = home / ".local/share/ai-cli-control/kodexbar-quotas"
+        installed_panel = home / ".local/share/ai-cli-control/kodexbar-panel"
         installed_recover = home / ".local/share/ai-cli-control/recover.py"
         installed_uninstall = home / ".local/share/ai-cli-control/uninstall.sh"
         target = home / ".local/bin/ai"
         quotas_target = home / ".local/bin/kodexbar-quotas"
+        panel_target = home / ".local/bin/kodexbar-panel"
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertTrue(installed.is_file())
         self.assertTrue(installed_quotas.is_file())
+        self.assertTrue(installed_panel.is_file())
         self.assertTrue(installed_recover.is_file())
         self.assertTrue(installed_uninstall.is_file())
         self.assertTrue(target.is_symlink())
         self.assertTrue(quotas_target.is_symlink())
+        self.assertTrue(panel_target.is_symlink())
         self.assertEqual(target.readlink(), installed)
         self.assertEqual(quotas_target.readlink(), installed_quotas)
+        self.assertEqual(panel_target.readlink(), installed_panel)
         self.assertEqual(installed.read_text(encoding="utf-8"), AI.read_text(encoding="utf-8"))
         self.assertEqual(installed_recover.read_text(encoding="utf-8"), RECOVER.read_text(encoding="utf-8"))
         for cli in ("claude", "grok"):
@@ -680,8 +685,10 @@ class AiSelectorTests(unittest.TestCase):
         self.assertEqual(self.run_script(UNINSTALL, home).returncode, 0)
         self.assertFalse(target.exists())
         self.assertFalse(quotas_target.exists())
+        self.assertFalse(panel_target.exists())
         self.assertFalse(installed.exists())
         self.assertFalse(installed_quotas.exists())
+        self.assertFalse(installed_panel.exists())
         self.assertFalse(installed_recover.exists())
         self.assertFalse((home / ".claude/skills/recover-chat").exists())
         self.assertFalse((home / ".grok/skills/recover-chat").exists())

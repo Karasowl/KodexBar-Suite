@@ -16,7 +16,7 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 - Preview launch and update commands with `--dry-run`.
 - Use English by default. Spanish locales receive Spanish interface text. `--language en` and `--language es` override locale detection.
 - Keep every launched and updated command as an argument array without shell evaluation.
-- Provide `kodexbar-quotas`, a local quota engine for the KodexBar Suite widget.
+- Provide `kodexbar-quotas`, a local quota engine for the KodexBar Suite widget, and `kodexbar-panel`, a compact adapter for non-KDE bars.
 
 ## Requirements
 
@@ -120,7 +120,7 @@ ai --version
 ~/.local/share/ai-cli-control/uninstall.sh
 ```
 
-The installed executable is `~/.local/share/ai-cli-control/ai`, with `~/.local/bin/ai` as its symlink. Its standalone `recover.py` engine and a copy of `uninstall.sh` are stored beside it for removal after a checkout has been deleted. No `sudo` is used. Installation refuses to replace an existing `~/.local/bin/ai` that is not owned by this project. It installs adapters only when their CLI home directory exists and never replaces an unowned `recover-chat` skill. Uninstallation checks ownership markers and removes only project-owned files. Both scripts are idempotent.
+The installed executable is `~/.local/share/ai-cli-control/ai`, with `~/.local/bin/ai` as its symlink. Its standalone `recover.py` engine, `kodexbar-quotas`, `kodexbar-panel`, and a copy of `uninstall.sh` are stored beside it for removal after a checkout has been deleted. No `sudo` is used. Installation refuses to replace an existing user-local command that is not owned by this project. It installs adapters only when their CLI home directory exists and never replaces an unowned `recover-chat` skill. Uninstallation checks ownership markers and removes only project-owned files. Both scripts are idempotent.
 
 ## Quotas engine
 
@@ -131,6 +131,34 @@ Codex, Antigravity, and Grok remain upstream passthroughs in this version. Durin
 Usage invocations with flags the engine does not implement, such as `--status`, are delegated wholly to upstream `codexbar`.
 
 The installer places it at `~/.local/share/ai-cli-control/kodexbar-quotas` and links `~/.local/bin/kodexbar-quotas` only when that link is owned by this package.
+
+## Panel adapters
+
+`kodexbar-panel` invokes the sibling `kodexbar-quotas` engine first, then the command on `PATH`. It prints the compact `Cx`, `Cl`, `Gk`, and `Ag` quota line used by the suite, with session and weekly usage where available. It has a 20-second engine timeout and returns a short error instead of a traceback when quota data is unavailable.
+
+```bash
+kodexbar-panel --format text
+kodexbar-panel --format text --pango
+kodexbar-panel --format waybar
+kodexbar-panel --format json --providers codex,claude
+kodexbar-panel --waybar-snippet
+```
+
+### Waybar on Hyprland and Omarchy
+
+Print the paste-ready module and CSS example with `kodexbar-panel --waybar-snippet`. Add the `custom/kodexbar` block to your Waybar configuration and add `custom/kodexbar` to `modules-left`, `modules-center`, or `modules-right`. The module runs `kodexbar-panel --format waybar`, uses Waybar's JSON return type, and refreshes every 60 seconds.
+
+On Hyprland, add the commented CSS rules from the snippet to the stylesheet used by your Waybar configuration, commonly `~/.config/waybar/style.css`. On Omarchy, themes override Waybar CSS through `~/.config/omarchy/current/theme/waybar.css`, so add the rules at that theme hook point. The installer never changes either user configuration.
+
+### XFCE Generic Monitor
+
+Add the **Generic Monitor** panel plugin, open its properties, and set **Command** to:
+
+```bash
+kodexbar-panel --format text --pango
+```
+
+Enable Pango markup in the plugin when that option is available, then use a 60-second period. The command is safe to run without Pango too, but the provider severity colors are only shown with Pango enabled.
 
 ## Development
 

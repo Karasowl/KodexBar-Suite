@@ -21,20 +21,23 @@ say() {
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source_file="${script_dir}/ai"
 quotas_source="${script_dir}/kodexbar-quotas"
+panel_source="${script_dir}/kodexbar-panel"
 recover_source="${script_dir}/recover.py"
 uninstall_source="${script_dir}/uninstall.sh"
 adapters_dir="${script_dir}/skills-adapters"
 data_dir="${HOME}/.local/share/ai-cli-control"
 installed_ai="${data_dir}/ai"
 installed_quotas="${data_dir}/kodexbar-quotas"
+installed_panel="${data_dir}/kodexbar-panel"
 installed_recover="${data_dir}/recover.py"
 installed_uninstall="${data_dir}/uninstall.sh"
 marker="${data_dir}/.ai-cli-control-owner"
 bin_dir="${HOME}/.local/bin"
 target="${bin_dir}/ai"
 quotas_target="${bin_dir}/kodexbar-quotas"
+panel_target="${bin_dir}/kodexbar-panel"
 
-if [[ ! -f "$source_file" || ! -f "$quotas_source" || ! -f "$recover_source" || ! -f "$uninstall_source" ]]; then
+if [[ ! -f "$source_file" || ! -f "$quotas_source" || ! -f "$panel_source" || ! -f "$recover_source" || ! -f "$uninstall_source" ]]; then
     say "No se encontraron los archivos fuente de instalación." "Installation source files were not found." >&2
     exit 1
 fi
@@ -72,11 +75,13 @@ install_adapter() {
 }
 check_owned_link "$target" "$installed_ai"
 check_owned_link "$quotas_target" "$installed_quotas"
+check_owned_link "$panel_target" "$installed_panel"
 
 mkdir -p -- "$data_dir" "$bin_dir"
 printf '%s\n' 'ai-cli-control' > "$marker"
 install -m 0755 -- "$source_file" "$installed_ai"
 install -m 0755 -- "$quotas_source" "$installed_quotas"
+install -m 0755 -- "$panel_source" "$installed_panel"
 install -m 0755 -- "$recover_source" "$installed_recover"
 install -m 0755 -- "$uninstall_source" "$installed_uninstall"
 if [[ ! -L "$target" ]]; then
@@ -85,7 +90,11 @@ fi
 if [[ ! -L "$quotas_target" ]]; then
     ln -s -- "$installed_quotas" "$quotas_target"
 fi
+if [[ ! -L "$panel_target" ]]; then
+    ln -s -- "$installed_panel" "$panel_target"
+fi
 install_adapter "${HOME}/.claude" "claude"
 install_adapter "${HOME}/.grok" "grok"
 say "ai se instaló en ${target}" "ai installed at ${target}"
 say "kodexbar-quotas se instaló en ${quotas_target}" "kodexbar-quotas installed at ${quotas_target}"
+say "kodexbar-panel se instaló en ${panel_target}" "kodexbar-panel installed at ${panel_target}"
