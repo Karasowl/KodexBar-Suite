@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import NoReturn, Sequence
 
 
-VERSION = "0.4.1"
+VERSION = "0.5.0"
 EXIT_INVALID = 2
 CODEX_CACHE = Path(
     os.environ.get("AI_CODEX_MODELS_CACHE", "~/.codex/models_cache.json")

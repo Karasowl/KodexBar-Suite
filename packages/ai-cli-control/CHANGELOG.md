@@ -2,10 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
-## 0.4.1, 2026-07-14
+## 0.5.0, 2026-07-14
 
 - Reported when an installed upstream `codexbar` fails to provide usage data, without mislabeling it as missing.
 - Added examples and output guidance to `ai recover --help`, with `ai recover` in command usage lines.
+- Added positional recovery with numbered session listings and `last`, index, or session-ID selectors.
+- Added terminal export destinations for recovery dumps: clipboard, Markdown file, or stdout, while preserving plain non-interactive output.
 
 ## 0.4.0, 2026-07-14
 

@@ -598,7 +598,7 @@ class AiSelectorTests(unittest.TestCase):
         version = self.run_ai("--version")
         help_result = self.run_ai("--language", "en", "--help")
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.4.1")
+        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.5.0")
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("Choose and launch Codex", help_result.stdout)
         self.assertIn("--language LANGUAGE", help_result.stdout)
@@ -756,6 +756,36 @@ class RecoverEngineTests(unittest.TestCase):
         cls.engine = module_from_spec(spec)
         spec.loader.exec_module(cls.engine)
 
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.temp = Path(self.temporary.name)
+        self.home = self.temp / "home"
+        self.project = self.temp / "project"
+        self.project.mkdir()
+        self.write_codex_session("older-session", "2026-07-01T10:00:00Z", "mensaje anterior")
+        self.write_codex_session("newer-session", "2026-07-02T10:00:00Z", "mensaje más reciente")
+
+    def write_codex_session(self, session_id: str, timestamp: str, text: str) -> None:
+        path = self.home / ".codex/sessions/2026/07" / f"rollout-{session_id}.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        records = [
+            {"type": "session_meta", "payload": {"id": session_id, "cwd": str(self.project), "timestamp": timestamp}},
+            {"type": "response_item", "timestamp": timestamp, "payload": {"type": "message", "role": "user", "content": text}},
+            {"type": "response_item", "timestamp": timestamp, "payload": {"type": "message", "role": "assistant", "content": "respuesta " + text}},
+        ]
+        path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+
+    def run_recover(self, *arguments: str, environment: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env.update({"HOME": str(self.home), "LANG": "C", "LC_ALL": "C"})
+        if environment:
+            env.update(environment)
+        return subprocess.run(
+            [str(AI), "recover", *arguments], text=True, capture_output=True,
+            check=False, env=env, cwd=self.temp,
+        )
+
     def test_recover_help_uses_ai_command_and_examples(self) -> None:
         recover_help = subprocess.run(
             [str(AI), "recover", "--help"], text=True, capture_output=True, check=False
@@ -765,12 +795,91 @@ class RecoverEngineTests(unittest.TestCase):
         )
         self.assertEqual(recover_help.returncode, 0, recover_help.stderr)
         self.assertEqual(list_help.returncode, 0, list_help.stderr)
-        self.assertIn("usage: ai recover [-h] {list,dump} ...", recover_help.stdout)
+        self.assertIn("ai recover claude", recover_help.stdout)
         self.assertIn("ejemplos:", recover_help.stdout)
+        self.assertIn("ai recover codex 3 --save", recover_help.stdout)
         self.assertIn("ai recover dump --provider antigravity --id <ID> --max-chars 50000", recover_help.stdout)
         self.assertIn("el proyecto es el directorio actual salvo que uses --cwd.", recover_help.stdout)
-        self.assertIn("la salida va a stdout, puedes conectarla con pipe o pegarla donde la necesites.", recover_help.stdout)
+        self.assertIn("la salida con pipe o redirección es el dump normal, sin menú.", recover_help.stdout)
         self.assertIn("usage: ai recover list [-h] --provider PROVIDER", list_help.stdout)
+
+    def test_positional_listing_shows_stable_indexes_and_legacy_list_stays_plain(self) -> None:
+        positional = self.run_recover("codex", "--cwd", str(self.project))
+        legacy = self.run_recover("list", "--provider", "codex", "--cwd", str(self.project))
+        self.assertEqual(positional.returncode, 0, positional.stderr)
+        self.assertEqual(legacy.returncode, 0, legacy.stderr)
+        self.assertIn("1\tcodex\tnewer-session\t2026-07-02T10:00:00Z", positional.stdout)
+        self.assertIn("2\tcodex\tolder-session\t2026-07-01T10:00:00Z", positional.stdout)
+        self.assertTrue(legacy.stdout.startswith("codex\tnewer-session\t"))
+        self.assertNotIn("1\tcodex", legacy.stdout)
+
+    def test_positional_dump_is_plain_when_stdout_is_a_pipe_and_matches_legacy_dump(self) -> None:
+        positional = self.run_recover("codex", "last", "--cwd", str(self.project))
+        legacy = self.run_recover("dump", "--provider", "codex", "--id", "last", "--cwd", str(self.project))
+        self.assertEqual(positional.returncode, 0, positional.stderr)
+        self.assertEqual(legacy.returncode, 0, legacy.stderr)
+        self.assertEqual(positional.stdout, legacy.stdout)
+        self.assertIn("Sesión: newer-session", positional.stdout)
+        self.assertNotIn("Copiar al portapapeles", positional.stdout)
+        self.assertNotIn("Guardar como Markdown", positional.stdout)
+
+    def test_copy_flag_uses_stub_wl_copy(self) -> None:
+        fake_bin = self.temp / "bin"
+        fake_bin.mkdir()
+        clipboard = self.temp / "clipboard.txt"
+        wl_copy = fake_bin / "wl-copy"
+        wl_copy.write_text("#!/bin/sh\ncat > \"$AI_TEST_CLIPBOARD\"\n", encoding="utf-8")
+        wl_copy.chmod(0o755)
+        expected = self.run_recover("codex", "newer-session", "--cwd", str(self.project), "--stdout")
+        copied = self.run_recover(
+            "codex", "newer-session", "--cwd", str(self.project), "--copy",
+            environment={"PATH": str(fake_bin) + os.pathsep + os.environ["PATH"], "AI_TEST_CLIPBOARD": str(clipboard)},
+        )
+        self.assertEqual(expected.returncode, 0, expected.stderr)
+        self.assertEqual(copied.returncode, 0, copied.stderr)
+        self.assertEqual(clipboard.read_text(encoding="utf-8"), expected.stdout)
+        self.assertIn("Copiados", copied.stdout)
+        self.assertIn("newer-session", copied.stdout)
+
+    def test_save_writes_markdown_header_and_uses_collision_suffix(self) -> None:
+        destination = self.temp / "recovered.md"
+        first = self.run_recover("codex", "1", "--cwd", str(self.project), "--save", str(destination))
+        second = self.run_recover("codex", "1", "--cwd", str(self.project), "--save", str(destination))
+        suffixed = self.temp / "recovered-1.md"
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertTrue(destination.is_file())
+        self.assertTrue(suffixed.is_file())
+        saved = destination.read_text(encoding="utf-8")
+        self.assertIn("# Conversación recuperada", saved)
+        self.assertIn("- Proveedor: codex", saved)
+        self.assertIn("- Sesión: newer-session", saved)
+        self.assertIn(f"- Proyecto: {self.project}", saved)
+        self.assertIn("Sesión: newer-session", saved)
+        self.assertIn(f"Guardado en {suffixed}.", second.stdout)
+
+    def test_resolve_selector_maps_last_index_and_id(self) -> None:
+        older = {"provider": "grok", "id": "older", "kind": "main", "turns": [("user", "uno")], "last": "2026-07-01T00:00:00Z"}
+        newer = {"provider": "grok", "id": "newer", "kind": "main", "turns": [("user", "dos")], "last": "2026-07-02T00:00:00Z"}
+        sessions = [newer, older]
+        self.assertIs(self.engine.resolve_selector("last", "grok", sessions, sessions), newer)
+        self.assertIs(self.engine.resolve_selector("2", "grok", sessions, sessions), older)
+        self.assertIs(self.engine.resolve_selector("older", "grok", sessions, sessions), older)
+
+    def test_destination_menu_uses_the_documented_spanish_text(self) -> None:
+        output = StringIO()
+        answer = iter(["2"])
+        self.assertEqual(self.engine.destination_menu(answer.__next__, output), "save")
+        self.assertEqual(
+            output.getvalue(),
+            "1) Copiar al portapapeles\n2) Guardar como Markdown\n3) Mostrar aquí\nDestino [1-3]: ",
+        )
+
+    def test_unknown_positional_provider_has_clear_error(self) -> None:
+        result = self.run_recover("unknown-provider", "--cwd", str(self.project))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("proveedor desconocido: unknown-provider", result.stderr)
+        self.assertIn("codex, grok, agy, antigravity o claude", result.stderr)
 
     def test_truncation_never_emits_the_full_transcript(self) -> None:
         transcript = "INICIO_UNICO " + ("contenido " * 600) + "FINAL_UNICO"

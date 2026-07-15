@@ -8,7 +8,9 @@ desde una copia temporal abierta por SQLite en modo de solo lectura.
 import argparse
 import json
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import time
@@ -556,12 +558,16 @@ def has_text_turns(session):
     return any(role in {"user", "assistant"} and str(value).strip() for role, value in session["turns"])
 
 
+def listed_sessions(provider, cwd, limit):
+    return newest(sessions_for(provider, cwd))[:limit]
+
+
 def command_list(args):
     providers = parse_provider_list(args.provider)
     cwd = Path(args.cwd).expanduser().resolve()
     all_sessions = []
     for provider in providers:
-        selected = newest(sessions_for(provider, cwd))[:args.limit]
+        selected = listed_sessions(provider, cwd, args.limit)
         all_sessions.extend(selected)
     all_sessions = newest(all_sessions)
     if "agy" in providers:
@@ -574,30 +580,37 @@ def command_list(args):
     return 0
 
 
-def command_dump(args):
-    providers = parse_provider_list(args.provider)
-    if len(providers) != 1:
-        raise ValueError("dump acepta un solo proveedor")
-    provider = providers[0]
-    cwd = Path(args.cwd).expanduser().resolve()
-    sessions = newest(sessions_for(provider, cwd))
-    if args.id == "last":
-        sessions = [item for item in sessions if item["kind"] != "subagent" and has_text_turns(item)]
-        if provider == "claude":
-            cutoff = time.time() - 180
-            past_sessions = [item for item in sessions if item["path"].stat().st_mtime <= cutoff]
-            if past_sessions:
-                sessions = past_sessions
-            else:
-                by_mtime = sorted(sessions, key=lambda item: item["path"].stat().st_mtime, reverse=True)
-                sessions = by_mtime[1:]
-        if not sessions:
-            raise ValueError(f"no hay una sesión pasada reciente de {provider} para ese proyecto")
-        selected = sessions[0]
-    else:
-        selected = next((item for item in sessions if item["id"] == args.id), None)
-        if selected is None:
-            raise ValueError(f"no se encontró la sesión {args.id} de {provider} para ese proyecto")
+def latest_eligible_session(provider, sessions):
+    eligible = [item for item in sessions if item["kind"] != "subagent" and has_text_turns(item)]
+    if provider == "claude":
+        cutoff = time.time() - 180
+        past_sessions = [item for item in eligible if item["path"].stat().st_mtime <= cutoff]
+        if past_sessions:
+            eligible = past_sessions
+        else:
+            by_mtime = sorted(eligible, key=lambda item: item["path"].stat().st_mtime, reverse=True)
+            eligible = by_mtime[1:]
+    if not eligible:
+        raise ValueError(f"no hay una sesión pasada reciente de {provider} para ese proyecto")
+    return eligible[0]
+
+
+def resolve_selector(selector, provider, sessions, indexed_sessions=None):
+    """Return a session selected by last, a 1-based listing index, or its ID."""
+    if selector == "last":
+        return latest_eligible_session(provider, sessions)
+    if indexed_sessions is not None and selector.isdigit():
+        index = int(selector)
+        if 1 <= index <= len(indexed_sessions):
+            return indexed_sessions[index - 1]
+        raise ValueError(f"el índice {selector} no corresponde a una sesión listada de {provider}")
+    selected = next((item for item in sessions if item["id"] == selector), None)
+    if selected is None:
+        raise ValueError(f"no se encontró la sesión {selector} de {provider} para ese proyecto")
+    return selected
+
+
+def normalized_dump(selected, max_chars):
     header = "\n".join((
         "Proveedor: " + selected["provider"], "Sesión: " + selected["id"],
         "Proyecto: " + (selected["cwd"] or "(no disponible)"), "Inicio: " + selected["started"],
@@ -605,10 +618,10 @@ def command_dump(args):
     ))
     transcript = render_turns(selected["turns"])
     output = header + transcript
-    if len(output) > args.max_chars:
-        available = args.max_chars - len(header)
+    if len(output) > max_chars:
+        available = max_chars - len(header)
         if available <= 0:
-            tail_size = min(len(transcript), max(0, args.max_chars))
+            tail_size = min(len(transcript), max(0, max_chars))
         else:
             tail_size = min(len(transcript), available)
             for _ in range(2):
@@ -619,24 +632,152 @@ def command_dump(args):
         marker = f"[TRUNCADO: se omitieron los primeros {omitted} caracteres de la conversación]\n\n"
         tail = transcript[-tail_size:] if tail_size else ""
         output = header + marker + tail
-    print(output)
+    return output
+
+
+def command_dump(args):
+    providers = parse_provider_list(args.provider)
+    if len(providers) != 1:
+        raise ValueError("dump acepta un solo proveedor")
+    provider = providers[0]
+    cwd = Path(args.cwd).expanduser().resolve()
+    selected = resolve_selector(args.id, provider, newest(sessions_for(provider, cwd)))
+    print(normalized_dump(selected, args.max_chars))
     return 0
 
 
-def build_parser():
-    parser = argparse.ArgumentParser(
+def dump_header(provider, session_id, project, now=None):
+    date = (now or datetime.now(timezone.utc)).astimezone().isoformat(timespec="seconds")
+    return "\n".join((
+        "# Conversación recuperada", "", f"- Proveedor: {provider}",
+        f"- Sesión: {session_id}", f"- Fecha: {date}", f"- Proyecto: {project}",
+        "", "---", "",
+    ))
+
+
+def default_save_path(provider, now=None, directory=None):
+    timestamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
+    return (directory or Path.cwd()) / f"recover-{provider}-{timestamp}.md"
+
+
+def available_path(path):
+    if not path.exists():
+        return path
+    suffix = 1
+    while True:
+        candidate = path.with_name(f"{path.stem}-{suffix}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+        suffix += 1
+
+
+def save_markdown(dump, provider, session_id, project, destination=None, now=None):
+    path = Path(destination).expanduser() if destination else default_save_path(provider, now=now)
+    path = available_path(path)
+    content = dump_header(provider, session_id, project, now=now) + dump + "\n"
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+class ClipboardUnavailable(ValueError):
+    pass
+
+
+def copy_to_clipboard(dump, provider, session_id):
+    candidates = (("wl-copy",), ("xclip", "-selection", "clipboard"), ("xsel", "--clipboard", "--input"))
+    copied = dump + "\n"
+    for command in candidates:
+        if shutil.which(command[0]) is None:
+            continue
+        try:
+            result = subprocess.run(command, input=copied, text=True, check=False)
+        except OSError as error:
+            raise ClipboardUnavailable(f"no se pudo ejecutar {command[0]}: {error}") from error
+        if result.returncode == 0:
+            print(f"Copiados {len(copied)} caracteres al portapapeles de {provider}, sesión {session_id}.")
+            return command[0]
+        raise ClipboardUnavailable(f"{command[0]} no pudo copiar al portapapeles")
+    raise ClipboardUnavailable("no se encontró wl-copy, xclip ni xsel para copiar al portapapeles")
+
+
+def destination_menu(input_fn=input, output=None):
+    output = output or sys.stderr
+    print("1) Copiar al portapapeles", file=output)
+    print("2) Guardar como Markdown", file=output)
+    print("3) Mostrar aquí", file=output)
+    while True:
+        print("Destino [1-3]: ", end="", file=output, flush=True)
+        answer = input_fn()
+        if answer == "":
+            return "stdout"
+        answer = answer.strip()
+        if answer == "1":
+            return "copy"
+        if answer == "2":
+            return "save"
+        if answer == "3":
+            return "stdout"
+        print("Opción inválida. Elige 1, 2 o 3.", file=output)
+
+
+def positional_destination(args):
+    if args.copy:
+        return "copy"
+    if args.save is not None:
+        return "save"
+    if args.stdout:
+        return "stdout"
+    return None
+
+
+def export_positional_dump(args, selected, dump):
+    destination = positional_destination(args)
+    while destination is None or destination == "copy":
+        if destination is None:
+            destination = destination_menu()
+        if destination == "copy":
+            try:
+                copy_to_clipboard(dump, selected["provider"], selected["id"])
+                return 0
+            except ClipboardUnavailable as error:
+                if positional_destination(args) == "copy":
+                    raise
+                print(f"No se pudo copiar: {error}. Elige Guardar como Markdown o Mostrar aquí.", file=sys.stderr)
+                destination = None
+    if destination == "save":
+        supplied = args.save
+        if supplied is None:
+            default = default_save_path(selected["provider"])
+            print(f"Ruta de archivo [{default}]: ", end="", file=sys.stderr, flush=True)
+            supplied = input().strip() or str(default)
+        path = save_markdown(dump, selected["provider"], selected["id"], selected["cwd"] or "(no disponible)", supplied)
+        print(f"Guardado en {path}.")
+        return 0
+    print(dump)
+    return 0
+
+
+def build_help_parser():
+    return argparse.ArgumentParser(
         prog="ai recover",
+        usage="ai recover [-h] <proveedor> [selector] [opciones]\n       ai recover {list,dump} ...",
         description="Recupera conversaciones locales por proyecto.",
         epilog="""ejemplos:
+  ai recover claude
+  ai recover claude last
+  ai recover codex 3 --save
   ai recover list --provider codex
-  ai recover list --provider grok --limit 5
-  ai recover dump --provider codex --id last
   ai recover dump --provider antigravity --id <ID> --max-chars 50000
 
 el proyecto es el directorio actual salvo que uses --cwd.
-la salida va a stdout, puedes conectarla con pipe o pegarla donde la necesites.""",
+sin destino y en una terminal, puedes copiar, guardar o mostrar la conversación.
+la salida con pipe o redirección es el dump normal, sin menú.""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+
+
+def build_legacy_parser():
+    parser = build_help_parser()
     subparsers = parser.add_subparsers(dest="command", required=True)
     listing = subparsers.add_parser("list", help="lista sesiones recientes")
     listing.add_argument("--provider", required=True, help="codex, grok, agy, antigravity o claude")
@@ -650,15 +791,65 @@ la salida va a stdout, puedes conectarla con pipe o pegarla donde la necesites."
     return parser
 
 
-def main():
-    parser = build_parser()
-    args = parser.parse_args()
-    if getattr(args, "limit", 1) < 1 or getattr(args, "max_chars", 1) < 1:
-        parser.error("--limit y --max-chars deben ser mayores que cero")
+def build_positional_parser():
+    parser = argparse.ArgumentParser(prog="ai recover", description="Recupera conversaciones locales por proyecto.")
+    parser.add_argument("provider", help="codex, grok, agy, antigravity o claude")
+    parser.add_argument("selector", nargs="?", help="last, índice de la lista o identificador de sesión")
+    parser.add_argument("--cwd", default=".", help="proyecto, por defecto el directorio actual")
+    parser.add_argument("--limit", type=int, default=10, help="máximo de sesiones listadas, por defecto 10")
+    parser.add_argument("--max-chars", type=int, default=100000, help="máximo de caracteres, por defecto 100000")
+    destinations = parser.add_mutually_exclusive_group()
+    destinations.add_argument("--copy", action="store_true", help="copia el dump al portapapeles")
+    destinations.add_argument("--save", nargs="?", const="", default=None, metavar="PATH", help="guarda Markdown, con ruta opcional")
+    destinations.add_argument("--stdout", action="store_true", help="muestra el dump en stdout")
+    return parser
+
+
+def command_positional(args):
+    providers = parse_provider_list(args.provider)
+    if len(providers) != 1:
+        raise ValueError("la sintaxis posicional acepta un solo proveedor")
+    provider = providers[0]
+    cwd = Path(args.cwd).expanduser().resolve()
+    sessions = newest(sessions_for(provider, cwd))
+    if args.selector is None:
+        selected = sessions[:args.limit]
+        if provider == "agy":
+            warn("Antigravity no expone un mapeo fiable por proyecto en este equipo, se muestran conversaciones globales.")
+        if not selected:
+            print("No se encontraron conversaciones para ese proyecto.", file=sys.stderr)
+            return 0
+        for index, item in enumerate(selected, start=1):
+            print("\t".join((str(index), item["provider"], item["id"], item["last"], str(item["count"]), item["kind"], compact(item["first"], 100))))
+        return 0
+    indexed = sessions[:args.limit]
+    selected = resolve_selector(args.selector, provider, sessions, indexed)
+    dump = normalized_dump(selected, args.max_chars)
+    if positional_destination(args) is None and not sys.stdout.isatty():
+        print(dump)
+        return 0
+    return export_positional_dump(args, selected, dump)
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv or argv[0] in {"-h", "--help"}:
+        build_help_parser().parse_args(argv)
+        return 0
+    if argv[0] in {"list", "dump"}:
+        parser = build_legacy_parser()
+        args = parser.parse_args(argv)
+        if getattr(args, "limit", 1) < 1 or getattr(args, "max_chars", 1) < 1:
+            parser.error("--limit y --max-chars deben ser mayores que cero")
+        command = command_list if args.command == "list" else command_dump
+    else:
+        parser = build_positional_parser()
+        args = parser.parse_args(argv)
+        if args.limit < 1 or args.max_chars < 1:
+            parser.error("--limit y --max-chars deben ser mayores que cero")
+        command = command_positional
     try:
-        if args.command == "list":
-            return command_list(args)
-        return command_dump(args)
+        return command(args)
     except ValueError as error:
         print("Error de uso: " + str(error), file=sys.stderr)
         return 2

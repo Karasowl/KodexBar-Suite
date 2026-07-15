@@ -48,18 +48,19 @@ El selector de texto acepta opciones numeradas. Para la lista de actualizaciones
 `ai recover` es un motor independiente y de solo lectura para transportar una conversación local previa al contexto actual. Lee los historiales de los proveedores sin modificarlos. Funciona desde el clon o después de instalarlo:
 
 ```bash
-./ai recover dump --provider grok --id last
-ai recover list --provider claude --cwd /ruta/al/proyecto
-ai recover dump --provider agy --id ID_DE_SESION --max-chars 800
+./ai recover claude
+ai recover claude last
+ai recover codex 3 --save
+ai recover grok ID_DE_SESION --stdout --max-chars 800
 ```
 
-Usa estos tres modos:
+Usa primero la recuperación posicional:
 
-- Recuperación directa: `ai recover dump --provider PROVEEDOR --id last` recupera la conversación elegible más reciente de ese proveedor y proyecto.
-- Listar y elegir: `ai recover list --provider PROVEEDOR`, después pasa un id listado a `dump`.
-- Varios proveedores: ejecuta `list` una vez por proveedor, elige un id de cada uno y ejecuta un `dump` por sesión elegida.
+- `ai recover PROVEEDOR` lista las sesiones del proyecto actual, de más reciente a más antigua, con índices estables desde 1.
+- `ai recover PROVEEDOR last`, un índice o un id de sesión recupera esa conversación. En una terminal ofrece copiar, guardar Markdown o mostrar el dump. `--copy`, `--save [RUTA]` y `--stdout` eligen el destino directamente.
+- En un pipe o redirección siempre imprime el dump normalizado sin menú, para que la automatización siga siendo segura. `--cwd` y `--max-chars` funcionan también con esta forma.
 
-Los proveedores son `codex`, `claude`, `grok`, `agy` y `antigravity` como alias de `agy`. Para Claude, `--id last` omite la sesión que parece activa y toma la sesión pasada más reciente. Los dumps muestran `[TRUNCADO: ...]` cuando la salida fue recortada.
+La interfaz avanzada para máquinas se conserva: `ai recover list --provider PROVEEDOR` y `ai recover dump --provider PROVEEDOR --id last`. Los proveedores son `codex`, `claude`, `grok`, `agy` y `antigravity` como alias de `agy`. Para Claude, `last` omite la sesión que parece activa y toma la sesión pasada más reciente. Los dumps muestran `[TRUNCADO: ...]` cuando la salida fue recortada.
 
 Cuando existe el directorio de configuración de la CLI correspondiente, la instalación agrega adaptadores delgados `recover-chat` para Claude en `~/.claude/skills/recover-chat/` y Grok en `~/.grok/skills/recover-chat/`. El adaptador de Claude usa su herramienta de preguntas interactivas para seleccionar y el de Grok presenta una lista numerada en el chat. Los usuarios de Codex y Antigravity invocan `ai recover` directamente, porque no hay un mecanismo de adaptadores de usuario verificado para ellos.
 

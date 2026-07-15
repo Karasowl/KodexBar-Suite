@@ -48,18 +48,19 @@ The text selector accepts numbered choices. For the update checklist it accepts 
 `ai recover` is a standalone, read-only engine for transporting a previous local conversation into the current one. It reads provider history stores without changing them. Run it from a checkout or after installation:
 
 ```bash
-./ai recover dump --provider grok --id last
-ai recover list --provider claude --cwd /path/to/project
-ai recover dump --provider agy --id SESSION_ID --max-chars 800
+./ai recover claude
+ai recover claude last
+ai recover codex 3 --save
+ai recover grok SESSION_ID --stdout --max-chars 800
 ```
 
-Use these three modes:
+Use positional recovery first:
 
-- Direct recovery: `ai recover dump --provider PROVIDER --id last` recovers the latest eligible conversation for that provider and project.
-- List and choose: `ai recover list --provider PROVIDER`, then pass a listed id to `dump`.
-- Multiple providers: run `list` once per provider, choose an id for each, then run one `dump` command per chosen session.
+- `ai recover PROVIDER` lists the current project's sessions, newest first, with stable 1-based indexes.
+- `ai recover PROVIDER last`, an index, or a session ID recovers that conversation. In a terminal it offers to copy, save Markdown, or show the dump. `--copy`, `--save [PATH]`, and `--stdout` choose a destination directly.
+- In a pipe or redirect, it always prints the plain normalized dump with no menu, so automation remains safe. `--cwd` and `--max-chars` work with this form.
 
-Providers are `codex`, `claude`, `grok`, `agy`, and `antigravity` as an alias for `agy`. For Claude, `--id last` skips the session that appears live and chooses the latest past session. Dumps display a `[TRUNCADO: ...]` marker when the output has been shortened.
+The advanced machine interface remains available: `ai recover list --provider PROVIDER` and `ai recover dump --provider PROVIDER --id last`. Providers are `codex`, `claude`, `grok`, `agy`, and `antigravity` as an alias for `agy`. For Claude, `last` skips the session that appears live and chooses the latest past session. Dumps display a `[TRUNCADO: ...]` marker when the output has been shortened.
 
 When the matching CLI home directory exists, installation adds thin `recover-chat` adapters for Claude at `~/.claude/skills/recover-chat/` and Grok at `~/.grok/skills/recover-chat/`. The Claude adapter uses its interactive question tool for selection, and the Grok adapter presents a numbered chat list. Codex and Antigravity users invoke `ai recover` directly because no verified user-level adapter mechanism is installed for them.
 
