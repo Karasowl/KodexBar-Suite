@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, "..")
 const logicPath = path.join(root, "contents/code/providerLogic.js")
 const fixturePath = path.join(__dirname, "fixtures/provider-logic.json")
 const mainQmlPath = path.join(root, "contents/ui/main.qml")
+const preferencesQmlPath = path.join(root, "contents/ui/PreferencesWindow.qml")
 const configQmlPath = path.join(root, "contents/ui/config/configGeneral.qml")
 const configXmlPath = path.join(root, "contents/config/main.xml")
 const metadataPath = path.join(root, "metadata.json")
@@ -578,6 +579,7 @@ assert.deepEqual(
 )
 
 const mainQml = fs.readFileSync(mainQmlPath, "utf8")
+const preferencesQml = fs.readFileSync(preferencesQmlPath, "utf8")
 const configQml = fs.readFileSync(configQmlPath, "utf8")
 const configXml = fs.readFileSync(configXmlPath, "utf8")
 const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"))
@@ -594,12 +596,9 @@ assert.match(mainQml, /konsole --hold -e/, "multi-CLI updates keep terminal outp
 assert.match(mainQml, /aiControlExecutable\.connectSource\(aiControlCommandLine/, "AI actions use the executable bridge")
 assert.match(mainQml, /readonly property var configureAction: Plasmoid\.internalAction\("configure"\)/, "the popup resolves Plasma's standard configure action")
 assert.match(mainQml, /id: configureButton/, "the popup exposes a discoverable configuration button")
-assert.match(mainQml, /visible: root\.configureAction !== null/, "the configuration button stays hidden when Plasma does not expose configure")
-assert.match(
-    mainQml,
-    /if \(root\.configureAction !== null\) \{\s*root\.configureAction\.trigger\(\)/,
-    "the configuration button guards the Plasma action before triggering it"
-)
+assert.match(mainQml, /PreferencesWindow \{\s*id: preferencesWindow\s*appletRoot: root/, "the widget owns one reusable preferences window")
+assert.match(mainQml, /function openPreferences\(\) \{\s*preferencesWindow\.openPreferences\(\)/, "the widget routes preference requests to the reusable window")
+assert.match(mainQml, /onClicked: root\.openPreferences\(\)/, "the popup gear opens the dedicated preferences window")
 assert.match(mainQml, /text: i18n\("Configure"\)/, "the configuration button has a translated tooltip label")
 assert.match(mainQml, /id: aiControlButton/, "the popup exposes a discoverable AI CLI Control button")
 assert.match(mainQml, /id: aiControlMenu/, "the popup AI button offers selector and update actions")
@@ -635,6 +634,7 @@ assert.match(configQml, /setCompactProviderSelected\(modelData\.providerId, chec
 assert.match(configQml, /cfg_aiControlCommand/, "settings expose the AI CLI Control command")
 assert.match(configQml, /cfg_claudeRefreshInterval/, "settings expose the Claude refresh interval")
 assert.match(configXml, /<entry name="aiControlCommand" type="String">\s*<default>ai<\/default>/, "AI CLI Control uses ai as its default command")
+assert.match(configXml, /<entry name="sourceDefault" type="String">\s*<default>detect<\/default>/, "the dedicated preferences source setting has an Auto default")
 assert.match(configXml, /<entry name="provider" type="String">/, "legacy provider value remains readable for migration")
 assert.match(configXml, /<entry name="compactProviderMigrationDone" type="Bool">/, "one-time migration has a persistent flag")
 assert.match(
@@ -647,7 +647,7 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.4.0", "package metadata uses version 0.4.0")
+assert.equal(metadata.KPlugin.Version, "0.5.0", "package metadata uses version 0.5.0")
 assert.equal(metadata.KPlugin.Name, "KodexBar Suite", "package metadata uses the public product name")
 assert.equal(metadata.KPlugin.Id, "org.kde.plasma.kodexbar", "the technical plugin ID remains compatible")
 assert.doesNotMatch(
@@ -720,5 +720,24 @@ assert.match(mainQml, /providerCandidates\(\["claude"\]\)/, "Claude refreshes th
 assert.match(mainQml, /id: claudeRefreshTimer/, "Claude uses a separate refresh timer")
 assert.match(mainQml, /i18n\("Banked resets"\)/, "the Codex popup labels banked rate-limit resets")
 assert.match(mainQml, /root\.activeEntry\.isCached === true/, "cached popup data has a visible staleness note")
+assert.match(preferencesQml, /QQC2\.ApplicationWindow/, "preferences use a Wayland-capable top-level Qt Quick window")
+assert.match(preferencesQml, /title: i18n\("KodexBar Suite Preferences"\)/, "preferences use the requested window title")
+assert.match(preferencesQml, /function openPreferences\(\) \{[\s\S]*raise\(\)[\s\S]*requestActivate\(\)/, "reopening preferences focuses the single window instance")
+assert.match(preferencesQml, /function load\(\) \{[\s\S]*Plasmoid\.configuration\.codexbarCommand/, "preferences read the command setting")
+assert.match(preferencesQml, /Plasmoid\.configuration\.codexbarCommand = workingCommand/, "preferences write the command setting")
+assert.match(preferencesQml, /function load\(\) \{[\s\S]*Plasmoid\.configuration\.sourceDefault/, "preferences read the selected source")
+assert.match(preferencesQml, /Plasmoid\.configuration\.sourceDefault = workingSourceDefault/, "preferences write the selected source")
+assert.match(preferencesQml, /function load\(\) \{[\s\S]*Plasmoid\.configuration\.refreshInterval/, "preferences read the general refresh interval")
+assert.match(preferencesQml, /Plasmoid\.configuration\.refreshInterval = workingRefreshInterval/, "preferences write the general refresh interval")
+assert.match(preferencesQml, /function load\(\) \{[\s\S]*Plasmoid\.configuration\.claudeRefreshInterval/, "preferences read the Claude refresh interval")
+assert.match(preferencesQml, /Plasmoid\.configuration\.claudeRefreshInterval = workingClaudeRefreshInterval/, "preferences write the Claude refresh interval")
+assert.match(preferencesQml, /function load\(\) \{[\s\S]*Plasmoid\.configuration\.compactProviderOrder/, "preferences read the compact provider order")
+assert.match(preferencesQml, /Plasmoid\.configuration\.compactProviderOrder = workingCompactProviderOrder/, "preferences write the compact provider order")
+assert.match(preferencesQml, /Plasmoid\.globalShortcut = workingShortcut/, "preferences apply Plasma's global widget shortcut")
+assert.match(preferencesQml, /KeySequenceItem/, "preferences expose a native key-sequence capture control")
+assert.match(preferencesQml, /compactResultForOrder\(workingCompactProviderOrder\)/, "the live preview uses the same compact provider composition")
+assert.match(preferencesQml, /text: i18n\("Show all returned providers"\)/, "preferences expose the all-providers compact toggle")
+assert.match(preferencesQml, /i18n\("Version %1", Plasmoid\.metaData\.version/, "the About page reads the package version from metadata")
+assert.match(preferencesQml, /i18n\("Restore defaults"\)/, "preferences localize footer actions")
 
 console.log("provider logic fixtures passed")

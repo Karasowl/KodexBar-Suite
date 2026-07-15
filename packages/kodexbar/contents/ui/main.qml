@@ -28,7 +28,7 @@ PlasmoidItem {
     property string codexbarCommand: configuredCodexbarCommand.trim() || "codexbar"
     property string aiControlCommand: Plasmoid.configuration.aiControlCommand || "ai"
     property string aiControlError: ""
-    property string selectedSource: Plasmoid.configuration.source || "detect"
+    property string selectedSource: Plasmoid.configuration.sourceDefault || Plasmoid.configuration.source || "detect"
     property string selectedEntryKey: ""
     property string activeProvider: ""
     property string activeSource: selectedSource
@@ -89,6 +89,11 @@ PlasmoidItem {
         }
     ]
 
+    PreferencesWindow {
+        id: preferencesWindow
+        appletRoot: root
+    }
+
     preferredRepresentation: compactRepresentation
     toolTipMainText: "KodexBar Suite"
     toolTipSubText: {
@@ -105,8 +110,12 @@ PlasmoidItem {
     }
 
     function compactResult() {
+        return compactResultForOrder(compactProviderOrder)
+    }
+
+    function compactResultForOrder(providerOrder) {
         return ProviderLogic.composeCompactBlocks(entries, {
-            providerOrder: compactProviderOrder,
+            providerOrder: providerOrder,
             quotaSelection: compactQuotaSelection,
             showProvider: showProviderInPanel,
             showUsed: showUsedPercentInPanel,
@@ -122,6 +131,10 @@ PlasmoidItem {
             return loading ? i18n("Loading") : i18n("No data")
         }
         return compactResult().text
+    }
+
+    function openPreferences() {
+        preferencesWindow.openPreferences()
     }
 
     function formatNumber(value) {
@@ -1276,7 +1289,7 @@ PlasmoidItem {
 
                 QQC2.ToolButton {
                     id: configureButton
-                    visible: root.configureAction !== null
+                    visible: true
                     width: 34
                     height: 34
                     anchors.right: aiControlButton.left
@@ -1285,11 +1298,7 @@ PlasmoidItem {
                     text: i18n("Configure")
                     display: QQC2.AbstractButton.IconOnly
                     Accessible.name: text
-                    onClicked: {
-                        if (root.configureAction !== null) {
-                            root.configureAction.trigger()
-                        }
-                    }
+                    onClicked: root.openPreferences()
 
                     QQC2.ToolTip.visible: hovered
                     QQC2.ToolTip.text: text
@@ -2249,6 +2258,12 @@ PlasmoidItem {
     }
 
     Component.onCompleted: {
+        if (Plasmoid.configuration.sourceDefaultMigrationDone !== true) {
+            if (Plasmoid.configuration.source && Plasmoid.configuration.source !== "detect") {
+                Plasmoid.configuration.sourceDefault = Plasmoid.configuration.source
+            }
+            Plasmoid.configuration.sourceDefaultMigrationDone = true
+        }
         var migration = ProviderLogic.migrateLegacyProvider(
             Plasmoid.configuration.provider,
             Plasmoid.configuration.compactProviderOrder,

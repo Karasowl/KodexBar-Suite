@@ -16,7 +16,7 @@ ruby -e 'require "yaml"; YAML.load_file(".github/workflows/validate.yml")'
 node tests/provider-logic.test.js
 
 if command -v qmllint >/dev/null 2>&1; then
-    qmllint contents/code/providerLogic.js contents/ui/main.qml contents/ui/config/configGeneral.qml contents/config/config.qml
+    qmllint contents/code/providerLogic.js contents/ui/main.qml contents/ui/PreferencesWindow.qml contents/ui/config/configGeneral.qml contents/config/config.qml
 else
     echo "qmllint is required" >&2
     exit 1

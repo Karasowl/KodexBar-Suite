@@ -12,8 +12,8 @@ KCM.SimpleKCM {
     property string cfg_codexbarCommandDefault
     property alias cfg_aiControlCommand: aiControlCommand.text
     property string cfg_aiControlCommandDefault
-    property string cfg_source
     property string cfg_sourceDefault
+    property string cfg_sourceDefaultDefault
     property alias cfg_refreshInterval: refreshInterval.value
     property int cfg_refreshIntervalDefault
     property alias cfg_claudeRefreshInterval: claudeRefreshInterval.value
@@ -155,10 +155,10 @@ KCM.SimpleKCM {
                         ListElement { text: "OAuth"; value: "oauth" }
                         ListElement { text: "API"; value: "api" }
                     }
-                    currentIndex: page.indexForValue(model, page.cfg_source || "detect")
+                    currentIndex: page.indexForValue(model, page.cfg_sourceDefault || "detect")
                     Layout.preferredWidth: Kirigami.Units.gridUnit * 12
                     onActivated: function(index) {
-                        page.cfg_source = model.get(index).value
+                        page.cfg_sourceDefault = model.get(index).value
                     }
                 }
 

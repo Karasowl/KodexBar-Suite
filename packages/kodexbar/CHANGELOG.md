@@ -2,6 +2,16 @@
 
 All notable fork-specific changes are documented here.
 
+## 0.5.0, 2026-07-14
+
+### Added
+
+- Add a dedicated dark KodexBar Suite Preferences window with live compact-panel preview, editable data source and refresh settings, provider chips, global shortcut capture, and project attribution.
+
+### Changed
+
+- Open the dedicated preferences window from the popup gear while retaining Plasma's native Configure action in the widget context menu.
+
 ## 0.4.0, 2026-07-14
 
 ### Added
