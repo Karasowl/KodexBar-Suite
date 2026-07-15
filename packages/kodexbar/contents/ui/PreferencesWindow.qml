@@ -666,55 +666,12 @@ QQC2.ApplicationWindow {
                                                     Repeater {
                                                         model: preferences.compactProviderChipIds
 
-                                                        delegate: Rectangle {
+                                                        delegate: Item {
                                                             id: providerChip
                                                             required property string modelData
-                                                            width: chipRow.implicitWidth + 22
-                                                            height: 32
-                                                            radius: 16
-                                                            color: preferences.showAllProviders ? "#171920"
-                                                                : preferences.isProviderActive(modelData) ? "#29244e" : "#1b1e28"
-                                                            border.color: preferences.showAllProviders ? "#22252f"
-                                                                : preferences.isProviderActive(modelData) ? "#6e5aff" : "#303440"
-                                                            border.width: 1
-                                                            opacity: preferences.showAllProviders ? 0.52 : 1
-
-                                                            Drag.active: dragHandler.active
-                                                            Drag.source: providerChip
-
-                                                            Row {
-                                                                id: chipRow
-                                                                anchors.centerIn: parent
-                                                                spacing: 6
-
-                                                                Image {
-                                                                    width: 15
-                                                                    height: 15
-                                                                    anchors.verticalCenter: parent.verticalCenter
-                                                                    source: preferences.providerIcon(providerChip.modelData)
-                                                                    fillMode: Image.PreserveAspectFit
-                                                                }
-
-                                                                QQC2.Label {
-                                                                    text: preferences.providerLabel(providerChip.modelData)
-                                                                    anchors.verticalCenter: parent.verticalCenter
-                                                                    color: preferences.isProviderActive(providerChip.modelData)
-                                                                        ? "#e9ebf2" : "#8b91a3"
-                                                                    font.family: appletRoot ? appletRoot.designFont : ""
-                                                                    font.pixelSize: 12
-                                                                }
-                                                            }
-
-                                                            TapHandler {
-                                                                enabled: !preferences.showAllProviders
-                                                                onTapped: preferences.toggleProvider(providerChip.modelData)
-                                                            }
-
-                                                            DragHandler {
-                                                                id: dragHandler
-                                                                enabled: !preferences.showAllProviders
-                                                                target: null
-                                                            }
+                                                            width: chipContent.width
+                                                            height: chipContent.height
+                                                            z: dragHandler.active ? 1000 : 0
 
                                                             DropArea {
                                                                 anchors.fill: parent
@@ -722,6 +679,64 @@ QQC2.ApplicationWindow {
                                                                 onEntered: function(drag) {
                                                                     preferences.moveProvider(drag.source.modelData,
                                                                         providerChip.modelData)
+                                                                }
+                                                            }
+
+                                                            Rectangle {
+                                                                id: chipContent
+                                                                width: chipRow.implicitWidth + 22
+                                                                height: 32
+                                                                radius: 16
+                                                                color: preferences.showAllProviders ? "#171920"
+                                                                    : preferences.isProviderActive(providerChip.modelData) ? "#29244e" : "#1b1e28"
+                                                                border.color: preferences.showAllProviders ? "#22252f"
+                                                                    : preferences.isProviderActive(providerChip.modelData) ? "#6e5aff" : "#303440"
+                                                                border.width: 1
+                                                                opacity: preferences.showAllProviders ? 0.52 : 1
+                                                                z: dragHandler.active ? 1 : 0
+
+                                                                Drag.active: dragHandler.active
+                                                                Drag.source: providerChip
+                                                                Drag.hotSpot.x: width / 2
+                                                                Drag.hotSpot.y: height / 2
+                                                                Drag.onActiveChanged: {
+                                                                    if (!Drag.active) {
+                                                                        chipContent.x = 0
+                                                                        chipContent.y = 0
+                                                                    }
+                                                                }
+
+                                                                Row {
+                                                                    id: chipRow
+                                                                    anchors.centerIn: parent
+                                                                    spacing: 6
+
+                                                                    Image {
+                                                                        width: 15
+                                                                        height: 15
+                                                                        anchors.verticalCenter: parent.verticalCenter
+                                                                        source: preferences.providerIcon(providerChip.modelData)
+                                                                        fillMode: Image.PreserveAspectFit
+                                                                    }
+
+                                                                    QQC2.Label {
+                                                                        text: preferences.providerLabel(providerChip.modelData)
+                                                                        anchors.verticalCenter: parent.verticalCenter
+                                                                        color: preferences.isProviderActive(providerChip.modelData)
+                                                                            ? "#e9ebf2" : "#8b91a3"
+                                                                        font.family: appletRoot ? appletRoot.designFont : ""
+                                                                        font.pixelSize: 12
+                                                                    }
+                                                                }
+
+                                                                TapHandler {
+                                                                    enabled: !preferences.showAllProviders
+                                                                    onTapped: preferences.toggleProvider(providerChip.modelData)
+                                                                }
+
+                                                                DragHandler {
+                                                                    id: dragHandler
+                                                                    enabled: !preferences.showAllProviders
                                                                 }
                                                             }
                                                         }

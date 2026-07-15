@@ -743,7 +743,11 @@ assert.match(
     "provider chips follow the working CSV order before appending inactive providers"
 )
 assert.match(preferencesQml, /model: preferences\.compactProviderChipIds/, "the chip repeater uses the CSV-ordered provider model")
-assert.match(preferencesQml, /DragHandler \{[\s\S]*target: null/, "chip dragging tracks the pointer without leaving a delegate displaced")
+assert.match(preferencesQml, /delegate: Item \{[\s\S]*width: chipContent\.width[\s\S]*DropArea \{/, "provider chips keep a Flow slot wrapper with a drop target")
+assert.match(preferencesQml, /Drag\.active: dragHandler\.active[\s\S]*Drag\.source: providerChip[\s\S]*Drag\.hotSpot\.x: width \/ 2/, "chip content publishes pointer-centered drag data from its wrapper source")
+assert.doesNotMatch(preferencesQml, /DragHandler \{[\s\S]*target: null/, "chip dragging moves the content instead of keeping it static")
+assert.match(preferencesQml, /Drag\.onActiveChanged: \{[\s\S]*chipContent\.x = 0[\s\S]*chipContent\.y = 0/, "chip dragging restores the content to its Flow slot on release")
+assert.match(preferencesQml, /TapHandler \{[\s\S]*onTapped: preferences\.toggleProvider\(providerChip\.modelData\)[\s\S]*DragHandler \{/, "chip content keeps its tap toggle alongside the drag handler")
 assert.match(
     preferencesQml,
     /activeKnownProviderIds[\s\S]*providerIds\.length - preferences\.activeKnownProviderIds\.length/,
