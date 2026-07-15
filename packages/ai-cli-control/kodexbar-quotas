@@ -15,7 +15,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 TIMEOUT_SECONDS = 15
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok"}
@@ -178,17 +178,21 @@ def upstream_entries(provider: str, source: str | None) -> list[Any] | None:
         command.extend(["--source", source])
     try:
         completed = subprocess.run(command, capture_output=True, text=True, timeout=TIMEOUT_SECONDS, check=False)
+        if completed.returncode != 0:
+            return None
         value = json.loads(completed.stdout)
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
         return None
-    return value if isinstance(value, list) else [value]
+    return value if isinstance(value, list) else None
 
 
 def fallback_entry(provider: str, source: str | None) -> list[Any]:
+    if upstream_path() is None:
+        return [provider_error(provider, source or "auto", "upstream codexbar is not installed")]
     entries = upstream_entries(provider, source)
     if entries is not None:
         return entries
-    return [provider_error(provider, source or "auto", "upstream codexbar is not installed")]
+    return [provider_error(provider, source or "auto", "upstream codexbar failed to provide usage data")]
 
 
 def fetch_provider(provider: str, source: str | None, home: Path | None = None) -> list[Any]:

@@ -153,6 +153,50 @@ class QuotasEngineTests(unittest.TestCase):
                 self.assertEqual([entry["provider"] for entry in entries], ["claude", "codex", "grok"])
                 self.assertEqual([entry["source"] for entry in entries], ["upstream", "upstream", "upstream"])
 
+    def test_missing_upstream_reports_not_installed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            env = os.environ.copy()
+            env["PATH"] = directory
+            result = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "codex"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+        entry = json.loads(result.stdout)[0]
+        self.assertEqual(entry["error"]["message"], "upstream codexbar is not installed")
+
+    def test_broken_upstream_reports_failed_without_exposing_output(self) -> None:
+        cases = {
+            "exit-nonzero": "raise SystemExit(7)",
+            "invalid-json": "print('not json')",
+        }
+        for name, body in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                bin_dir = root / "bin"
+                bin_dir.mkdir()
+                upstream = bin_dir / "codexbar"
+                upstream.write_text(
+                    "#!" + os.sys.executable + "\n" + body + "\n",
+                    encoding="utf-8",
+                )
+                upstream.chmod(0o755)
+                env = os.environ.copy()
+                env["PATH"] = str(bin_dir)
+                result = subprocess.run(
+                    [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "codex"],
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                )
+                entry = json.loads(result.stdout)[0]
+                self.assertEqual(entry["error"]["message"], "upstream codexbar failed to provide usage data")
+                self.assertNotIn("not installed", entry["error"]["message"])
+                self.assertNotIn("not json", entry["error"]["message"])
+
     def test_cost_is_empty_without_upstream(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             env = os.environ.copy()
