@@ -197,6 +197,41 @@ class QuotasEngineTests(unittest.TestCase):
                 self.assertNotIn("not installed", entry["error"]["message"])
                 self.assertNotIn("not json", entry["error"]["message"])
 
+    def test_nonzero_upstream_exit_preserves_provider_error_json(self) -> None:
+        expected = [{
+            "provider": "openai",
+            "source": "auto",
+            "error": {
+                "kind": "provider",
+                "message": "No available fetch strategy for openai.",
+            },
+        }]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            upstream = bin_dir / "codexbar"
+            upstream.write_text(
+                "#!" + os.sys.executable + "\n"
+                + "import json\n"
+                + "print(json.dumps(" + repr(expected) + "))\n"
+                + "raise SystemExit(1)\n",
+                encoding="utf-8",
+            )
+            upstream.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = str(bin_dir)
+            result = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "openai"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+        entries = json.loads(result.stdout)
+        self.assertEqual(entries, expected)
+        self.assertNotEqual(entries[0]["error"]["message"], "upstream codexbar failed to provide usage data")
+
     def test_cost_is_empty_without_upstream(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             env = os.environ.copy()
