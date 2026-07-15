@@ -71,7 +71,6 @@ PlasmoidItem {
     readonly property color goodColor: "#45d483"
     readonly property color warningColor: "#f0b429"
     readonly property color errorColor: "#f76b6b"
-    readonly property var configureAction: Plasmoid.internalAction("configure")
     readonly property var popupState: ProviderLogic.activeEntryData(entries, selectedEntryKey)
     readonly property var popupEntries: popupState.entries || []
     readonly property var activeEntry: popupState.entry || ({})

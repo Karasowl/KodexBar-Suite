@@ -594,7 +594,7 @@ assert.match(mainQml, /text: i18n\("Open AI CLI Control"\)/, "the widget can ope
 assert.match(mainQml, /launchAiControl\(\["--update", "all"\]\)/, "the widget can invoke the multi-CLI update flow")
 assert.match(mainQml, /konsole --hold -e/, "multi-CLI updates keep terminal output visible")
 assert.match(mainQml, /aiControlExecutable\.connectSource\(aiControlCommandLine/, "AI actions use the executable bridge")
-assert.match(mainQml, /readonly property var configureAction: Plasmoid\.internalAction\("configure"\)/, "the popup resolves Plasma's standard configure action")
+assert.doesNotMatch(mainQml, /readonly property var configureAction:/, "the popup no longer keeps an unused Plasma configure action")
 assert.match(mainQml, /id: configureButton/, "the popup exposes a discoverable configuration button")
 assert.match(mainQml, /PreferencesWindow \{\s*id: preferencesWindow\s*appletRoot: root/, "the widget owns one reusable preferences window")
 assert.match(mainQml, /function openPreferences\(\) \{\s*preferencesWindow\.openPreferences\(\)/, "the widget routes preference requests to the reusable window")
@@ -737,6 +737,18 @@ assert.match(preferencesQml, /Plasmoid\.globalShortcut = workingShortcut/, "pref
 assert.match(preferencesQml, /KeySequenceItem/, "preferences expose a native key-sequence capture control")
 assert.match(preferencesQml, /compactResultForOrder\(workingCompactProviderOrder\)/, "the live preview uses the same compact provider composition")
 assert.match(preferencesQml, /text: i18n\("Show all returned providers"\)/, "preferences expose the all-providers compact toggle")
+assert.match(
+    preferencesQml,
+    /function orderedProviderIds\(\) \{[\s\S]*activeProviderIds[\s\S]*providerIds[\s\S]*return ids/,
+    "provider chips follow the working CSV order before appending inactive providers"
+)
+assert.match(preferencesQml, /model: preferences\.compactProviderChipIds/, "the chip repeater uses the CSV-ordered provider model")
+assert.match(preferencesQml, /DragHandler \{[\s\S]*target: null/, "chip dragging tracks the pointer without leaving a delegate displaced")
+assert.match(
+    preferencesQml,
+    /activeKnownProviderIds[\s\S]*providerIds\.length - preferences\.activeKnownProviderIds\.length/,
+    "the disabled counter intersects active IDs with known providers"
+)
 assert.match(preferencesQml, /i18n\("Version %1", Plasmoid\.metaData\.version/, "the About page reads the package version from metadata")
 assert.match(preferencesQml, /i18n\("Restore defaults"\)/, "preferences localize footer actions")
 

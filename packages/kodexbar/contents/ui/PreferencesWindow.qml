@@ -21,6 +21,8 @@ QQC2.ApplicationWindow {
     readonly property bool showAllProviders: workingCompactProviderOrder.trim().length === 0
     readonly property var providerIds: providerList()
     readonly property var activeProviderIds: normalizedProviderIds(workingCompactProviderOrder)
+    readonly property var activeKnownProviderIds: knownActiveProviderIds()
+    readonly property var compactProviderChipIds: orderedProviderIds()
     readonly property bool dirty: snapshot() !== savedState
     readonly property var previewState: appletRoot
         ? appletRoot.compactResultForOrder(workingCompactProviderOrder)
@@ -58,6 +60,31 @@ QQC2.ApplicationWindow {
             if (id.length > 0 && !seen[id]) {
                 seen[id] = true
                 ids.push(id)
+            }
+        }
+        return ids
+    }
+
+    function knownActiveProviderIds() {
+        var ids = []
+        for (var i = 0; i < providerIds.length; i++) {
+            if (activeProviderIds.indexOf(providerIds[i]) !== -1) {
+                ids.push(providerIds[i])
+            }
+        }
+        return ids
+    }
+
+    function orderedProviderIds() {
+        var ids = []
+        for (var i = 0; i < activeProviderIds.length; i++) {
+            if (providerIds.indexOf(activeProviderIds[i]) !== -1) {
+                ids.push(activeProviderIds[i])
+            }
+        }
+        for (var j = 0; j < providerIds.length; j++) {
+            if (ids.indexOf(providerIds[j]) === -1) {
+                ids.push(providerIds[j])
             }
         }
         return ids
@@ -179,6 +206,7 @@ QQC2.ApplicationWindow {
     Component.onCompleted: load()
 
     Rectangle {
+        anchors.fill: parent
         color: "#0a0a0c"
 
         RowLayout {
@@ -636,7 +664,7 @@ QQC2.ApplicationWindow {
                                                     spacing: 8
 
                                                     Repeater {
-                                                        model: preferences.providerIds
+                                                        model: preferences.compactProviderChipIds
 
                                                         delegate: Rectangle {
                                                             id: providerChip
@@ -685,6 +713,7 @@ QQC2.ApplicationWindow {
                                                             DragHandler {
                                                                 id: dragHandler
                                                                 enabled: !preferences.showAllProviders
+                                                                target: null
                                                             }
 
                                                             DropArea {
@@ -703,9 +732,9 @@ QQC2.ApplicationWindow {
                                                     Layout.alignment: Qt.AlignRight
                                                     text: i18n("%1 active · %2 disabled",
                                                         preferences.showAllProviders ? preferences.providerIds.length
-                                                        : preferences.activeProviderIds.length,
+                                                        : preferences.activeKnownProviderIds.length,
                                                         preferences.showAllProviders ? 0
-                                                        : preferences.providerIds.length - preferences.activeProviderIds.length)
+                                                        : preferences.providerIds.length - preferences.activeKnownProviderIds.length)
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
                                                 }
