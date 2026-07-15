@@ -146,7 +146,7 @@ kodexbar-panel --waybar-snippet
 
 ### Waybar on Hyprland and Omarchy
 
-Print the paste-ready module and CSS example with `kodexbar-panel --waybar-snippet`. Add the `custom/kodexbar` block to your Waybar configuration and add `custom/kodexbar` to `modules-left`, `modules-center`, or `modules-right`. The module runs `kodexbar-panel --format waybar`, uses Waybar's JSON return type, and refreshes every 60 seconds.
+Print the paste-ready module and CSS example with `kodexbar-panel --waybar-snippet`. Add the `custom/kodexbar` block to your Waybar configuration and add `custom/kodexbar` to `modules-left`, `modules-center`, or `modules-right`. The module runs `kodexbar-panel --format waybar`, uses Waybar's JSON return type, and refreshes every 60 seconds. Its text and tooltip payload are already Pango-escaped, so keep Waybar's `escape` option off to prevent double-escaping.
 
 On Hyprland, add the commented CSS rules from the snippet to the stylesheet used by your Waybar configuration, commonly `~/.config/waybar/style.css`. On Omarchy, themes override Waybar CSS through `~/.config/omarchy/current/theme/waybar.css`, so add the rules at that theme hook point. The installer never changes either user configuration.
 

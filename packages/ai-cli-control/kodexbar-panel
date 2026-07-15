@@ -238,11 +238,11 @@ def fetch_entries() -> tuple[list[Any] | None, str | None]:
 
 def waybar_payload(model: dict[str, Any], maximum_lines: int) -> dict[str, str]:
     if model.get("error"):
-        tooltip = f"KodexBar quotas unavailable: {model['error']}"
+        tooltip = pango_escape(f"KodexBar quotas unavailable: {model['error']}")
     else:
         lines = tooltip_lines(model["providers"])
-        tooltip = "\n".join(lines[:maximum_lines]) or "No quota data"
-    return {"text": model["text"], "tooltip": tooltip, "class": model["class"]}
+        tooltip = "\n".join(pango_escape(line) for line in lines[:maximum_lines]) or "No quota data"
+    return {"text": pango_escape(model["text"]), "tooltip": tooltip, "class": model["class"]}
 
 
 def waybar_snippet() -> str:

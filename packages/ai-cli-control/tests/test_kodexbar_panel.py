@@ -56,6 +56,16 @@ class PanelAdapterTests(unittest.TestCase):
         self.assertNotIn("<b ERR", rendered)
         self.assertNotIn("oops", rendered)
 
+    def test_waybar_escapes_untrusted_provider_data(self) -> None:
+        entries = [{"provider": "hostile<&>", "name": "<&>", "error": {"message": "& <span>oops</span>"}}]
+        model = panel.compact_model(entries, [])
+        payload = json.loads(json.dumps(panel.waybar_payload(model, 1)))
+        self.assertIn("&lt;&amp; ERR", payload["text"])
+        self.assertNotIn("<& ERR", payload["text"])
+        self.assertIn("&lt;&amp;&gt;", payload["tooltip"])
+        self.assertIn("&amp; &lt;span&gt;oops&lt;/span&gt;", payload["tooltip"])
+        self.assertNotIn("<span>oops</span>", payload["tooltip"])
+
     def test_cli_uses_sibling_engine_and_returns_valid_waybar_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
