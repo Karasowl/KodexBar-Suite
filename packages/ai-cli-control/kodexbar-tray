@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""KodexBar quota tray indicator for StatusNotifierItem desktops."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+from typing import Any
+
+
+DEFAULT_INTERVAL_SECONDS = 300
+MINIMUM_INTERVAL_SECONDS = 60
+PANEL_TIMEOUT_SECONDS = 25
+ICON_CLASSES = {"ok", "warning", "critical"}
+
+
+def validate_interval(value: str) -> int:
+    try:
+        interval = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("--interval debe ser un número entero") from error
+    if interval < MINIMUM_INTERVAL_SECONDS:
+        raise argparse.ArgumentTypeError(f"--interval debe ser al menos {MINIMUM_INTERVAL_SECONDS}")
+    return interval
+
+
+def icon_name(status_class: Any) -> str:
+    return f"kodexbar-tray-{status_class if status_class in ICON_CLASSES else 'critical'}.svg"
+
+
+def icon_path(status_class: Any, icon_directory: Path | None = None) -> str:
+    directory = icon_directory or Path.home() / ".local/share/icons/hicolor/scalable/apps"
+    return str(directory / icon_name(status_class))
+
+
+def panel_path(script_path: Path | None = None) -> str | None:
+    script = script_path or Path(__file__).resolve()
+    sibling = script.with_name("kodexbar-panel")
+    if sibling.is_file() and os.access(sibling, os.X_OK):
+        return str(sibling)
+    return shutil.which("kodexbar-panel")
+
+
+def error_status(message: Any) -> dict[str, Any]:
+    detail = " ".join(str(message or "KodexBar quotas unavailable").split())
+    return {
+        "text": "Quota error",
+        "tooltip": f"KodexBar quotas unavailable: {detail}",
+        "class": "critical",
+        "providers": [],
+        "error": detail,
+    }
+
+
+def parse_panel_output(output: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as error:
+        raise ValueError("kodexbar-panel devolvió JSON inválido") from error
+    if not isinstance(payload, dict):
+        raise ValueError("kodexbar-panel devolvió un estado inválido")
+    if not isinstance(payload.get("text"), str) or not isinstance(payload.get("tooltip"), str):
+        raise ValueError("kodexbar-panel devolvió texto inválido")
+    if payload.get("class") not in ICON_CLASSES:
+        raise ValueError("kodexbar-panel devolvió una clase inválida")
+    if not isinstance(payload.get("providers"), list):
+        raise ValueError("kodexbar-panel devolvió proveedores inválidos")
+    return payload
+
+
+def fetch_status(executable: str | None = None) -> dict[str, Any]:
+    panel = executable or panel_path()
+    if panel is None:
+        return error_status("kodexbar-panel no está instalado")
+    try:
+        completed = subprocess.run(
+            [panel, "--status-json"],
+            capture_output=True,
+            text=True,
+            timeout=PANEL_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return error_status("kodexbar-panel excedió el tiempo de espera")
+    except OSError as error:
+        return error_status(f"no se pudo ejecutar kodexbar-panel: {error}")
+    if completed.returncode != 0:
+        detail = " ".join(completed.stderr.split()) or "kodexbar-panel falló"
+        return error_status(detail)
+    try:
+        return parse_panel_output(completed.stdout)
+    except ValueError as error:
+        return error_status(error)
+
+
+def provider_menu_label(provider: Any) -> str | None:
+    if not isinstance(provider, dict):
+        return None
+    identifier = str(provider.get("provider") or "").strip()
+    label = str(provider.get("label") or identifier or "AI").strip()
+    if not identifier:
+        return None
+    if provider.get("error"):
+        message = " ".join(str(provider.get("error_message") or "quota data is unavailable").split())
+        return f"{label} ({identifier}): ERR, {message}"
+    percentages = provider.get("percentages")
+    if not isinstance(percentages, dict):
+        return f"{label} ({identifier}): sin cuotas reportadas"
+    quotas = []
+    if isinstance(percentages.get("session"), int):
+        quotas.append(f"Sesión {percentages['session']}%")
+    if isinstance(percentages.get("weekly"), int):
+        quotas.append(f"Semanal {percentages['weekly']}%")
+    return f"{label} ({identifier}): {', '.join(quotas) if quotas else 'sin cuotas reportadas'}"
+
+
+def menu_model(status: dict[str, Any]) -> list[dict[str, str]]:
+    items = []
+    for provider in status.get("providers", []):
+        label = provider_menu_label(provider)
+        if label:
+            items.append({"kind": "info", "label": label})
+    if status.get("error"):
+        items.append({"kind": "info", "label": str(status["error"])})
+    if not items:
+        items.append({"kind": "info", "label": str(status.get("tooltip") or "No quota data")})
+    items.extend(
+        [
+            {"kind": "separator", "label": ""},
+            {"kind": "refresh", "label": "Actualizar ahora"},
+            {"kind": "open", "label": "Abrir AI CLI Control"},
+            {"kind": "separator", "label": ""},
+            {"kind": "quit", "label": "Salir"},
+        ]
+    )
+    return items
+
+
+def autostart_desktop(executable: str) -> str:
+    return "\n".join(
+        (
+            "[Desktop Entry]",
+            "Type=Application",
+            "Name=KodexBar Tray",
+            "Comment=KodexBar quota tray indicator",
+            f"Exec={executable}",
+            "Icon=kodexbar-tray-ok",
+            "Terminal=false",
+            "X-GNOME-Autostart-enabled=true",
+            "",
+        )
+    )
+
+
+def autostart_path(home: Path | None = None) -> Path:
+    return (home or Path.home()) / ".config/autostart/kodexbar-tray.desktop"
+
+
+def install_autostart(executable: str, home: Path | None = None) -> Path:
+    destination = autostart_path(home)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(autostart_desktop(executable), encoding="utf-8")
+    return destination
+
+
+def remove_autostart(home: Path | None = None) -> bool:
+    destination = autostart_path(home)
+    if not destination.exists():
+        return False
+    destination.unlink()
+    return True
+
+
+def load_bindings() -> tuple[Any, Any, Any] | None:
+    try:
+        import gi
+    except ImportError:
+        return None
+    try:
+        gi.require_version("AyatanaAppIndicator3", "0.1")
+        from gi.repository import AyatanaAppIndicator3 as Indicator
+    except (AttributeError, ImportError, ValueError):
+        try:
+            gi.require_version("AppIndicator3", "0.1")
+            from gi.repository import AppIndicator3 as Indicator
+        except (AttributeError, ImportError, ValueError):
+            return None
+    try:
+        from gi.repository import GLib, Gtk
+    except ImportError:
+        return None
+    return Indicator, GLib, Gtk
+
+
+def missing_bindings_message() -> str:
+    return (
+        "No se encontró el enlace PyGObject de AppIndicator. Instala libayatana-appindicator en Arch, "
+        "gir1.2-ayatanaappindicator3-0.1 en Debian/Ubuntu o libayatana-appindicator-gtk3 en Fedora. "
+        "En GNOME también necesitas la extensión AppIndicator and KStatusNotifierItem Support."
+    )
+
+
+class TrayApplication:
+    def __init__(self, indicator_api: Any, glib: Any, gtk: Any, interval: int, executable: str | None = None) -> None:
+        self.indicator_api = indicator_api
+        self.glib = glib
+        self.gtk = gtk
+        self.interval = interval
+        self.executable = executable
+        self.indicator = indicator_api.Indicator.new(
+            "kodexbar-tray",
+            icon_path("ok"),
+            indicator_api.IndicatorCategory.APPLICATION_STATUS,
+        )
+        self.indicator.set_status(indicator_api.IndicatorStatus.ACTIVE)
+
+    def open_ai(self, _item: Any = None) -> None:
+        sibling = Path(__file__).resolve().with_name("ai")
+        executable = str(sibling) if sibling.is_file() and os.access(sibling, os.X_OK) else shutil.which("ai")
+        if executable:
+            subprocess.Popen(
+                [executable], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True
+            )
+
+    def apply_status(self, status: dict[str, Any]) -> None:
+        self.indicator.set_icon_full(icon_path(status.get("class")), "KodexBar quota status")
+        try:
+            self.indicator.set_label(str(status["text"]), "")
+        except TypeError:
+            self.indicator.set_label(str(status["text"]))
+        menu = self.gtk.Menu()
+        for item in menu_model(status):
+            if item["kind"] == "separator":
+                menu.append(self.gtk.SeparatorMenuItem())
+                continue
+            entry = self.gtk.MenuItem(label=item["label"])
+            if item["kind"] == "info":
+                entry.set_sensitive(False)
+            elif item["kind"] == "refresh":
+                entry.connect("activate", self.refresh)
+            elif item["kind"] == "open":
+                entry.connect("activate", self.open_ai)
+            else:
+                entry.connect("activate", lambda _item: self.gtk.main_quit())
+            menu.append(entry)
+        menu.show_all()
+        self.indicator.set_menu(menu)
+
+    def refresh(self, _item: Any = None) -> bool:
+        self.apply_status(fetch_status(self.executable))
+        return True
+
+    def run(self) -> int:
+        self.refresh()
+        self.glib.timeout_add_seconds(self.interval, self.refresh)
+        self.gtk.main()
+        return 0
+
+
+def parse_arguments(arguments: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--interval", type=validate_interval, default=DEFAULT_INTERVAL_SECONDS, help="segundos entre actualizaciones, mínimo 60")
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument("--autostart-install", action="store_true", help="instala el inicio automático del usuario")
+    actions.add_argument("--autostart-remove", action="store_true", help="elimina el inicio automático del usuario")
+    return parser.parse_args(arguments)
+
+
+def main(arguments: list[str]) -> int:
+    options = parse_arguments(arguments)
+    executable = str(Path(__file__).resolve())
+    if options.autostart_install:
+        print(f"Inicio automático instalado en {install_autostart(executable)}.")
+        return 0
+    if options.autostart_remove:
+        removed = remove_autostart()
+        print("Inicio automático eliminado." if removed else "No había inicio automático instalado.")
+        return 0
+    bindings = load_bindings()
+    if bindings is None:
+        print(missing_bindings_message(), file=sys.stderr)
+        return 1
+    indicator_api, glib, gtk = bindings
+    return TrayApplication(indicator_api, glib, gtk, options.interval).run()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

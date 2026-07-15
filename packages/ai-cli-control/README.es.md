@@ -16,7 +16,7 @@ Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../REA
 - Muestra comandos de inicio y actualización con `--dry-run`.
 - Usa inglés de forma predeterminada. Los entornos en español reciben texto en español. `--language en` y `--language es` sustituyen la detección de locale.
 - Conserva cada comando de inicio y actualización como arreglo de argumentos sin evaluación de shell.
-- Incluye `kodexbar-quotas`, un motor local de cuotas para el widget KodexBar Suite, y `kodexbar-panel`, un adaptador compacto para barras no KDE.
+- Incluye `kodexbar-quotas`, un motor local de cuotas para el widget KodexBar Suite, `kodexbar-panel`, un adaptador compacto para barras no KDE, y `kodexbar-tray`, un indicador StatusNotifierItem.
 
 ## Requisitos
 
@@ -121,7 +121,7 @@ ai --version
 ~/.local/share/ai-cli-control/uninstall.sh
 ```
 
-El ejecutable instalado queda en `~/.local/share/ai-cli-control/ai` y `~/.local/bin/ai` es su enlace simbólico. El motor independiente `recover.py`, `kodexbar-quotas`, `kodexbar-panel` y una copia de `uninstall.sh` quedan junto al ejecutable para eliminarlos después de borrar el clon. No usa `sudo`. La instalación no sustituye un comando local existente que no pertenezca al proyecto. Solo instala adaptadores si existe el directorio de su CLI y nunca reemplaza un skill `recover-chat` ajeno. La eliminación verifica los marcadores de propiedad y borra solo archivos del proyecto. Ambos scripts son idempotentes.
+El ejecutable instalado queda en `~/.local/share/ai-cli-control/ai` y `~/.local/bin/ai` es su enlace simbólico. El motor independiente `recover.py`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray`, sus iconos y una copia de `uninstall.sh` quedan junto al ejecutable para eliminarlos después de borrar el clon. No usa `sudo`. La instalación no sustituye un comando local existente que no pertenezca al proyecto. Solo instala adaptadores si existe el directorio de su CLI y nunca reemplaza un skill `recover-chat` ajeno. La eliminación verifica los marcadores de propiedad y borra solo archivos del proyecto. Ambos scripts son idempotentes.
 
 ## Motor de cuotas
 
@@ -142,6 +142,7 @@ kodexbar-panel --format text
 kodexbar-panel --format text --pango
 kodexbar-panel --format waybar
 kodexbar-panel --format json --providers codex,claude
+kodexbar-panel --status-json
 kodexbar-panel --waybar-snippet
 ```
 
@@ -160,6 +161,19 @@ kodexbar-panel --format text --pango
 ```
 
 Activa el marcado Pango en el complemento cuando esa opción esté disponible y usa un periodo de 60 segundos. El comando también funciona sin Pango, pero los colores de severidad solo se muestran con Pango activado.
+
+## Indicador de bandeja
+
+`kodexbar-tray` es un indicador StatusNotifierItem para KDE Plasma, COSMIC y GNOME. Obtiene su etiqueta compacta, tooltip, severidad y datos de proveedores desde `kodexbar-panel --status-json`, por lo que los umbrales de cuota siguen definidos en un único lugar. Su menú muestra cuotas por proveedor, permite actualizar de inmediato, abre el selector `ai` y sale. Se actualiza cada 300 segundos de forma predeterminada.
+
+```bash
+kodexbar-tray
+kodexbar-tray --interval 600
+kodexbar-tray --autostart-install
+kodexbar-tray --autostart-remove
+```
+
+El instalador coloca el ejecutable en `~/.local/share/ai-cli-control/kodexbar-tray`, enlaza `~/.local/bin/kodexbar-tray` e instala sus tres iconos en `~/.local/share/icons/hicolor/scalable/apps/`. Nunca activa el inicio automático por sí solo. En ejecución necesita PyGObject con los enlaces Ayatana AppIndicator o AppIndicator. Instala `libayatana-appindicator` en Arch, `gir1.2-ayatanaappindicator3-0.1` en Debian o Ubuntu, o `libayatana-appindicator-gtk3` en Fedora. En GNOME también necesitas la extensión **AppIndicator and KStatusNotifierItem Support**.
 
 ## Desarrollo
 

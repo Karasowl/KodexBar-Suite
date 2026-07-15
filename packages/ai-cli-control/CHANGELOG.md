@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.6.0, 2026-07-15
+
+- Made `ai recover --copy` try the next installed clipboard tool when an earlier candidate fails at runtime.
+- Added `kodexbar-tray`, a StatusNotifierItem quota indicator for GNOME, COSMIC, and KDE, with manual refresh, user autostart management, and status icons.
+
 ## 0.5.0, 2026-07-14
 
 - Reported when an installed upstream `codexbar` fails to provide usage data, without mislabeling it as missing.

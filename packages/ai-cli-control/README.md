@@ -16,7 +16,7 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 - Preview launch and update commands with `--dry-run`.
 - Use English by default. Spanish locales receive Spanish interface text. `--language en` and `--language es` override locale detection.
 - Keep every launched and updated command as an argument array without shell evaluation.
-- Provide `kodexbar-quotas`, a local quota engine for the KodexBar Suite widget, and `kodexbar-panel`, a compact adapter for non-KDE bars.
+- Provide `kodexbar-quotas`, a local quota engine for the KodexBar Suite widget, `kodexbar-panel`, a compact adapter for non-KDE bars, and `kodexbar-tray`, a StatusNotifierItem indicator.
 
 ## Requirements
 
@@ -121,7 +121,7 @@ ai --version
 ~/.local/share/ai-cli-control/uninstall.sh
 ```
 
-The installed executable is `~/.local/share/ai-cli-control/ai`, with `~/.local/bin/ai` as its symlink. Its standalone `recover.py` engine, `kodexbar-quotas`, `kodexbar-panel`, and a copy of `uninstall.sh` are stored beside it for removal after a checkout has been deleted. No `sudo` is used. Installation refuses to replace an existing user-local command that is not owned by this project. It installs adapters only when their CLI home directory exists and never replaces an unowned `recover-chat` skill. Uninstallation checks ownership markers and removes only project-owned files. Both scripts are idempotent.
+The installed executable is `~/.local/share/ai-cli-control/ai`, with `~/.local/bin/ai` as its symlink. Its standalone `recover.py` engine, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray`, tray icons, and a copy of `uninstall.sh` are stored beside it for removal after a checkout has been deleted. No `sudo` is used. Installation refuses to replace an existing user-local command that is not owned by this project. It installs adapters only when their CLI home directory exists and never replaces an unowned `recover-chat` skill. Uninstallation checks ownership markers and removes only project-owned files. Both scripts are idempotent.
 
 ## Quotas engine
 
@@ -142,6 +142,7 @@ kodexbar-panel --format text
 kodexbar-panel --format text --pango
 kodexbar-panel --format waybar
 kodexbar-panel --format json --providers codex,claude
+kodexbar-panel --status-json
 kodexbar-panel --waybar-snippet
 ```
 
@@ -160,6 +161,19 @@ kodexbar-panel --format text --pango
 ```
 
 Enable Pango markup in the plugin when that option is available, then use a 60-second period. The command is safe to run without Pango too, but the provider severity colors are only shown with Pango enabled.
+
+## Tray indicator
+
+`kodexbar-tray` is a StatusNotifierItem indicator for KDE Plasma, COSMIC, and GNOME. It obtains its compact label, tooltip, severity, and provider data from `kodexbar-panel --status-json`, so quota thresholds stay defined in one place. Its menu shows provider quotas, lets you refresh immediately, opens the `ai` selector, and exits. It refreshes every 300 seconds by default.
+
+```bash
+kodexbar-tray
+kodexbar-tray --interval 600
+kodexbar-tray --autostart-install
+kodexbar-tray --autostart-remove
+```
+
+The installer places the executable in `~/.local/share/ai-cli-control/kodexbar-tray`, links `~/.local/bin/kodexbar-tray`, and installs its three icons under `~/.local/share/icons/hicolor/scalable/apps/`. It never enables autostart by itself. The runtime needs PyGObject with Ayatana AppIndicator or AppIndicator bindings. Install `libayatana-appindicator` on Arch, `gir1.2-ayatanaappindicator3-0.1` on Debian or Ubuntu, or `libayatana-appindicator-gtk3` on Fedora. GNOME also needs the **AppIndicator and KStatusNotifierItem Support** extension.
 
 ## Development
 

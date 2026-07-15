@@ -48,6 +48,14 @@ class PanelAdapterTests(unittest.TestCase):
         self.assertLessEqual(len(parsed["tooltip"].splitlines()), 3)
         self.assertIn("Session", parsed["tooltip"])
 
+    def test_status_json_keeps_plain_tray_data_and_provider_details(self) -> None:
+        model = panel.compact_model(self.entries, [])
+        payload = panel.status_payload(model, 2)
+        self.assertEqual(payload["text"], model["text"])
+        self.assertEqual(payload["class"], "critical")
+        self.assertEqual(payload["providers"], model["providers"])
+        self.assertLessEqual(len(payload["tooltip"].splitlines()), 2)
+
     def test_pango_escapes_untrusted_provider_data(self) -> None:
         entries = [{"provider": "<b", "error": {"message": "<span foreground='red'>oops</span>"}}]
         model = panel.compact_model(entries, [])
@@ -91,6 +99,26 @@ class PanelAdapterTests(unittest.TestCase):
         self.assertEqual(payload["class"], "critical")
         self.assertIn("Cx S 12%", payload["text"])
         self.assertLessEqual(len(payload["tooltip"].splitlines()), 2)
+
+    def test_status_json_cli_keeps_legacy_formats_separate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "kodexbar-panel"
+            engine = root / "kodexbar-quotas"
+            executable.write_text(PANEL.read_text(encoding="utf-8"), encoding="utf-8")
+            engine.write_text(
+                "#!" + os.sys.executable + "\nimport json\nprint(json.dumps(" + repr(self.entries) + "))\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            engine.chmod(0o755)
+            result = subprocess.run(
+                [str(executable), "--status-json"], text=True, capture_output=True, check=True
+            )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["class"], "critical")
+        self.assertIn("tooltip", payload)
+        self.assertEqual(len(payload["providers"]), len(self.entries))
 
     def test_engine_failure_is_short_text_in_every_output_format(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -245,6 +245,20 @@ def waybar_payload(model: dict[str, Any], maximum_lines: int) -> dict[str, str]:
     return {"text": pango_escape(model["text"]), "tooltip": tooltip, "class": model["class"]}
 
 
+def status_payload(model: dict[str, Any], maximum_lines: int) -> dict[str, Any]:
+    """Return the tray-friendly status without changing legacy panel formats."""
+    if model.get("error"):
+        tooltip = f"KodexBar quotas unavailable: {model['error']}"
+    else:
+        tooltip = "\n".join(tooltip_lines(model["providers"])[:maximum_lines]) or "No quota data"
+    return {
+        "text": model["text"],
+        "tooltip": tooltip,
+        "class": model["class"],
+        "providers": model["providers"],
+    }
+
+
 def waybar_snippet() -> str:
     return """// Add \"custom/kodexbar\" to modules-left, modules-center, or modules-right.\n\"custom/kodexbar\": {\n  \"exec\": \"kodexbar-panel --format waybar\",\n  \"return-type\": \"json\",\n  \"interval\": 60\n},\n\n// Add these rules to your Waybar CSS.\n// #custom-kodexbar.ok { color: #35d07f; }\n// #custom-kodexbar.warning { color: #f5a623; }\n// #custom-kodexbar.critical { color: #ff5c5c; }"""
 
@@ -252,6 +266,7 @@ def waybar_snippet() -> str:
 def parse_arguments(arguments: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--format", choices=("waybar", "text", "json"), default="text")
+    parser.add_argument("--status-json", action="store_true", help="print tray-friendly JSON status")
     parser.add_argument("--pango", action="store_true", help="color text provider blocks with Pango markup")
     parser.add_argument("--providers", default="", help="comma-separated provider IDs")
     parser.add_argument("--max-tooltip-lines", type=int, default=DEFAULT_TOOLTIP_LINES)
@@ -269,7 +284,9 @@ def main(arguments: list[str]) -> int:
         return 0
     entries, failure = fetch_entries()
     model = error_model(failure) if failure else compact_model(entries or [], normalize_providers(options.providers))
-    if options.format == "waybar":
+    if options.status_json:
+        print(json.dumps(status_payload(model, options.max_tooltip_lines), ensure_ascii=False))
+    elif options.format == "waybar":
         print(json.dumps(waybar_payload(model, options.max_tooltip_lines), ensure_ascii=False))
     elif options.format == "json":
         print(json.dumps(model, ensure_ascii=False))
