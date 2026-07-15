@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.4.1, 2026-07-14
+
+- Reported when an installed upstream `codexbar` fails to provide usage data, without mislabeling it as missing.
+- Added examples and output guidance to `ai recover --help`, with `ai recover` in command usage lines.
+
 ## 0.4.0, 2026-07-14
 
 - Added `kodexbar-panel`, a stdlib-only compact quota adapter for Waybar and the XFCE Generic Monitor plugin.

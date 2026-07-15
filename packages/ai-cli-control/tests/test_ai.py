@@ -598,7 +598,7 @@ class AiSelectorTests(unittest.TestCase):
         version = self.run_ai("--version")
         help_result = self.run_ai("--language", "en", "--help")
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.4.0")
+        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.4.1")
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("Choose and launch Codex", help_result.stdout)
         self.assertIn("--language LANGUAGE", help_result.stdout)
@@ -755,6 +755,22 @@ class RecoverEngineTests(unittest.TestCase):
         assert spec is not None and spec.loader is not None
         cls.engine = module_from_spec(spec)
         spec.loader.exec_module(cls.engine)
+
+    def test_recover_help_uses_ai_command_and_examples(self) -> None:
+        recover_help = subprocess.run(
+            [str(AI), "recover", "--help"], text=True, capture_output=True, check=False
+        )
+        list_help = subprocess.run(
+            [str(AI), "recover", "list", "--help"], text=True, capture_output=True, check=False
+        )
+        self.assertEqual(recover_help.returncode, 0, recover_help.stderr)
+        self.assertEqual(list_help.returncode, 0, list_help.stderr)
+        self.assertIn("usage: ai recover [-h] {list,dump} ...", recover_help.stdout)
+        self.assertIn("ejemplos:", recover_help.stdout)
+        self.assertIn("ai recover dump --provider antigravity --id <ID> --max-chars 50000", recover_help.stdout)
+        self.assertIn("el proyecto es el directorio actual salvo que uses --cwd.", recover_help.stdout)
+        self.assertIn("la salida va a stdout, puedes conectarla con pipe o pegarla donde la necesites.", recover_help.stdout)
+        self.assertIn("usage: ai recover list [-h] --provider PROVIDER", list_help.stdout)
 
     def test_truncation_never_emits_the_full_transcript(self) -> None:
         transcript = "INICIO_UNICO " + ("contenido " * 600) + "FINAL_UNICO"

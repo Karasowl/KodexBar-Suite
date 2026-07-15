@@ -624,7 +624,19 @@ def command_dump(args):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(description="Recupera conversaciones locales por proyecto.")
+    parser = argparse.ArgumentParser(
+        prog="ai recover",
+        description="Recupera conversaciones locales por proyecto.",
+        epilog="""ejemplos:
+  ai recover list --provider codex
+  ai recover list --provider grok --limit 5
+  ai recover dump --provider codex --id last
+  ai recover dump --provider antigravity --id <ID> --max-chars 50000
+
+el proyecto es el directorio actual salvo que uses --cwd.
+la salida va a stdout, puedes conectarla con pipe o pegarla donde la necesites.""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     listing = subparsers.add_parser("list", help="lista sesiones recientes")
     listing.add_argument("--provider", required=True, help="codex, grok, agy, antigravity o claude")
