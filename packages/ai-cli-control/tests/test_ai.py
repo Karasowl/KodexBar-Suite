@@ -9,7 +9,8 @@ import tempfile
 import textwrap
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from importlib.util import module_from_spec, spec_from_file_location
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_file_location, spec_from_loader
 from io import StringIO
 
 
@@ -705,6 +706,31 @@ class AiSelectorTests(unittest.TestCase):
         failed = self.run_ai("recover", "dump", "--provider", "grok", "--id", "missing", "--cwd", str(self.temp))
         self.assertEqual(failed.returncode, 2)
         self.assertIn("no se encontró la sesión missing", failed.stderr)
+
+    def test_recover_wrapper_returns_130_when_child_is_interrupted(self) -> None:
+        loader = SourceFileLoader("ai_recover_wrapper", str(AI))
+        spec = spec_from_loader(loader.name, loader)
+        assert spec is not None
+        wrapper = module_from_spec(spec)
+        sys.modules[loader.name] = wrapper
+        try:
+            loader.exec_module(wrapper)
+            original_run = wrapper.subprocess.run
+
+            def interrupted_run(*_args: object, **_kwargs: object) -> None:
+                raise KeyboardInterrupt
+
+            wrapper.subprocess.run = interrupted_run
+            try:
+                stderr = StringIO()
+                with redirect_stderr(stderr):
+                    self.assertEqual(wrapper.run_recover(("codex", "last")), 130)
+            finally:
+                wrapper.subprocess.run = original_run
+        finally:
+            sys.modules.pop(loader.name, None)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertNotIn("Traceback", stderr.getvalue())
 
     def test_install_and_uninstall_refuse_foreign_target(self) -> None:
         home = self.temp / "foreign-home"

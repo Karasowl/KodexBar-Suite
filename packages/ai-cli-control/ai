@@ -679,7 +679,10 @@ def run_recover(arguments: Sequence[str]) -> int:
     """Run the standalone recovery engine located beside the real ai script."""
     recover = Path(__file__).resolve().with_name("recover.py")
     command = [sys.executable, str(recover), *(arguments or ("--help",))]
-    return subprocess.run(command, check=False).returncode
+    try:
+        return subprocess.run(command, check=False).returncode
+    except KeyboardInterrupt:
+        return 130
 
 
 def main() -> int:
