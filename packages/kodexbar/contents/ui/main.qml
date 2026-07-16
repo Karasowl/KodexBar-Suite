@@ -38,7 +38,11 @@ PlasmoidItem {
     property var pendingCostCommands: []
     property var lastGoodEntries: []
     property bool activeQueryReplacesAll: false
+    property bool activeStartupRetry: false
     property bool initialUsageSeedPending: true
+    property bool startupRetryWindowOpen: true
+    property bool startupRetryPending: false
+    property var startupRetryAttemptedProviders: ({})
     property int fastRefreshCyclesSinceSeed: 0
     property double lastSuccessfulSeedAt: 0
     property bool showCreditsInPanel: Plasmoid.configuration.showCreditsInPanel === undefined ? false : Plasmoid.configuration.showCreditsInPanel
@@ -402,7 +406,7 @@ PlasmoidItem {
     }
 
     function refresh() {
-        if (loading) {
+        if (loading || startupRetryPending) {
             return
         }
         if (initialUsageSeedPending || (fastRefreshCyclesSinceSeed >= 10
@@ -456,7 +460,7 @@ PlasmoidItem {
         beginUsageRefresh(providerCandidates(["claude"]), false)
     }
 
-    function providerCandidates(providers) {
+    function providerCandidates(providers, startupRetry) {
         var candidates = []
         var commands = ProviderLogic.commandCandidates(configuredCodexbarCommand)
         for (var i = 0; i < providers.length; i++) {
@@ -465,7 +469,8 @@ PlasmoidItem {
                 source: selectedSource,
                 command: commands[0],
                 fallbackCommand: commands.length > 1 ? commands[1] : "",
-                replaceAll: false
+                replaceAll: false,
+                startupRetry: startupRetry === true
             })
         }
         return candidates
@@ -478,7 +483,8 @@ PlasmoidItem {
             source: selectedSource,
             command: commands[0],
             fallbackCommand: commands.length > 1 ? commands[1] : "",
-            replaceAll: true
+            replaceAll: true,
+            startupRetry: false
         }]
     }
 
@@ -520,6 +526,8 @@ PlasmoidItem {
     function cancelUsageRefresh() {
         executable.connectedSources = []
         pendingCandidates = []
+        startupRetryTimer.stop()
+        startupRetryPending = false
         if (activeQueryReplacesAll) {
             initialUsageSeedPending = true
         }
@@ -530,6 +538,10 @@ PlasmoidItem {
     function tryNextCandidate() {
         if (pendingCandidates.length === 0) {
             usageWatchdog.stop()
+            if (activeStartupRetry) {
+                activeStartupRetry = false
+                startupRetryWindowOpen = false
+            }
             loading = false
             generatedAt = new Date().toLocaleString(Qt.locale(), Locale.ShortFormat)
             if (entries.length === 0 && errorMessage.length === 0) {
@@ -545,6 +557,7 @@ PlasmoidItem {
         activeCommand = candidate.command || codexbarCommand
         activeFallbackCommand = candidate.fallbackCommand || ""
         activeQueryReplacesAll = candidate.replaceAll === true
+        activeStartupRetry = candidate.startupRetry === true
         executable.connectedSources = []
         executable.connectSource(commandLine(activeProvider, activeSource, activeCommand))
         usageWatchdog.restart()
@@ -570,6 +583,28 @@ PlasmoidItem {
         var updatedEntries = ProviderLogic.replaceProviderEntries(
             entries, merged, providers, activeQueryReplacesAll)
         entries = ProviderLogic.attachProviderCostSummaries(updatedEntries, costSummaries)
+    }
+
+    function scheduleStartupProviderRetries(normalized) {
+        if (!activeQueryReplacesAll || !startupRetryWindowOpen) {
+            return false
+        }
+        var providers = ProviderLogic.startupRetryProviderIds(
+            normalized, lastGoodEntries, startupRetryAttemptedProviders)
+        if (providers.length === 0) {
+            startupRetryWindowOpen = false
+            return false
+        }
+        var attempted = startupRetryAttemptedProviders
+        for (var i = 0; i < providers.length; i++) {
+            attempted[providers[i]] = true
+        }
+        startupRetryAttemptedProviders = attempted
+        applyUsageEntries(ProviderLogic.withoutProviders(normalized, providers))
+        pendingCandidates = providerCandidates(providers, true)
+        startupRetryPending = true
+        startupRetryTimer.restart()
+        return true
     }
 
     function handleUsageFailure(message, detail) {
@@ -1037,6 +1072,8 @@ PlasmoidItem {
             statusURL: status ? (status.url || "") : "",
             errorMessage: error ? (error.message || i18n("Provider returned an error")) : "",
             errorKind: error ? (error.kind || "") : "",
+            errorCategory: error ? (error.category || "") : "",
+            errorRetryable: error && typeof error.retryable === "boolean" ? error.retryable : undefined,
             signedOut: false
         }
     }
@@ -2126,7 +2163,8 @@ PlasmoidItem {
                         provider: root.activeProvider,
                         source: root.activeSource,
                         command: root.activeFallbackCommand,
-                        replaceAll: root.activeQueryReplacesAll
+                        replaceAll: root.activeQueryReplacesAll,
+                        startupRetry: root.activeStartupRetry
                     })
                     root.tryNextCandidate()
                     return
@@ -2160,6 +2198,9 @@ PlasmoidItem {
                 })
                 root.applyUsageEntries([parseErrorEntry])
                 root.tryNextCandidate()
+                return
+            }
+            if (root.scheduleStartupProviderRetries(result.entries)) {
                 return
             }
             root.applyUsageEntries(result.entries)
@@ -2214,6 +2255,16 @@ PlasmoidItem {
         interval: 120000
         repeat: false
         onTriggered: root.cancelUsageRefresh()
+    }
+
+    Timer {
+        id: startupRetryTimer
+        interval: 5000
+        repeat: false
+        onTriggered: {
+            root.startupRetryPending = false
+            root.beginUsageRefresh(root.pendingCandidates, false)
+        }
     }
 
     Timer {

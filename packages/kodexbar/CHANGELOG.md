@@ -2,6 +2,14 @@
 
 All notable fork-specific changes are documented here.
 
+## 0.6.0, 2026-07-16
+
+### Fixed
+
+- Retry only startup providers that report a transient network, timeout, or invalid-response failure and have no cached data, once after five seconds.
+- Keep rate-limit, authentication, entitlement, and permanent failures on the configured refresh cadence.
+- Preserve the exact provider failure in the popup after the retry is exhausted.
+
 ## 0.5.0, 2026-07-14
 
 ### Added

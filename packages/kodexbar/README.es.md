@@ -137,6 +137,8 @@ La selección de cuotas predeterminada es `primary,weekly`. Estas claves globale
 
 Cada actualización ejecuta la consulta predeterminada de uso de CodexBar sin sobrescribir `--provider`. Así, CodexBar respeta sus controles de proveedores habilitados y el popup recibe cada proveedor habilitado y cuenta devuelta. Se evita intencionalmente `--provider all` porque CodexBar 0.40.0 también devuelve proveedores deshabilitados con esa opción explícita.
 
+La primera consulta sigue ejecutándose de inmediato al cargar el widget. Si un proveedor no tiene una lectura en caché y reporta un fallo transitorio de red, timeout o respuesta inválida, el widget reintenta solo ese proveedor una vez después de cinco segundos. Los límites de frecuencia, errores de autenticación, falta de entitlement y fallos permanentes vuelven a la cadencia configurada sin un reintento inmediato. Si el segundo intento falla, conserva visible el error exacto del proveedor.
+
 `Compact providers` y `Compact quotas` solo controlan el resumen de la bandeja del sistema después de recibir la respuesta de la CLI. Nunca eliminan datos del popup. Una selección inválida de proveedor o cuota muestra `No selection` con un icono neutral, en vez de sugerir que Codex está seleccionado.
 
 ### Etiquetas de Gemini

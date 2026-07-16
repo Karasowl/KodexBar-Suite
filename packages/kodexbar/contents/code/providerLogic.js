@@ -125,6 +125,61 @@ function providerIds(entries) {
     return ids
 }
 
+function isRetryableProviderError(entry) {
+    if (!entry || !entry.errorMessage) {
+        return false
+    }
+    if (entry.errorRetryable === true) {
+        return true
+    }
+    if (entry.errorRetryable === false) {
+        return false
+    }
+    var category = providerId(entry.errorCategory)
+    if (["rate_limit", "authentication", "authorization", "entitlement", "permanent"].indexOf(category) !== -1) {
+        return false
+    }
+    if (["network", "timeout", "invalid_response"].indexOf(category) !== -1) {
+        return true
+    }
+    var message = String(entry.errorMessage)
+    if (/\b429\b|rate[ -]?limit|unauthenti|forbidden|credential|sign(?:ed)?\s*out|entitlement|subscription|not\s+included|no\s+(?:available\s+)?fetch\s+strategy/i.test(message)) {
+        return false
+    }
+    return /network|timed?\s*out|timeout|invalid\s+(?:json|response)|unexpected\s+(?:json|response)|empty\s+output|no\s+output/i.test(message)
+}
+
+function startupRetryProviderIds(entries, cachedEntries, alreadyRetried) {
+    var incoming = Array.isArray(entries) ? entries : []
+    var cached = Array.isArray(cachedEntries) ? cachedEntries : []
+    var attempted = alreadyRetried && typeof alreadyRetried === "object" ? alreadyRetried : {}
+    var healthy = {}
+    var cachedProviders = {}
+    var retryable = []
+    for (var cachedIndex = 0; cachedIndex < cached.length; cachedIndex++) {
+        cachedProviders[providerId(cached[cachedIndex] && cached[cachedIndex].provider)] = true
+    }
+    for (var i = 0; i < incoming.length; i++) {
+        var id = providerId(incoming[i] && incoming[i].provider)
+        if (id.length > 0 && !incoming[i].errorMessage) {
+            healthy[id] = true
+        }
+    }
+    for (var j = 0; j < incoming.length; j++) {
+        var entry = incoming[j]
+        var provider = providerId(entry && entry.provider)
+        if (provider.length === 0 || provider === "all" || healthy[provider]
+                || cachedProviders[provider] || attempted[provider]
+                || retryable.indexOf(provider) !== -1) {
+            continue
+        }
+        if (isRetryableProviderError(entry)) {
+            retryable.push(provider)
+        }
+    }
+    return retryable
+}
+
 function withoutProviders(entries, providers) {
     var list = Array.isArray(entries) ? entries : []
     var ids = Array.isArray(providers) ? providers : []

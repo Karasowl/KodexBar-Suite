@@ -50,7 +50,37 @@ class QuotasEngineTests(unittest.TestCase):
             entry = quotas.fetch_claude()
         self.assertEqual(entry["error"]["kind"], "provider")
         self.assertIn("rate limited", entry["error"]["message"])
+        self.assertEqual(entry["error"]["category"], "rate_limit")
+        self.assertFalse(entry["error"]["retryable"])
         self.assertEqual(entry["engine"], "kodexbar")
+
+    def test_claude_auth_and_entitlement_errors_are_not_retryable(self) -> None:
+        for status, category in ((401, "authentication"), (403, "entitlement")):
+            with self.subTest(status=status), patch.object(
+                quotas, "claude_access_token", return_value="token"
+            ), patch.object(quotas, "http_get", return_value=(status, b"{}")):
+                entry = quotas.fetch_claude()
+            self.assertEqual(entry["error"]["category"], category)
+            self.assertFalse(entry["error"]["retryable"])
+            self.assertIn(f"HTTP {status}", entry["error"]["message"])
+
+    def test_transient_claude_failures_keep_exact_retry_metadata(self) -> None:
+        cases = (
+            (quotas.FetchFallback("socket offline", "network", True), "network"),
+            (quotas.FetchFallback("request timed out", "timeout", True), "timeout"),
+            (quotas.FetchFallback("invalid payload", "invalid_response", True), "invalid_response"),
+        )
+        for failure, category in cases:
+            with self.subTest(category=category), patch.object(
+                quotas, "fetch_claude", side_effect=failure
+            ), patch.object(
+                quotas, "upstream_entries", side_effect=quotas.FetchFallback("upstream also failed", "timeout", True)
+            ):
+                entry = quotas.fetch_provider("claude", None)[0]
+            self.assertEqual(entry["error"]["category"], category)
+            self.assertTrue(entry["error"]["retryable"])
+            self.assertIn(str(failure), entry["error"]["message"])
+            self.assertIn("Fallback failed: upstream also failed", entry["error"]["message"])
 
     def test_claude_request_uses_the_upstream_oauth_headers(self) -> None:
         payload = (FIXTURES / "claude-oauth-usage.json").read_bytes()
@@ -193,9 +223,11 @@ class QuotasEngineTests(unittest.TestCase):
                     check=True,
                 )
                 entry = json.loads(result.stdout)[0]
-                self.assertEqual(entry["error"]["message"], "upstream codexbar failed to provide usage data")
+                expected = "upstream codexbar exited with status 7" if name == "exit-nonzero" else "upstream codexbar returned invalid JSON at column 1"
+                self.assertEqual(entry["error"]["message"], expected)
                 self.assertNotIn("not installed", entry["error"]["message"])
                 self.assertNotIn("not json", entry["error"]["message"])
+                self.assertEqual(entry["error"]["retryable"], name == "invalid-json")
 
     def test_nonzero_upstream_exit_preserves_provider_error_json(self) -> None:
         expected = [{

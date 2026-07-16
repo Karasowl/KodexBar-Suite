@@ -137,6 +137,8 @@ The default quota selection is `primary,weekly`. These global keys apply to ever
 
 Every refresh runs the default CodexBar usage query without a `--provider` override. CodexBar therefore honors its enabled-provider toggles, and the popup receives every enabled provider and returned account. Passing `--provider all` is intentionally avoided because CodexBar 0.40.0 also returns disabled providers for that explicit override.
 
+The first query still runs immediately when the widget loads. If a provider has no cached reading and reports a transient network, timeout, or invalid-response failure, the widget retries only that provider once after five seconds. Rate limits, authentication, entitlement, and permanent errors return to the normal configured refresh cadence without an immediate retry. A failed second attempt keeps its exact provider error visible.
+
 `Compact providers` and `Compact quotas` only control the system tray summary after that CLI request returns. They never remove data from the popup. An invalid provider or quota selection displays `No selection` with a neutral icon instead of implying that Codex was selected.
 
 ### Gemini labels

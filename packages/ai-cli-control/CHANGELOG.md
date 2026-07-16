@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.7.0, 2026-07-16
+
+- Preserved exact quota acquisition failures with structured retry categories instead of replacing them with a generic upstream error.
+- Distinguished transient network, timeout, and invalid-response failures from rate limits, authentication, entitlement, and permanent failures.
+
 ## 0.6.0, 2026-07-15
 
 - Made `ai recover --copy` try the next installed clipboard tool when an earlier candidate fails at runtime.

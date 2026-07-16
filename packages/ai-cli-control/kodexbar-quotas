@@ -15,14 +15,19 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 TIMEOUT_SECONDS = 15
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok"}
 
 
 class FetchFallback(Exception):
-    """The caller should ask the upstream CodexBar binary for this provider."""
+    """A native or upstream fetch failed with a classified cause."""
+
+    def __init__(self, message: str, category: str = "permanent", retryable: bool = False):
+        super().__init__(message)
+        self.category = category
+        self.retryable = retryable
 
 
 def home_directory() -> Path:
@@ -56,10 +61,10 @@ def claude_access_token(home: Path | None = None) -> str:
     try:
         credentials = read_json(root / ".claude" / ".credentials.json")
     except (OSError, json.JSONDecodeError) as error:
-        raise FetchFallback("Claude OAuth credentials are unavailable") from error
+        raise FetchFallback("Claude OAuth credentials are unavailable", "authentication") from error
     token = credentials.get("claudeAiOauth", {}).get("accessToken")
     if not isinstance(token, str) or not token.strip():
-        raise FetchFallback("Claude OAuth credentials are unavailable")
+        raise FetchFallback("Claude OAuth credentials are unavailable", "authentication")
     return token.strip()
 
 
@@ -73,7 +78,8 @@ def http_get(url: str, headers: dict[str, str]) -> tuple[int, bytes]:
     except HTTPError as error:
         return error.code, error.read()
     except (URLError, OSError, TimeoutError) as error:
-        raise FetchFallback(f"network failure: {error}") from error
+        category = "timeout" if isinstance(error, TimeoutError) or "timed out" in str(error).lower() else "network"
+        raise FetchFallback(f"Claude OAuth {category} failure: {error}", category, True) from error
 
 
 def iso_now() -> str:
@@ -99,7 +105,7 @@ def usage_window(value: Any, minutes: int) -> dict[str, Any] | None:
 def map_claude_usage(payload: Any, updated_at: str | None = None) -> dict[str, Any]:
     """Map Anthropic OAuth fields to the CodexBar CLI JSON envelope."""
     if not isinstance(payload, dict):
-        raise FetchFallback("unexpected Claude OAuth response")
+        raise FetchFallback("Claude OAuth returned an invalid response", "invalid_response", True)
     primary = usage_window(payload.get("five_hour"), 300)
     fallback_keys = ("seven_day", "seven_day_oauth_apps", "seven_day_sonnet", "seven_day_opus")
     if primary is None:
@@ -108,7 +114,7 @@ def map_claude_usage(payload: Any, updated_at: str | None = None) -> dict[str, A
             if primary is not None:
                 break
     if primary is None:
-        raise FetchFallback("Claude OAuth response has no usage window")
+        raise FetchFallback("Claude OAuth response has no usage window", "invalid_response", True)
     secondary = usage_window(payload.get("seven_day"), 10080)
     tertiary = usage_window(payload.get("seven_day_sonnet"), 10080)
     if tertiary is None:
@@ -127,11 +133,23 @@ def map_claude_usage(payload: Any, updated_at: str | None = None) -> dict[str, A
     }
 
 
-def provider_error(provider: str, source: str, message: str) -> dict[str, Any]:
+def provider_error(
+    provider: str,
+    source: str,
+    message: str,
+    category: str = "permanent",
+    retryable: bool = False,
+) -> dict[str, Any]:
     return {
         "provider": provider,
         "source": source,
-        "error": {"code": 1, "message": message, "kind": "provider"},
+        "error": {
+            "code": 1,
+            "message": message,
+            "kind": "provider",
+            "category": category,
+            "retryable": retryable,
+        },
         "engine": "kodexbar",
     }
 
@@ -153,13 +171,20 @@ def fetch_claude(home: Path | None = None) -> dict[str, Any]:
             "claude",
             "claude",
             "Claude OAuth usage endpoint is rate limited by Anthropic right now. Wait a few minutes, then click Refresh.",
+            "rate_limit",
         )
+    if status == 401:
+        return provider_error("claude", "claude", "Claude OAuth rejected the current credentials (HTTP 401)", "authentication")
+    if status == 403:
+        return provider_error("claude", "claude", "Claude OAuth denied access to usage data (HTTP 403)", "entitlement")
     if status != 200:
-        raise FetchFallback(f"Claude OAuth HTTP {status}")
+        retryable = status in (408, 425) or status >= 500
+        category = "timeout" if status == 408 else ("network" if retryable else "permanent")
+        raise FetchFallback(f"Claude OAuth usage request failed with HTTP {status}", category, retryable)
     try:
         return map_claude_usage(json.loads(body.decode("utf-8")))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise FetchFallback("unexpected Claude OAuth response") from error
+        raise FetchFallback("Claude OAuth returned invalid JSON", "invalid_response", True) from error
 
 
 def upstream_path() -> str | None:
@@ -169,28 +194,47 @@ def upstream_path() -> str | None:
     return None
 
 
-def upstream_entries(provider: str, source: str | None) -> list[Any] | None:
+def upstream_entries(provider: str, source: str | None) -> list[Any]:
     executable = upstream_path()
     if executable is None:
-        return None
+        raise FetchFallback("upstream codexbar is not installed")
     command = [executable, "usage", "--format", "json", "--json-only", "--provider", provider]
     if source:
         command.extend(["--source", source])
     try:
         completed = subprocess.run(command, capture_output=True, text=True, timeout=TIMEOUT_SECONDS, check=False)
+    except subprocess.TimeoutExpired as error:
+        raise FetchFallback(
+            f"upstream codexbar timed out after {TIMEOUT_SECONDS} seconds",
+            "timeout",
+            True,
+        ) from error
+    except OSError as error:
+        raise FetchFallback(f"upstream codexbar could not start: {error}") from error
+    try:
         value = json.loads(completed.stdout)
-    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
-        return None
+    except json.JSONDecodeError as error:
+        if not completed.stdout.strip() and completed.returncode != 0:
+            raise FetchFallback(f"upstream codexbar exited with status {completed.returncode}") from error
+        detail = "empty output" if not completed.stdout.strip() else f"invalid JSON at column {error.colno}"
+        raise FetchFallback(f"upstream codexbar returned {detail}", "invalid_response", True) from error
     return value if isinstance(value, list) else [value]
 
 
-def fallback_entry(provider: str, source: str | None) -> list[Any]:
-    if upstream_path() is None:
-        return [provider_error(provider, source or "auto", "upstream codexbar is not installed")]
-    entries = upstream_entries(provider, source)
-    if entries is not None:
-        return entries
-    return [provider_error(provider, source or "auto", "upstream codexbar failed to provide usage data")]
+def fallback_entry(
+    provider: str,
+    source: str | None,
+    native_failure: FetchFallback | None = None,
+) -> list[Any]:
+    try:
+        return upstream_entries(provider, source)
+    except FetchFallback as upstream_failure:
+        failure = native_failure or upstream_failure
+        if native_failure is None:
+            message = str(upstream_failure)
+        else:
+            message = f"{native_failure}. Fallback failed: {upstream_failure}"
+        return [provider_error(provider, source or "auto", message, failure.category, failure.retryable)]
 
 
 def fetch_provider(provider: str, source: str | None, home: Path | None = None) -> list[Any]:
@@ -198,8 +242,8 @@ def fetch_provider(provider: str, source: str | None, home: Path | None = None) 
     if normalized == "claude" and source in (None, "auto", "oauth"):
         try:
             return [fetch_claude(home)]
-        except FetchFallback:
-            pass
+        except FetchFallback as error:
+            return fallback_entry(normalized, source, error)
     return fallback_entry(normalized, source)
 
 

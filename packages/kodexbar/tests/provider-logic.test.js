@@ -304,6 +304,54 @@ assert.equal(
 )
 assert.equal(uncachedClaudeError[0].isCached, false)
 
+const retryClassificationCases = [
+    [{ errorMessage: "socket offline", errorCategory: "network", errorRetryable: true }, true],
+    [{ errorMessage: "request timed out", errorCategory: "timeout", errorRetryable: true }, true],
+    [{ errorMessage: "invalid JSON", errorCategory: "invalid_response", errorRetryable: true }, true],
+    [{ errorMessage: "HTTP 429", errorCategory: "rate_limit", errorRetryable: false }, false],
+    [{ errorMessage: "credentials expired", errorCategory: "authentication", errorRetryable: false }, false],
+    [{ errorMessage: "plan not included", errorCategory: "entitlement", errorRetryable: false }, false]
+]
+for (const [entry, expected] of retryClassificationCases) {
+    assert.equal(
+        context.isRetryableProviderError(entry),
+        expected,
+        `${entry.errorCategory} receives the expected startup retry classification`
+    )
+}
+assert.equal(
+    context.isRetryableProviderError({ errorMessage: "upstream codexbar timed out after 15 seconds" }),
+    true,
+    "legacy transient errors remain classifiable without structured metadata"
+)
+assert.equal(
+    context.isRetryableProviderError({ errorMessage: "Claude OAuth credentials are unavailable" }),
+    false,
+    "legacy authentication errors are excluded before transient text matching"
+)
+
+const startupErrors = [
+    { provider: "claude", errorMessage: "socket offline", errorCategory: "network", errorRetryable: true },
+    { provider: "codex", errorMessage: "HTTP 429", errorCategory: "rate_limit", errorRetryable: false },
+    { provider: "grok", errorMessage: "credentials expired", errorCategory: "authentication", errorRetryable: false },
+    { provider: "antigravity", errorMessage: "invalid JSON", errorCategory: "invalid_response", errorRetryable: true }
+]
+assert.deepEqual(
+    Array.from(context.startupRetryProviderIds(startupErrors, [], {})),
+    ["claude", "antigravity"],
+    "only transient provider failures without cached data receive a startup retry"
+)
+assert.deepEqual(
+    Array.from(context.startupRetryProviderIds(startupErrors, [goodClaudeEntry], {})),
+    ["antigravity"],
+    "a last good provider entry suppresses its startup retry"
+)
+assert.deepEqual(
+    Array.from(context.startupRetryProviderIds(startupErrors, [], { claude: true, antigravity: true })),
+    [],
+    "each provider can receive at most one startup retry before normal cadence resumes"
+)
+
 const accountlessCodexError = plain(context.mergeEntriesWithCache(
     [fixture.multiAccountErrorCache.error], fixture.multiAccountErrorCache.cachedEntries))
 assert.deepEqual(
@@ -653,7 +701,7 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.5.0", "package metadata uses version 0.5.0")
+assert.equal(metadata.KPlugin.Version, "0.6.0", "package metadata uses version 0.6.0")
 assert.equal(metadata.KPlugin.Name, "KodexBar Suite", "package metadata uses the public product name")
 assert.equal(metadata.KPlugin.Id, "org.kde.plasma.kodexbar", "the technical plugin ID remains compatible")
 assert.doesNotMatch(
@@ -703,6 +751,10 @@ assert.match(
 )
 assert.match(mainQml, /ProviderLogic\.excludeUnfetchableProviderEntries\(normalized\)/, "unfetchable provider responses are excluded before state is updated")
 assert.match(mainQml, /ProviderLogic\.reconcileSeedCache\(cached, incoming\)/, "a successful full seed purges stale cached providers")
+assert.match(mainQml, /id: startupRetryTimer[\s\S]*interval: 5000/, "transient startup failures wait five seconds before retrying")
+assert.match(mainQml, /ProviderLogic\.startupRetryProviderIds\([\s\S]*lastGoodEntries[\s\S]*startupRetryAttemptedProviders/, "startup retry selection is cache-aware and records completed attempts")
+assert.match(mainQml, /pendingCandidates = providerCandidates\(providers, true\)/, "startup retries target only the failed providers")
+assert.match(mainQml, /if \(loading \|\| startupRetryPending\)/, "normal refreshes cannot overlap the scheduled startup retry")
 assert.match(mainQml, /visible: !!\(root\.activeEntry\.costSummary/, "the optional cost-source binding always evaluates to a boolean")
 assert.match(mainQml, /visible: !!\(root\.showEmailInWidget && root\.activeEntry\.account\)/, "the optional email binding always evaluates to a boolean")
 assert.match(mainQml, /visible: !!\(modelData\.ordinal && modelData\.ordinal\.length > 0\)/, "the optional ordinal binding always evaluates to a boolean")
