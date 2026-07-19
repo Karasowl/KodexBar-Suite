@@ -31,6 +31,35 @@ class TrayLogicTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "clase inválida"):
             tray.parse_panel_output('{"text":"x","tooltip":"x","class":"bad","providers":[]}')
 
+    def test_resolve_icon_directory_prefers_first_complete_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            user_icons = root / "user" / "icons"
+            system_icons = root / "system" / "icons"
+            empty = root / "empty"
+            empty.mkdir(parents=True)
+            system_icons.mkdir(parents=True)
+            for name in ("kodexbar-tray-ok.svg", "kodexbar-tray-warning.svg", "kodexbar-tray-critical.svg"):
+                (system_icons / name).write_text("<svg/>", encoding="utf-8")
+            # Empty user directory loses to the system package layout.
+            chosen = tray.resolve_icon_directory([user_icons, system_icons, empty])
+            self.assertEqual(chosen, system_icons)
+            # Explicit override keeps icon_path stable for callers and tests.
+            self.assertEqual(
+                tray.icon_path("ok", icon_directory=user_icons),
+                str(user_icons / "kodexbar-tray-ok.svg"),
+            )
+            # Complete user install wins over system when both are present.
+            user_icons.mkdir(parents=True)
+            for name in ("kodexbar-tray-ok.svg", "kodexbar-tray-warning.svg", "kodexbar-tray-critical.svg"):
+                (user_icons / name).write_text("<svg/>", encoding="utf-8")
+            self.assertEqual(
+                tray.resolve_icon_directory([user_icons, system_icons]),
+                user_icons,
+            )
+            # Fallback when no candidate has icons yet: first search path.
+            self.assertEqual(tray.resolve_icon_directory([empty, user_icons.parent]), empty)
+
     def test_menu_model_includes_provider_quotas_and_error(self) -> None:
         model = tray.menu_model({
             "text": "Cx S 12%", "tooltip": "normal", "class": "ok",

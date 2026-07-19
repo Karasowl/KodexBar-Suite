@@ -33,8 +33,26 @@ def icon_name(status_class: Any) -> str:
     return f"kodexbar-tray-{status_class if status_class in ICON_CLASSES else 'critical'}.svg"
 
 
+def icon_directory_candidates() -> list[Path]:
+    """Return icon search order: user install first, then system package layout."""
+    return [
+        Path.home() / ".local/share/icons/hicolor/scalable/apps",
+        Path("/usr/share/icons/hicolor/scalable/apps"),
+    ]
+
+
+def resolve_icon_directory(candidates: list[Path] | None = None) -> Path:
+    """Pick the first directory that already contains the tray status icons."""
+    search = candidates if candidates is not None else icon_directory_candidates()
+    required = [icon_name(status) for status in sorted(ICON_CLASSES)]
+    for directory in search:
+        if all((directory / name).is_file() for name in required):
+            return directory
+    return search[0] if search else Path.home() / ".local/share/icons/hicolor/scalable/apps"
+
+
 def icon_path(status_class: Any, icon_directory: Path | None = None) -> str:
-    directory = icon_directory or Path.home() / ".local/share/icons/hicolor/scalable/apps"
+    directory = icon_directory if icon_directory is not None else resolve_icon_directory()
     return str(directory / icon_name(status_class))
 
 
