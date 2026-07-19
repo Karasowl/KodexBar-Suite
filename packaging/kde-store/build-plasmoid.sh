@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build a KDE Store-ready .plasmoid zip from packages/kodexbar.
 # Version is read from metadata.json so it is not encoded twice.
+# Uses Python's zipfile (stdlib) so the host does not need the zip CLI.
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,19 +35,47 @@ output="${dist_dir}/${plugin_id}-${version}.plasmoid"
 mkdir -p -- "$dist_dir"
 rm -f -- "$output"
 
-# Zip contents of packages/kodexbar with metadata.json at the archive root.
-# Exclude tests/ and scripts/ (development-only surfaces).
-(
-  cd -- "$source_dir"
-  # shellcheck disable=SC2035
-  zip -r -q "$output" . \
-    -x 'tests/*' \
-    -x 'tests/**' \
-    -x 'scripts/*' \
-    -x 'scripts/**' \
-    -x '*/__pycache__/*' \
-    -x '*/*.pyc'
-)
+python3 - "$source_dir" "$output" <<'PY'
+from __future__ import annotations
 
-printf 'Wrote %s\n' "$output"
-unzip -l "$output" | head -n 40
+import sys
+import zipfile
+from pathlib import Path
+
+source = Path(sys.argv[1]).resolve()
+output = Path(sys.argv[2]).resolve()
+exclude_roots = {"tests", "scripts"}
+
+with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    for path in sorted(source.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(source)
+        if relative.parts and relative.parts[0] in exclude_roots:
+            continue
+        if "__pycache__" in relative.parts or path.suffix == ".pyc":
+            continue
+        archive.write(path, arcname=str(relative).replace("\\", "/"))
+
+print(f"Wrote {output}")
+PY
+
+python3 - "$output" <<'PY'
+import sys
+import zipfile
+from pathlib import Path
+
+path = Path(sys.argv[1])
+with zipfile.ZipFile(path) as archive:
+    names = archive.namelist()
+print(f"entries={len(names)}")
+print(f"metadata_at_root={'metadata.json' in names}")
+leaks = [name for name in names if name.startswith(("tests/", "scripts/"))]
+print(f"leaked_tests_or_scripts={leaks}")
+for name in names[:40]:
+    print(name)
+if "metadata.json" not in names:
+    raise SystemExit("metadata.json missing from archive root")
+if leaks:
+    raise SystemExit(f"excluded paths leaked into archive: {leaks}")
+PY

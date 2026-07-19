@@ -185,8 +185,18 @@ class QuotasEngineTests(unittest.TestCase):
 
     def test_missing_upstream_reports_not_installed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            bin_dir = root / "bin"
+            config = home / ".config/codexbar/config.json"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                json.dumps({"providers": [{"id": "codex", "enabled": True}]}),
+                encoding="utf-8",
+            )
+            bin_dir.mkdir()
             env = os.environ.copy()
-            env["PATH"] = directory
+            env.update({"HOME": str(home), "PATH": str(bin_dir)})
             result = subprocess.run(
                 [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "codex"],
                 env=env,
@@ -205,7 +215,14 @@ class QuotasEngineTests(unittest.TestCase):
         for name, body in cases.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
+                home = root / "home"
                 bin_dir = root / "bin"
+                config = home / ".config/codexbar/config.json"
+                config.parent.mkdir(parents=True)
+                config.write_text(
+                    json.dumps({"providers": [{"id": "codex", "enabled": True}]}),
+                    encoding="utf-8",
+                )
                 bin_dir.mkdir()
                 upstream = bin_dir / "codexbar"
                 upstream.write_text(
@@ -214,7 +231,7 @@ class QuotasEngineTests(unittest.TestCase):
                 )
                 upstream.chmod(0o755)
                 env = os.environ.copy()
-                env["PATH"] = str(bin_dir)
+                env.update({"HOME": str(home), "PATH": str(bin_dir)})
                 result = subprocess.run(
                     [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "codex"],
                     env=env,
@@ -240,7 +257,14 @@ class QuotasEngineTests(unittest.TestCase):
         }]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            home = root / "home"
             bin_dir = root / "bin"
+            config = home / ".config/codexbar/config.json"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                json.dumps({"providers": [{"id": "openai", "enabled": True}]}),
+                encoding="utf-8",
+            )
             bin_dir.mkdir()
             upstream = bin_dir / "codexbar"
             upstream.write_text(
@@ -252,7 +276,7 @@ class QuotasEngineTests(unittest.TestCase):
             )
             upstream.chmod(0o755)
             env = os.environ.copy()
-            env["PATH"] = str(bin_dir)
+            env.update({"HOME": str(home), "PATH": str(bin_dir)})
             result = subprocess.run(
                 [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "openai"],
                 env=env,
