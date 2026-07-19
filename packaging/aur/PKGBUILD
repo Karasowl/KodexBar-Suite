@@ -1,0 +1,62 @@
+# Maintainer: Karasowl <https://github.com/Karasowl>
+#
+# System package for KodexBar Suite: Plasma widget, ai selector, quota engine,
+# panel adapter, and tray indicator. Optional desktop-specific runtime deps are
+# listed in optdepends so a pure Arch/CachyOS install stays minimal.
+
+pkgname=kodexbar-suite
+pkgver=0.7.0
+pkgrel=1
+pkgdesc='KodexBar Suite: Plasma quota widget, ai CLI selector, engine and tray'
+arch=('any')
+url='https://github.com/Karasowl/KodexBar-Suite'
+license=('MIT')
+depends=('python')
+optdepends=(
+  'plasma-workspace: Plasma 6 widget for ordered multi-provider quotas'
+  'python-gobject: required by kodexbar-tray StatusNotifierItem indicator'
+  'libayatana-appindicator: AppIndicator bindings for kodexbar-tray'
+  'wl-clipboard: Wayland clipboard support for ai recover --copy'
+  'xclip: X11 clipboard support for ai recover --copy'
+  'xsel: alternate X11 clipboard support for ai recover --copy'
+)
+# Future release tag tarball. The release unit pins the real checksum when the
+# tag exists. Until then, sha256sums stays SKIP so local makepkg --skipinteg and
+# source-present builds remain usable.
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Karasowl/KodexBar-Suite/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+  cd "${srcdir}/KodexBar-Suite-${pkgver}"
+
+  local payload="${pkgdir}/usr/lib/kodexbar-suite/ai-cli-control"
+  install -d "${payload}"
+  install -m755 \
+    packages/ai-cli-control/ai \
+    packages/ai-cli-control/kodexbar-quotas \
+    packages/ai-cli-control/kodexbar-panel \
+    packages/ai-cli-control/kodexbar-tray \
+    packages/ai-cli-control/recover.py \
+    packages/ai-cli-control/uninstall.sh \
+    "${payload}/"
+
+  install -d "${pkgdir}/usr/bin"
+  ln -s /usr/lib/kodexbar-suite/ai-cli-control/ai "${pkgdir}/usr/bin/ai"
+  ln -s /usr/lib/kodexbar-suite/ai-cli-control/kodexbar-quotas "${pkgdir}/usr/bin/kodexbar-quotas"
+  ln -s /usr/lib/kodexbar-suite/ai-cli-control/kodexbar-panel "${pkgdir}/usr/bin/kodexbar-panel"
+  ln -s /usr/lib/kodexbar-suite/ai-cli-control/kodexbar-tray "${pkgdir}/usr/bin/kodexbar-tray"
+
+  local plasmoid="${pkgdir}/usr/share/plasma/plasmoids/org.kde.plasma.kodexbar"
+  install -d "${plasmoid}"
+  cp -a packages/kodexbar/. "${plasmoid}/"
+  rm -rf "${plasmoid}/tests" "${plasmoid}/scripts"
+
+  install -d "${pkgdir}/usr/share/icons/hicolor/scalable/apps"
+  install -m644 packages/ai-cli-control/icons/kodexbar-tray-ok.svg \
+    packages/ai-cli-control/icons/kodexbar-tray-warning.svg \
+    packages/ai-cli-control/icons/kodexbar-tray-critical.svg \
+    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/"
+
+  install -d "${pkgdir}/usr/share/licenses/${pkgname}"
+  install -m644 LICENSE NOTICE.md "${pkgdir}/usr/share/licenses/${pkgname}/"
+}

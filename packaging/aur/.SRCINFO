@@ -1,0 +1,18 @@
+pkgbase = kodexbar-suite
+	pkgdesc = KodexBar Suite: Plasma quota widget, ai CLI selector, engine and tray
+	pkgver = 0.7.0
+	pkgrel = 1
+	url = https://github.com/Karasowl/KodexBar-Suite
+	arch = any
+	license = MIT
+	depends = python
+	optdepends = plasma-workspace: Plasma 6 widget for ordered multi-provider quotas
+	optdepends = python-gobject: required by kodexbar-tray StatusNotifierItem indicator
+	optdepends = libayatana-appindicator: AppIndicator bindings for kodexbar-tray
+	optdepends = wl-clipboard: Wayland clipboard support for ai recover --copy
+	optdepends = xclip: X11 clipboard support for ai recover --copy
+	optdepends = xsel: alternate X11 clipboard support for ai recover --copy
+	source = kodexbar-suite-0.7.0.tar.gz::https://github.com/Karasowl/KodexBar-Suite/archive/refs/tags/v0.7.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = kodexbar-suite

@@ -1,0 +1,7 @@
+# makepkg local build artifacts (never versioned)
+pkg/
+src/
+*.pkg.tar*
+*.src.tar*
+kodexbar-suite-*.tar.gz
+*.log

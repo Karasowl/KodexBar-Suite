@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 - Preserved exact quota acquisition failures with structured retry categories instead of replacing them with a generic upstream error.
 - Distinguished transient network, timeout, and invalid-response failures from rate limits, authentication, entitlement, and permanent failures.
+- Added AUR packaging (`packaging/aur`) for a system-wide full-suite install under `/usr`, plus a reproducible KDE Store `.plasmoid` builder.
+- Resolved tray status icons from the first complete icon directory among the user install and `/usr/share/icons`, so pacman installs work without `~/.local`.
 
 ## 0.6.0, 2026-07-15
 
