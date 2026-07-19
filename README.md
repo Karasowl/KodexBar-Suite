@@ -30,6 +30,34 @@ The shared Plasma ID is intentional. This package replaces an existing upstream 
 
 After installation, add **KodexBar Suite** to a Plasma panel if it is not already present. Open the widget popup to view quotas. Use the AI button or the Plasma context menu to open `ai-cli-control` and update provider CLIs.
 
+## Installation channels
+
+KodexBar Suite will ship through three channels. This repository already contains the packaging sources. AUR and KDE Store listings become usable only after the matching release is published.
+
+### AUR (full suite, Arch and CachyOS)
+
+When the package is published, install the full suite from the AUR:
+
+```bash
+paru -S kodexbar-suite
+```
+
+The same package also appears in graphical AUR helpers on CachyOS such as Shelly or Octopi. The package installs the Plasma widget, `ai`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray`, and the tray icons under `/usr`. Packaging sources live in `packaging/aur/`.
+
+### KDE Store (widget only)
+
+The Plasma widget alone can be published to [store.kde.org](https://store.kde.org) as a `.plasmoid` built by `packaging/kde-store/build-plasmoid.sh`. That channel delivers the applet UI. The data engine (`kodexbar-quotas` and related tools) still comes from the AUR package or from the repository `install.sh` below.
+
+### Manual install from this repository
+
+Clone and run the root installer for a user-local layout under `~/.local` (no `sudo`):
+
+```bash
+git clone https://github.com/Karasowl/KodexBar-Suite.git
+cd KodexBar-Suite
+./install.sh
+```
+
 ## Update
 
 ```bash
