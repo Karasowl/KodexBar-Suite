@@ -636,14 +636,67 @@ PlasmoidItem {
         return true
     }
 
-    // Pure classifier for engine process outcomes. Only the exact missing-engine
-    // sentinel means the primary executable is absent. Labels are testable without QML.
+    // Pure classifier for engine process outcomes. engine_missing only when the
+    // wrapper reported exit 127 and stdout is exactly the sentinel (trimmed).
+    // Substrings, stderr echoes, and exit 0 with the same text are normal.
     function classifyEngineResponse(stdout, stderr, exitCode) {
-        var text = String(stdout || "") + "\n" + String(stderr || "")
-        if (text.indexOf("__KODEXBAR_ENGINE_MISSING__") !== -1) {
+        if (Number(exitCode) === 127
+                && String(stdout || "").trim() === "__KODEXBAR_ENGINE_MISSING__") {
             return "engine_missing"
         }
         return "normal"
+    }
+
+    // Pure presence transition for engine responses. Testable without QML and
+    // used by the executable data path. Sentinel raises the setup card and never
+    // purges entries/lastGoodEntries. Any normal response clears the card.
+    // Parseable JSON payload updates entries and lastGood; normal errors leave
+    // lastGoodEntries intact.
+    function applyEngineResponse(state, stdout, stderr, exitCode) {
+        var baseEntries = state && state.entries ? state.entries : []
+        var baseLastGood = state && state.lastGoodEntries ? state.lastGoodEntries : []
+        if (classifyEngineResponse(stdout, stderr, exitCode) === "engine_missing") {
+            return {
+                engineNotInstalled: true,
+                entries: baseEntries,
+                lastGoodEntries: baseLastGood
+            }
+        }
+        var text = String(stdout || "").trim()
+        var code = Number(exitCode) || 0
+        if (code !== 0 && text.length === 0) {
+            return {
+                engineNotInstalled: false,
+                entries: baseEntries,
+                lastGoodEntries: baseLastGood
+            }
+        }
+        if (text.length > 0) {
+            try {
+                var raw = JSON.parse(text)
+                var list = raw instanceof Array ? raw : [raw]
+                var usable = []
+                for (var i = 0; i < list.length; i++) {
+                    if (list[i] && typeof list[i] === "object") {
+                        usable.push(list[i])
+                    }
+                }
+                if (usable.length > 0) {
+                    return {
+                        engineNotInstalled: false,
+                        entries: usable,
+                        lastGoodEntries: usable
+                    }
+                }
+            } catch (error) {
+                // Unparseable payload is a normal error: keep lastGood.
+            }
+        }
+        return {
+            engineNotInstalled: false,
+            entries: baseEntries,
+            lastGoodEntries: baseLastGood
+        }
     }
 
     function commandWasNotFound(data) {
@@ -2297,8 +2350,14 @@ PlasmoidItem {
         onNewData: function(sourceName, data) {
             disconnectSource(sourceName)
             usageWatchdog.stop()
-            // Sentinel-only missing detection must run before any other path.
-            if (root.commandWasNotFound(data)) {
+            // Productive presence transition decides the missing-engine flag and
+            // cache-preservation contract before any other path.
+            var presence = root.applyEngineResponse({
+                engineNotInstalled: root.engineNotInstalled,
+                entries: root.entries,
+                lastGoodEntries: root.lastGoodEntries
+            }, data.stdout || "", data.stderr || "", data["exit code"] || 0)
+            if (presence.engineNotInstalled) {
                 if (root.activeFallbackCommand.length > 0) {
                     root.pendingCandidates.unshift({
                         provider: root.activeProvider,
@@ -2331,9 +2390,9 @@ PlasmoidItem {
                 root.tryNextCandidate()
                 return
             }
-            // Any non-sentinel response clears the setup card before normal handling,
+            // Any normal engine response clears the setup card before handling,
             // so ordinary errors are never covered by the missing-engine UI.
-            root.engineNotInstalled = false
+            root.engineNotInstalled = presence.engineNotInstalled
             if (data["exit code"] && data["exit code"] !== 0 && !(data.stdout || "").length) {
                 var runtimeError = data.stderr || i18n("Exit code %1", data["exit code"])
                 if (root.handleUsageFailure(runtimeError, "")) {

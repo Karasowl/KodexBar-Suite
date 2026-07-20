@@ -833,7 +833,8 @@ assert.match(
     "missing-engine title is internationalized"
 )
 
-// Pure classifyEngineResponse from main.qml: execute it (not textual source scans).
+// Pure classifyEngineResponse / applyEngineResponse from main.qml: execute them
+// (not textual source scans, not a test-local imitation of the transition).
 function extractQmlFunction(source, name) {
     const header = `function ${name}(`
     const start = source.indexOf(header)
@@ -854,20 +855,67 @@ function extractQmlFunction(source, name) {
     }
     throw new Error(`unclosed function ${name}`)
 }
-const classifyEngineFn = extractQmlFunction(mainQml, "classifyEngineResponse")
-const classifyCtx = {}
-vm.createContext(classifyCtx)
-vm.runInContext(classifyEngineFn, classifyCtx, { filename: "classifyEngineResponse.js" })
-const classify = classifyCtx.classifyEngineResponse
+const engineResponseCtx = {}
+vm.createContext(engineResponseCtx)
+vm.runInContext(
+    extractQmlFunction(mainQml, "classifyEngineResponse"),
+    engineResponseCtx,
+    { filename: "classifyEngineResponse.js" }
+)
+vm.runInContext(
+    extractQmlFunction(mainQml, "applyEngineResponse"),
+    engineResponseCtx,
+    { filename: "applyEngineResponse.js" }
+)
+const classify = engineResponseCtx.classifyEngineResponse
+const applyEngineResponse = engineResponseCtx.applyEngineResponse
 assert.equal(
     typeof classify,
     "function",
     "classifyEngineResponse is executable via the shared vm harness"
 )
 assert.equal(
+    typeof applyEngineResponse,
+    "function",
+    "applyEngineResponse is executable via the shared vm harness"
+)
+assert.equal(
     classify("__KODEXBAR_ENGINE_MISSING__\n", "", 127),
     "engine_missing",
-    "sentinel present means the primary executable is truly absent"
+    "exact sentinel on stdout with exit 127 means the primary executable is absent"
+)
+assert.equal(
+    classify("prefix __KODEXBAR_ENGINE_MISSING__ suffix\n", "", 127),
+    "normal",
+    "sentinel embedded with prefix/suffix is a normal response"
+)
+assert.equal(
+    classify(
+        JSON.stringify({
+            provider: "claude",
+            note: "saw __KODEXBAR_ENGINE_MISSING__ in docs",
+            usage: { primary: { usedPercent: 1 } }
+        }) + "\n",
+        "",
+        0
+    ),
+    "normal",
+    "legitimate JSON containing the sentinel string is a normal response"
+)
+assert.equal(
+    classify("", "__KODEXBAR_ENGINE_MISSING__\n", 1),
+    "normal",
+    "stderr carrying the sentinel with a non-127 exit is a normal response"
+)
+assert.equal(
+    classify("__KODEXBAR_ENGINE_MISSING__\n", "", 0),
+    "normal",
+    "exact sentinel with exit 0 is a normal response"
+)
+assert.equal(
+    classify("__KODEXBAR_ENGINE_MISSING__\n", "", 127),
+    "engine_missing",
+    "exact sentinel with exit 127 is engine_missing"
 )
 assert.equal(
     classify("", "kodexbar-quotas: upstream codexbar is not installed\n", 127),
@@ -894,17 +942,7 @@ assert.equal(
     "normal",
     "JSON provider errors are normal engine responses"
 )
-// Transition: sentinel first, then a normal response. Flag falls; cache is not purged by presence logic.
-function presenceTransition(state, stdout, stderr, exitCode) {
-    const label = classify(stdout, stderr, exitCode)
-    return {
-        engineNotInstalled: label === "engine_missing",
-        classification: label,
-        // Presence handling never mutates entries / lastGoodEntries.
-        entries: state.entries,
-        lastGoodEntries: state.lastGoodEntries
-    }
-}
+// Transition via the productive applyEngineResponse: sentinel, then data, then error.
 const cachedEntries = [{ provider: "claude", usage: { primary: { usedPercent: 10 } } }]
 const cachedGood = [{ provider: "claude", usage: { primary: { usedPercent: 10 } } }]
 let presence = {
@@ -912,23 +950,33 @@ let presence = {
     entries: cachedEntries,
     lastGoodEntries: cachedGood
 }
-presence = presenceTransition(presence, "__KODEXBAR_ENGINE_MISSING__\n", "", 127)
+presence = applyEngineResponse(presence, "__KODEXBAR_ENGINE_MISSING__\n", "", 127)
 assert.equal(presence.engineNotInstalled, true, "sentinel raises the missing-engine flag")
-assert.deepEqual(presence.entries, cachedEntries, "sentinel path does not purge entries")
-assert.deepEqual(presence.lastGoodEntries, cachedGood, "sentinel path does not purge lastGoodEntries")
-presence = presenceTransition(
+assert.deepEqual(plain(presence.entries), cachedEntries, "sentinel path does not purge entries")
+assert.deepEqual(plain(presence.lastGoodEntries), cachedGood, "sentinel path does not purge lastGoodEntries")
+const refreshedEntries = [{ provider: "claude", usage: { primary: { usedPercent: 55 } } }]
+presence = applyEngineResponse(
     presence,
-    '{"provider":"claude","error":{"kind":"provider","message":"rate limited"}}\n',
+    JSON.stringify(refreshedEntries) + "\n",
     "",
     0
 )
 assert.equal(presence.engineNotInstalled, false, "a later normal response clears the missing-engine flag")
-assert.deepEqual(presence.entries, cachedEntries, "recovery does not purge entries")
-assert.deepEqual(presence.lastGoodEntries, cachedGood, "recovery does not purge lastGoodEntries")
+assert.deepEqual(plain(presence.entries), refreshedEntries, "normal data response updates entries")
+assert.deepEqual(plain(presence.lastGoodEntries), refreshedEntries, "normal data response refreshes lastGoodEntries")
+const goodAfterData = plain(presence.lastGoodEntries)
+presence = applyEngineResponse(presence, "", "provider failed: rate limited\n", 1)
+assert.equal(presence.engineNotInstalled, false, "a normal error keeps the missing-engine flag down")
+assert.deepEqual(plain(presence.lastGoodEntries), goodAfterData, "normal error leaves lastGoodEntries intact")
 assert.match(
     mainQml,
-    /root\.engineNotInstalled = false/,
-    "any non-sentinel engine response clears the missing-engine card before normal handling"
+    /var presence = root\.applyEngineResponse\(/,
+    "usage handler applies the productive presence transition"
+)
+assert.match(
+    mainQml,
+    /root\.engineNotInstalled = presence\.engineNotInstalled/,
+    "any normal engine response clears the missing-engine card from applyEngineResponse"
 )
 assert.doesNotMatch(
     mainQml,
