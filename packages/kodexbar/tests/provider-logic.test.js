@@ -393,6 +393,28 @@ assert.equal(
     "the CodexBar no-fetch-strategy response is classified as non-transient"
 )
 
+// First-run guidance from kodexbar-quotas must remain visible (not purged as unfetchable).
+const firstRunClaudeGuidance =
+    "Claude quotas need a Claude Code sign-in or a CodexBar provider config. " +
+    "Sign in with Claude Code to create ~/.claude/.credentials.json, " +
+    "or create ~/.config/codexbar/config.json with an enabled providers list."
+assert.equal(
+    context.isUnfetchableProviderError({
+        provider: "claude",
+        errorMessage: firstRunClaudeGuidance
+    }),
+    false,
+    "first-run Claude guidance must not match the unfetchable-provider purge regex"
+)
+assert.deepEqual(
+    plain(context.excludeUnfetchableProviderEntries([{
+        provider: "claude",
+        errorMessage: firstRunClaudeGuidance
+    }])).entries.map(entry => entry.provider),
+    ["claude"],
+    "first-run Claude guidance stays in the widget provider list"
+)
+
 const reconciledSeedCache = plain(context.reconcileSeedCache(
     fixture.seedReconciliation.previousCache, fixture.seedReconciliation.seedEntries))
 assert.deepEqual(

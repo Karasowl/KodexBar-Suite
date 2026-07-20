@@ -320,6 +320,150 @@ class QuotasEngineTests(unittest.TestCase):
             )
         self.assertEqual(json.loads(result.stdout), ["usage", "--status"])
 
+    def _synthetic_env(self, root: Path, *, with_upstream: bool = False, with_claude_credentials: bool = False) -> dict[str, str]:
+        """HOME and PATH that never touch the real home or real provider CLIs/browsers."""
+        home = root / "home"
+        bin_dir = root / "bin"
+        home.mkdir(parents=True, exist_ok=True)
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        if with_upstream:
+            upstream = bin_dir / "codexbar"
+            upstream.write_text(
+                "#!" + os.sys.executable + "\n"
+                "import json, sys\n"
+                "print(json.dumps({\"delegated\": sys.argv[1:]}))\n",
+                encoding="utf-8",
+            )
+            upstream.chmod(0o755)
+        if with_claude_credentials:
+            credentials = home / ".claude" / ".credentials.json"
+            credentials.parent.mkdir(parents=True)
+            credentials.write_text(
+                json.dumps({"claudeAiOauth": {"accessToken": "synthetic-token"}}),
+                encoding="utf-8",
+            )
+        env = os.environ.copy()
+        env.update({"HOME": str(home), "PATH": str(bin_dir)})
+        # Drop variables that could pull real tooling into subprocesses.
+        for key in ("BROWSER", "DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"):
+            env.pop(key, None)
+        return env
+
+    def test_malformed_config_still_delegates_to_upstream(self) -> None:
+        """Matrix row 2: config present but invalid still delegates (legacy path)."""
+        cases = {
+            "invalid-json": "{not json",
+            "no-providers-array": json.dumps({"other": True}),
+        }
+        for name, body in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                env = self._synthetic_env(root, with_upstream=True)
+                home = Path(env["HOME"])
+                config = home / ".config" / "codexbar" / "config.json"
+                config.parent.mkdir(parents=True)
+                config.write_text(body, encoding="utf-8")
+                result = subprocess.run(
+                    [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                )
+                payload = json.loads(result.stdout)
+                self.assertEqual(payload["delegated"][0], "usage")
+                self.assertIn("--provider", payload["delegated"])
+
+    def test_missing_config_with_upstream_delegates_whole_call(self) -> None:
+        """Matrix row 3: no config, upstream present, full-call delegation."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = self._synthetic_env(root, with_upstream=True)
+            result = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["delegated"][0], "usage")
+            self.assertIn("all", payload["delegated"])
+
+    def test_missing_config_without_upstream_uses_claude_when_credentials_exist(self) -> None:
+        """Matrix row 4: no config, no upstream, Claude credentials enable native Claude only."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = self._synthetic_env(root, with_claude_credentials=True)
+            env["KODEXBAR_QUOTAS_FIXTURE_429"] = "1"
+            # Native Claude path with fixture returns a rate-limit provider error (not exit 127).
+            result = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            entries = json.loads(result.stdout)
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(entries[0]["provider"], "claude")
+            self.assertEqual(entries[0]["engine"], "kodexbar")
+            self.assertIn("rate limited", entries[0]["error"]["message"])
+
+            claude_only = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "claude"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            claude_entries = json.loads(claude_only.stdout)
+            self.assertEqual(claude_entries[0]["provider"], "claude")
+            self.assertIn("rate limited", claude_entries[0]["error"]["message"])
+
+            grok = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "grok"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            grok_entry = json.loads(grok.stdout)[0]
+            self.assertEqual(grok_entry["error"]["message"], "upstream codexbar is not installed")
+
+    def test_missing_config_without_upstream_or_claude_emits_first_run_guidance(self) -> None:
+        """Matrix row 5: no config, no upstream, no Claude credentials -> guidance error."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = self._synthetic_env(root)
+            result = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            entries = json.loads(result.stdout)
+            self.assertEqual(len(entries), 1)
+            entry = entries[0]
+            self.assertEqual(entry["provider"], "claude")
+            self.assertEqual(entry["error"]["kind"], "provider")
+            self.assertEqual(entry["error"]["category"], "authentication")
+            self.assertEqual(entry["error"]["message"], quotas.FIRST_RUN_CLAUDE_GUIDANCE)
+            self.assertIn("Claude Code", entry["error"]["message"])
+            self.assertIn("config.json", entry["error"]["message"])
+
+            # Explicit non-Claude provider still reports the honest upstream-missing fallback.
+            grok = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "grok"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            grok_entry = json.loads(grok.stdout)[0]
+            self.assertEqual(grok_entry["error"]["message"], "upstream codexbar is not installed")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,13 @@ VERSION = "0.7.0"
 TIMEOUT_SECONDS = 15
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok"}
+# First-run guidance when config is absent, upstream is missing, and Claude is not signed in.
+# Must NOT match the widget unfetchable-provider purge regex in providerLogic.js.
+FIRST_RUN_CLAUDE_GUIDANCE = (
+    "Claude quotas need a Claude Code sign-in or a CodexBar provider config. "
+    "Sign in with Claude Code to create ~/.claude/.credentials.json, "
+    "or create ~/.config/codexbar/config.json with an enabled providers list."
+)
 
 
 class FetchFallback(Exception):
@@ -66,6 +73,25 @@ def claude_access_token(home: Path | None = None) -> str:
     if not isinstance(token, str) or not token.strip():
         raise FetchFallback("Claude OAuth credentials are unavailable", "authentication")
     return token.strip()
+
+
+def has_claude_credentials(home: Path | None = None) -> bool:
+    """True when local Claude OAuth credentials exist with a non-empty access token (no network)."""
+    try:
+        claude_access_token(home)
+        return True
+    except FetchFallback:
+        return False
+
+
+def first_run_claude_guidance_entry() -> dict[str, Any]:
+    return provider_error(
+        "claude",
+        "auto",
+        FIRST_RUN_CLAUDE_GUIDANCE,
+        "authentication",
+        False,
+    )
 
 
 def http_get(url: str, headers: dict[str, str]) -> tuple[int, bytes]:
@@ -302,7 +328,27 @@ def main(arguments: list[str]) -> int:
     requested, source, pretty = parsed
     try:
         enabled = enabled_providers()
+    except FileNotFoundError:
+        # Config file absent: first-run matrix (rows 3-5). Malformed config is not this branch.
+        if upstream_path() is not None:
+            return delegate_whole_call(arguments)
+        if has_claude_credentials():
+            enabled = ["claude"]
+        else:
+            if requested in ("enabled", "all", "claude"):
+                print_json([first_run_claude_guidance_entry()], pretty)
+                return 0
+            providers = [requested]
+            entries = []
+            for provider in providers:
+                if provider not in SUPPORTED_PROVIDERS:
+                    entries.extend(fallback_entry(provider, source))
+                else:
+                    entries.extend(fetch_provider(provider, source))
+            print_json(entries, pretty)
+            return 0
     except (OSError, ValueError, json.JSONDecodeError):
+        # Config present but unreadable/malformed, or other config load failures: keep legacy delegate.
         return delegate_whole_call(arguments)
     providers = enabled if requested in ("enabled", "all") else [requested]
     entries: list[Any] = []
