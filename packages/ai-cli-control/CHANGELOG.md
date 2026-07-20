@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## 0.9.0
+## 0.9.0, 2026-07-20
 
 - Fetch Codex and Grok quotas natively in `kodexbar-quotas` (stdlib HTTP) without requiring the companion `codexbar` binary for those providers.
 - Keep Antigravity on the upstream `codexbar` path. Use that CLI as optional fallback for Codex/Grok on network, timeout, and schema-drift (invalid response) failures when the companion is installed.

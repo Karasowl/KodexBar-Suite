@@ -794,7 +794,7 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.8.0", "package metadata uses version 0.8.0")
+assert.equal(metadata.KPlugin.Version, "0.9.0", "package metadata uses version 0.9.0")
 assert.equal(metadata.KPlugin.Name, "KodexBar Suite", "package metadata uses the public product name")
 assert.equal(metadata.KPlugin.Id, "org.kde.plasma.kodexbar", "the technical plugin ID remains compatible")
 assert.doesNotMatch(
