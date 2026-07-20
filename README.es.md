@@ -34,19 +34,27 @@ Después de instalar, agrega **KodexBar Suite** a un panel de Plasma si todavía
 
 KodexBar Suite se distribuirá por tres canales. Este repositorio ya incluye las fuentes de empaquetado. Las entradas de AUR y de KDE Store solo serán utilizables cuando se publique la versión correspondiente.
 
-### AUR (suite completa, Arch y CachyOS)
+### AUR (Arch y CachyOS)
 
-Cuando el paquete esté publicado, instala la suite completa desde AUR:
+Cuando el paquete esté publicado, instala la suite desde AUR:
 
 ```bash
 paru -S kodexbar-suite
 ```
 
-El mismo paquete también aparece en gestores gráficos de AUR en CachyOS como Shelly u Octopi. El paquete instala el widget de Plasma, `ai`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray` y los iconos del tray bajo `/usr`. Las fuentes de empaquetado están en `packaging/aur/`.
+El mismo paquete también aparece en gestores gráficos de AUR en CachyOS como Shelly u Octopi. Las fuentes de empaquetado están en `packaging/aur/`.
+
+Qué instala el paquete bajo `/usr`:
+
+- Widget de Plasma, `ai`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray` e iconos del tray.
+- **Cuotas nativas de Claude** dentro de `kodexbar-quotas` (sin demonio extra).
+- Para **Codex, Grok y Antigravity**, `kodexbar-quotas` delega en la CLI upstream [`codexbar` de steipete](https://github.com/steipete/codexbar). Esa CLI **no** forma parte de este paquete y **no** es el paquete AUR homónimo de otro proyecto. Si necesitas esos proveedores, instala el `codexbar` de steipete por tu cuenta.
+
+Sin la CLI upstream `codexbar`, el widget sigue funcionando. Claude puede mostrar datos reales cuando las credenciales lo permiten. Codex, Grok y Antigravity muestran un error claro por proveedor en la interfaz (por ejemplo, que falta `codexbar` upstream). **No** inventan números de cuota.
 
 ### KDE Store (solo el widget)
 
-El widget de Plasma se puede publicar en [store.kde.org](https://store.kde.org) como un `.plasmoid` generado por `packaging/kde-store/build-plasmoid.sh`. Ese canal entrega solo la interfaz del applet. El motor de datos (`kodexbar-quotas` y herramientas relacionadas) sigue viniendo del paquete AUR o del `install.sh` del repositorio que se describe abajo.
+El widget de Plasma se puede publicar en [store.kde.org](https://store.kde.org) como un `.plasmoid` generado por `packaging/kde-store/build-plasmoid.sh`. Ese canal entrega solo la interfaz del applet. El motor de datos (`kodexbar-quotas` y herramientas relacionadas) sigue viniendo del paquete AUR o del `install.sh` del repositorio que se describe abajo. La misma honestidad de cuotas aplica: Claude es nativo en el motor, y Codex, Grok y Antigravity siguen necesitando el `codexbar` upstream de steipete en el `PATH`.
 
 ### Instalación manual desde este repositorio
 
@@ -57,6 +65,15 @@ git clone https://github.com/Karasowl/KodexBar-Suite.git
 cd KodexBar-Suite
 ./install.sh
 ```
+
+### Migrar desde una instalación manual en `~/.local` al paquete
+
+Una instalación manual previa bajo `~/.local` tiene prioridad sobre el paquete del sistema: un `PATH` típico pone `~/.local/bin` antes de `/usr/bin`, y Plasma prefiere el applet de usuario sobre `/usr/share/plasma/plasmoids`. Para usar solo los archivos empaquetados:
+
+1. Desde un clon de este repositorio (el mismo árbol con el que instalaste), ejecuta `./uninstall.sh`. Ese script solo toca `~/.local` y respeta sus comprobaciones de propiedad. No elimina el paquete de pacman.
+2. Reinicia plasmashell para que Plasma recargue el plasmoid del sistema, por ejemplo: `systemctl --user restart plasma-plasmashell.service` (o cierra sesión y vuelve a entrar).
+
+Después, `which ai` y `which kodexbar-quotas` deberían resolver bajo `/usr/bin` cuando el paquete esté instalado.
 
 ## Actualizar
 
