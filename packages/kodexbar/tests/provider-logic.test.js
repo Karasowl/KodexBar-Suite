@@ -804,24 +804,23 @@ assert.match(mainQml, /paru -S kodexbar-suite/, "setup card shows the suite inst
 assert.match(mainQml, /property bool engineNotInstalled: false/, "missing-engine state is explicit and off by default")
 assert.match(
     mainQml,
-    /if \(root\.commandWasNotFound\(data\) && root\.activeQueryReplacesAll\) \{\s*root\.markEngineNotInstalled\(\)/,
-    "engine-missing card activates only after command-not-found with no fallback left"
+    /if \(root\.activeQueryReplacesAll\) \{\s*root\.markEngineNotInstalled\(\)/,
+    "engine-missing card activates only after sentinel with no fallback left"
 )
 assert.match(
     mainQml,
     /function markEngineNotInstalled\(\) \{[\s\S]*engineNotInstalled = true/,
     "markEngineNotInstalled sets the friendly card state"
 )
-// Normal provider/runtime errors must not set the missing-engine card (conservative detection).
-assert.doesNotMatch(
+assert.match(
     mainQml,
-    /handleUsageFailure[\s\S]{0,200}engineNotInstalled\s*=\s*true/,
-    "ordinary usage failures do not mark the data engine as missing"
+    /function wrapEngineCommand\([\s\S]*command -v[\s\S]*engineMissingSentinel\(\)[\s\S]*exec /,
+    "command lines probe command -v and emit the missing-engine sentinel only when absent"
 )
 assert.match(
     mainQml,
-    /root\.engineNotInstalled = false/,
-    "a successful engine response clears the missing-engine card"
+    /function engineMissingSentinel\(\) \{\s*return "__KODEXBAR_ENGINE_MISSING__"/,
+    "the missing-engine sentinel string is exact and centralized"
 )
 assert.match(
     mainQml,
@@ -832,6 +831,109 @@ assert.match(
     mainQml,
     /i18n\("Data engine not installed"\)/,
     "missing-engine title is internationalized"
+)
+
+// Pure classifyEngineResponse from main.qml: execute it (not textual source scans).
+function extractQmlFunction(source, name) {
+    const header = `function ${name}(`
+    const start = source.indexOf(header)
+    assert.notEqual(start, -1, `main.qml must define ${name}`)
+    let i = source.indexOf("{", start)
+    assert.notEqual(i, -1, `${name} must have a body`)
+    let depth = 0
+    for (; i < source.length; i++) {
+        const ch = source[i]
+        if (ch === "{") {
+            depth++
+        } else if (ch === "}") {
+            depth--
+            if (depth === 0) {
+                return source.slice(start, i + 1)
+            }
+        }
+    }
+    throw new Error(`unclosed function ${name}`)
+}
+const classifyEngineFn = extractQmlFunction(mainQml, "classifyEngineResponse")
+const classifyCtx = {}
+vm.createContext(classifyCtx)
+vm.runInContext(classifyEngineFn, classifyCtx, { filename: "classifyEngineResponse.js" })
+const classify = classifyCtx.classifyEngineResponse
+assert.equal(
+    typeof classify,
+    "function",
+    "classifyEngineResponse is executable via the shared vm harness"
+)
+assert.equal(
+    classify("__KODEXBAR_ENGINE_MISSING__\n", "", 127),
+    "engine_missing",
+    "sentinel present means the primary executable is truly absent"
+)
+assert.equal(
+    classify("", "kodexbar-quotas: upstream codexbar is not installed\n", 127),
+    "normal",
+    "exit 127 without the sentinel is a normal engine/runtime failure"
+)
+assert.equal(
+    classify("", "provider not found\n", 1),
+    "normal",
+    "stderr 'provider not found' must not look like a missing engine"
+)
+assert.equal(
+    classify("", "credentials: No such file or directory\n", 1),
+    "normal",
+    "stderr 'No such file or directory' must not look like a missing engine"
+)
+assert.equal(
+    classify("", "", 0),
+    "normal",
+    "empty timeout-style output without the sentinel is not missing-engine"
+)
+assert.equal(
+    classify('{"provider":"claude","error":{"kind":"provider","message":"rate limited"}}\n', "", 0),
+    "normal",
+    "JSON provider errors are normal engine responses"
+)
+// Transition: sentinel first, then a normal response. Flag falls; cache is not purged by presence logic.
+function presenceTransition(state, stdout, stderr, exitCode) {
+    const label = classify(stdout, stderr, exitCode)
+    return {
+        engineNotInstalled: label === "engine_missing",
+        classification: label,
+        // Presence handling never mutates entries / lastGoodEntries.
+        entries: state.entries,
+        lastGoodEntries: state.lastGoodEntries
+    }
+}
+const cachedEntries = [{ provider: "claude", usage: { primary: { usedPercent: 10 } } }]
+const cachedGood = [{ provider: "claude", usage: { primary: { usedPercent: 10 } } }]
+let presence = {
+    engineNotInstalled: false,
+    entries: cachedEntries,
+    lastGoodEntries: cachedGood
+}
+presence = presenceTransition(presence, "__KODEXBAR_ENGINE_MISSING__\n", "", 127)
+assert.equal(presence.engineNotInstalled, true, "sentinel raises the missing-engine flag")
+assert.deepEqual(presence.entries, cachedEntries, "sentinel path does not purge entries")
+assert.deepEqual(presence.lastGoodEntries, cachedGood, "sentinel path does not purge lastGoodEntries")
+presence = presenceTransition(
+    presence,
+    '{"provider":"claude","error":{"kind":"provider","message":"rate limited"}}\n',
+    "",
+    0
+)
+assert.equal(presence.engineNotInstalled, false, "a later normal response clears the missing-engine flag")
+assert.deepEqual(presence.entries, cachedEntries, "recovery does not purge entries")
+assert.deepEqual(presence.lastGoodEntries, cachedGood, "recovery does not purge lastGoodEntries")
+assert.match(
+    mainQml,
+    /root\.engineNotInstalled = false/,
+    "any non-sentinel engine response clears the missing-engine card before normal handling"
+)
+assert.doesNotMatch(
+    mainQml,
+    /handleUsageFailure[\s\S]{0,200}engineNotInstalled\s*=\s*true/,
+    "ordinary usage failures do not mark the data engine as missing"
 )
 assert.match(
     mainQml,
@@ -845,7 +947,7 @@ assert.match(
 )
 assert.match(
     mainQml,
-    /if \(root\.commandWasNotFound\(data\) && root\.startNextCostCandidate\(\)\) \{[\s\S]*root\.costLoading = true/,
+    /if \(root\.commandWasNotFound\(data\)\) \{\s*if \(root\.startNextCostCandidate\(\)\) \{\s*root\.costLoading = true/,
     "a missing quota engine retries the cost query through upstream CodexBar"
 )
 assert.match(configXml, /<entry name="codexbarCommand" type="String">\s*<default>kodexbar-quotas<\/default>/, "the default command is the quota engine")

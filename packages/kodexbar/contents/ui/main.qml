@@ -374,22 +374,31 @@ PlasmoidItem {
         return candidate.toISOString()
     }
 
-    function commandLine(provider, source, command) {
-        var args = ProviderLogic.usageArguments(provider, source, includeStatus)
-        var line = shellQuote(command || codexbarCommand)
+    function engineMissingSentinel() {
+        return "__KODEXBAR_ENGINE_MISSING__"
+    }
+
+    // Wrap the data-engine command so only a truly missing primary executable
+    // emits the sentinel. A present wrapper that later exits 127 must not.
+    function wrapEngineCommand(command, args) {
+        var quotedCmd = shellQuote(command)
+        var line = "command -v " + quotedCmd
+            + " >/dev/null 2>&1 || { printf '%s\\n' '" + engineMissingSentinel()
+            + "'; exit 127; }; exec " + quotedCmd
         for (var i = 0; i < args.length; i++) {
             line += " " + shellQuote(args[i])
         }
         return line
     }
 
+    function commandLine(provider, source, command) {
+        var args = ProviderLogic.usageArguments(provider, source, includeStatus)
+        return wrapEngineCommand(command || codexbarCommand, args)
+    }
+
     function costCommandLine(command) {
         var args = ProviderLogic.costArguments()
-        var line = shellQuote(command || codexbarCommand)
-        for (var i = 0; i < args.length; i++) {
-            line += " " + shellQuote(args[i])
-        }
-        return line
+        return wrapEngineCommand(command || codexbarCommand, args)
     }
 
     function aiControlCommandLine(arguments, showTerminal) {
@@ -538,6 +547,8 @@ PlasmoidItem {
             initialUsageSeedPending = true
         }
         usageWatchdog.stop()
+        // Timeout is a non-sentinel outcome: never leave the setup card covering normal errors.
+        engineNotInstalled = false
         loading = false
     }
 
@@ -625,16 +636,23 @@ PlasmoidItem {
         return true
     }
 
+    // Pure classifier for engine process outcomes. Only the exact missing-engine
+    // sentinel means the primary executable is absent. Labels are testable without QML.
+    function classifyEngineResponse(stdout, stderr, exitCode) {
+        var text = String(stdout || "") + "\n" + String(stderr || "")
+        if (text.indexOf("__KODEXBAR_ENGINE_MISSING__") !== -1) {
+            return "engine_missing"
+        }
+        return "normal"
+    }
+
     function commandWasNotFound(data) {
-        // Conservative: only exit 127 or clear "not found" / start failures count as missing command.
-        // Normal engine/provider errors keep the current error UI.
-        var exitCode = data["exit code"] || 0
-        var detail = String(data.stderr || data.stdout || "")
-        return exitCode === 127 || /not found|no such file|failed to start/i.test(detail)
+        return classifyEngineResponse(data.stdout, data.stderr, data["exit code"] || 0) === "engine_missing"
     }
 
     function markEngineNotInstalled() {
         // Friendly setup card when the suite data engine binary is missing (widget-only install).
+        // Does not purge entries or lastGoodEntries: recovering later must keep prior good data.
         engineNotInstalled = true
         errorMessage = ""
         errorDetail = ""
@@ -2279,8 +2297,9 @@ PlasmoidItem {
         onNewData: function(sourceName, data) {
             disconnectSource(sourceName)
             usageWatchdog.stop()
-            if (data["exit code"] && data["exit code"] !== 0 && !(data.stdout || "").length) {
-                if (root.commandWasNotFound(data) && root.activeFallbackCommand.length > 0) {
+            // Sentinel-only missing detection must run before any other path.
+            if (root.commandWasNotFound(data)) {
+                if (root.activeFallbackCommand.length > 0) {
                     root.pendingCandidates.unshift({
                         provider: root.activeProvider,
                         source: root.activeSource,
@@ -2291,12 +2310,31 @@ PlasmoidItem {
                     root.tryNextCandidate()
                     return
                 }
-                // No fallback left and the command itself is missing (exit 127 / not found).
-                // Distinguish from errors produced by an engine that is installed and running.
-                if (root.commandWasNotFound(data) && root.activeQueryReplacesAll) {
+                // No fallback left: show the setup card on full seeds only.
+                if (root.activeQueryReplacesAll) {
                     root.markEngineNotInstalled()
                     return
                 }
+                var missingError = data.stderr || data.stdout || i18n("Command not found")
+                if (root.handleUsageFailure(missingError, "")) {
+                    return
+                }
+                var missingEntry = root.normalizeEntry({
+                    provider: root.activeProvider,
+                    source: root.activeSource,
+                    error: {
+                        kind: "runtime",
+                        message: missingError
+                    }
+                })
+                root.applyUsageEntries([missingEntry])
+                root.tryNextCandidate()
+                return
+            }
+            // Any non-sentinel response clears the setup card before normal handling,
+            // so ordinary errors are never covered by the missing-engine UI.
+            root.engineNotInstalled = false
+            if (data["exit code"] && data["exit code"] !== 0 && !(data.stdout || "").length) {
                 var runtimeError = data.stderr || i18n("Exit code %1", data["exit code"])
                 if (root.handleUsageFailure(runtimeError, "")) {
                     return
@@ -2328,8 +2366,6 @@ PlasmoidItem {
                 root.tryNextCandidate()
                 return
             }
-            // Engine responded with parseable JSON: clear the missing-engine setup card.
-            root.engineNotInstalled = false
             if (root.scheduleStartupProviderRetries(result.entries)) {
                 return
             }
@@ -2344,11 +2380,17 @@ PlasmoidItem {
         onNewData: function(sourceName, data) {
             disconnectSource(sourceName)
             root.costLoading = false
-            if (data["exit code"] && data["exit code"] !== 0 && !(data.stdout || "").length) {
-                if (root.commandWasNotFound(data) && root.startNextCostCandidate()) {
+            if (root.commandWasNotFound(data)) {
+                if (root.startNextCostCandidate()) {
                     root.costLoading = true
                     return
                 }
+                root.costErrorMessage = data.stderr || data.stdout || i18n("Cost scan failed: command not found")
+                root.costSummaries = ({})
+                root.applyCostSummaries()
+                return
+            }
+            if (data["exit code"] && data["exit code"] !== 0 && !(data.stdout || "").length) {
                 root.costErrorMessage = data.stderr || i18n("Cost scan failed with exit code %1", data["exit code"])
                 root.costSummaries = ({})
                 root.applyCostSummaries()
