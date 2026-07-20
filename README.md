@@ -47,14 +47,14 @@ The same package also appears in graphical AUR helpers on CachyOS such as Shelly
 What the package installs under `/usr`:
 
 - Plasma widget, `ai`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray`, and tray icons.
-- **Native Claude quotas** inside `kodexbar-quotas`, once CodexBar's provider configuration exists at `~/.config/codexbar/config.json` and Claude OAuth credentials are available at `~/.claude/.credentials.json`.
+- **Native Claude quotas** inside `kodexbar-quotas` when Claude OAuth credentials are available at `~/.claude/.credentials.json` (for example after signing in with Claude Code). CodexBar's provider configuration at `~/.config/codexbar/config.json` selects which providers are enabled when that file exists.
 - For **Codex, Grok, and Antigravity**, `kodexbar-quotas` also requires the upstream CLI [`codexbar` by steipete](https://github.com/steipete/codexbar). That CLI is **not** part of this package and is **not** the unrelated AUR package also named `codexbar`. Install steipete's `codexbar` yourself if you need those providers.
 
-On a clean installation without `~/.config/codexbar/config.json`, `kodexbar-quotas` delegates the complete quota request, including Claude, to steipete's upstream `codexbar`. Without that upstream CLI, the widget shows a clear per-provider error instead of quota data. With the provider configuration and Claude OAuth credentials, Claude uses the native integration. Codex, Grok, and Antigravity still require the upstream CLI. The widget does **not** invent placeholder quota numbers.
+On a clean installation without `~/.config/codexbar/config.json`, Claude quotas work immediately when a Claude Code session is already signed in (native path, no extra config). Other providers still need steipete's upstream `codexbar` on `PATH` or a CodexBar provider configuration. If the upstream CLI is present and there is no config file, the full request is still delegated to that CLI. Without config, without upstream, and without Claude credentials, the widget shows a clear setup guidance error for Claude instead of silent failure. The widget does **not** invent placeholder quota numbers.
 
 ### KDE Store (widget only)
 
-The Plasma widget alone can be published to [store.kde.org](https://store.kde.org) as a `.plasmoid` built by `packaging/kde-store/build-plasmoid.sh`. That channel delivers the applet UI. The data engine (`kodexbar-quotas` and related tools) still comes from the AUR package or from the repository `install.sh` below. Claude needs `~/.config/codexbar/config.json` and Claude OAuth credentials for its native integration. Codex, Grok, and Antigravity need steipete's upstream `codexbar` on `PATH`. Without the provider configuration, all providers, including Claude, are delegated to that upstream CLI.
+The Plasma widget alone can be published to [store.kde.org](https://store.kde.org) as a `.plasmoid` built by `packaging/kde-store/build-plasmoid.sh`. That channel delivers the applet UI. The data engine (`kodexbar-quotas` and related tools) still comes from the AUR package or from the repository `install.sh` below. With a Claude Code sign-in, Claude quotas work without a CodexBar config file. Codex, Grok, and Antigravity need steipete's upstream `codexbar` on `PATH` or a CodexBar provider configuration. When that upstream CLI is present and config is missing, the full request is delegated to it.
 
 ### Manual install from this repository
 
