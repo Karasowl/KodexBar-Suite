@@ -797,6 +797,42 @@ assert.match(
 assert.match(mainQml, /function commandCandidatesForSeed\(\)/, "startup seeds every enabled provider through the command candidate chain")
 assert.match(mainQml, /activeFallbackCommand/, "the active candidate remembers its upstream fallback")
 assert.match(mainQml, /commandWasNotFound\(data\)/, "only command-not-found failures advance to upstream")
+// Missing data engine (widget-only install): friendly setup card, not a provider traceback.
+assert.match(mainQml, /objectName: "engineMissingCard"/, "popup exposes the missing-engine setup card")
+assert.match(mainQml, /objectName: "engineMissingInstallCommand"/, "setup card exposes the install command field")
+assert.match(mainQml, /paru -S kodexbar-suite/, "setup card shows the suite install command")
+assert.match(mainQml, /property bool engineNotInstalled: false/, "missing-engine state is explicit and off by default")
+assert.match(
+    mainQml,
+    /if \(root\.commandWasNotFound\(data\) && root\.activeQueryReplacesAll\) \{\s*root\.markEngineNotInstalled\(\)/,
+    "engine-missing card activates only after command-not-found with no fallback left"
+)
+assert.match(
+    mainQml,
+    /function markEngineNotInstalled\(\) \{[\s\S]*engineNotInstalled = true/,
+    "markEngineNotInstalled sets the friendly card state"
+)
+// Normal provider/runtime errors must not set the missing-engine card (conservative detection).
+assert.doesNotMatch(
+    mainQml,
+    /handleUsageFailure[\s\S]{0,200}engineNotInstalled\s*=\s*true/,
+    "ordinary usage failures do not mark the data engine as missing"
+)
+assert.match(
+    mainQml,
+    /root\.engineNotInstalled = false/,
+    "a successful engine response clears the missing-engine card"
+)
+assert.match(
+    mainQml,
+    /visible: root\.engineNotInstalled && !root\.loading/,
+    "the setup card is visible only while the engine is missing and not loading"
+)
+assert.match(
+    mainQml,
+    /i18n\("Data engine not installed"\)/,
+    "missing-engine title is internationalized"
+)
 assert.match(
     mainQml,
     /function refreshCost\(\) \{[\s\S]*pendingCostCommands = ProviderLogic\.commandCandidates\(configuredCodexbarCommand\)[\s\S]*startNextCostCandidate\(\)/,

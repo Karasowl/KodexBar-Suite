@@ -19,6 +19,9 @@ PlasmoidItem {
     property var entries: []
     property string errorMessage: ""
     property string errorDetail: ""
+    property bool engineNotInstalled: false
+    readonly property string engineInstallCommand: "paru -S kodexbar-suite"
+    readonly property string engineRepoUrl: "https://github.com/Karasowl/KodexBar-Suite"
     property string generatedAt: ""
     property bool loading: false
     property bool costLoading: false
@@ -107,6 +110,9 @@ PlasmoidItem {
     toolTipSubText: {
         if (aiControlError.length > 0) {
             return i18n("AI CLI Control: %1", aiControlError)
+        }
+        if (engineNotInstalled) {
+            return i18n("Data engine not installed")
         }
         if (errorMessage.length > 0) {
             return errorMessage
@@ -544,7 +550,7 @@ PlasmoidItem {
             }
             loading = false
             generatedAt = new Date().toLocaleString(Qt.locale(), Locale.ShortFormat)
-            if (entries.length === 0 && errorMessage.length === 0) {
+            if (entries.length === 0 && errorMessage.length === 0 && !engineNotInstalled) {
                 errorMessage = i18n("No usable CodexBar provider found")
                 errorDetail = i18n("Configure at least one provider in CodexBar or choose a compatible source.")
             }
@@ -620,9 +626,21 @@ PlasmoidItem {
     }
 
     function commandWasNotFound(data) {
+        // Conservative: only exit 127 or clear "not found" / start failures count as missing command.
+        // Normal engine/provider errors keep the current error UI.
         var exitCode = data["exit code"] || 0
         var detail = String(data.stderr || data.stdout || "")
         return exitCode === 127 || /not found|no such file|failed to start/i.test(detail)
+    }
+
+    function markEngineNotInstalled() {
+        // Friendly setup card when the suite data engine binary is missing (widget-only install).
+        engineNotInstalled = true
+        errorMessage = ""
+        errorDetail = ""
+        initialUsageSeedPending = true
+        pendingCandidates = []
+        tryNextCandidate()
     }
 
     function parsePayload(text) {
@@ -1655,8 +1673,111 @@ PlasmoidItem {
                             }
 
                             Rectangle {
-                                visible: (root.errorMessage.length > 0 && root.popupEntries.length === 0)
-                                    || (root.popupState.hasEntry && root.activeEntry.errorMessage)
+                                id: engineMissingCard
+                                objectName: "engineMissingCard"
+                                visible: root.engineNotInstalled && !root.loading
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: engineMissingContent.implicitHeight + 30
+                                radius: 13
+                                color: root.raisedColor
+                                border.color: root.lineColor
+                                border.width: 1
+
+                                ColumnLayout {
+                                    id: engineMissingContent
+                                    anchors.fill: parent
+                                    anchors.margins: 15
+                                    spacing: 10
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 12
+
+                                        Kirigami.Icon {
+                                            source: "package-install"
+                                            color: root.accentColor
+                                            Layout.preferredWidth: 22
+                                            Layout.preferredHeight: 22
+                                            Layout.alignment: Qt.AlignTop
+                                        }
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 4
+
+                                            PlasmaComponents.Label {
+                                                objectName: "engineMissingTitle"
+                                                text: i18n("Data engine not installed")
+                                                color: root.textColor
+                                                font.family: root.designFont
+                                                font.pixelSize: 13
+                                                font.weight: Font.Bold
+                                                Layout.fillWidth: true
+                                            }
+
+                                            PlasmaComponents.Label {
+                                                objectName: "engineMissingBody"
+                                                text: i18n("This widget needs the KodexBar Suite data engine to show AI CLI quotas. Install the full suite package, then open the popup again.")
+                                                color: root.mutedColor
+                                                font.family: root.designFont
+                                                font.pixelSize: 12
+                                                lineHeight: 1.45
+                                                wrapMode: Text.WordWrap
+                                                Layout.fillWidth: true
+                                            }
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 8
+
+                                        QQC2.TextField {
+                                            id: engineInstallCommandField
+                                            objectName: "engineMissingInstallCommand"
+                                            Layout.fillWidth: true
+                                            readOnly: true
+                                            selectByMouse: true
+                                            text: root.engineInstallCommand
+                                            font.family: "monospace"
+                                            font.pixelSize: 12
+                                        }
+
+                                        QQC2.Button {
+                                            objectName: "engineMissingCopyButton"
+                                            text: i18n("Copy")
+                                            onClicked: {
+                                                engineInstallCommandField.selectAll()
+                                                engineInstallCommandField.copy()
+                                            }
+                                        }
+                                    }
+
+                                    PlasmaComponents.Label {
+                                        objectName: "engineMissingRepoLink"
+                                        text: '<a href="' + root.engineRepoUrl + '">' + root.engineRepoUrl + "</a>"
+                                        textFormat: Text.RichText
+                                        color: root.accentColor
+                                        font.family: root.designFont
+                                        font.pixelSize: 12
+                                        wrapMode: Text.WordWrap
+                                        Layout.fillWidth: true
+                                        onLinkActivated: function(link) {
+                                            Qt.openUrlExternally(link)
+                                        }
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            acceptedButtons: Qt.NoButton
+                                            cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                        }
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                visible: !root.engineNotInstalled
+                                    && ((root.errorMessage.length > 0 && root.popupEntries.length === 0)
+                                        || (root.popupState.hasEntry && root.activeEntry.errorMessage))
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: errorContent.implicitHeight + 30
                                 radius: 13
@@ -1709,7 +1830,8 @@ PlasmoidItem {
                             }
 
                             ColumnLayout {
-                                visible: !root.loading && root.popupEntries.length === 0 && root.errorMessage.length === 0
+                                visible: !root.loading && !root.engineNotInstalled
+                                    && root.popupEntries.length === 0 && root.errorMessage.length === 0
                                 Layout.fillWidth: true
                                 Layout.topMargin: 24
                                 spacing: 4
@@ -2169,6 +2291,12 @@ PlasmoidItem {
                     root.tryNextCandidate()
                     return
                 }
+                // No fallback left and the command itself is missing (exit 127 / not found).
+                // Distinguish from errors produced by an engine that is installed and running.
+                if (root.commandWasNotFound(data) && root.activeQueryReplacesAll) {
+                    root.markEngineNotInstalled()
+                    return
+                }
                 var runtimeError = data.stderr || i18n("Exit code %1", data["exit code"])
                 if (root.handleUsageFailure(runtimeError, "")) {
                     return
@@ -2200,6 +2328,8 @@ PlasmoidItem {
                 root.tryNextCandidate()
                 return
             }
+            // Engine responded with parseable JSON: clear the missing-engine setup card.
+            root.engineNotInstalled = false
             if (root.scheduleStartupProviderRetries(result.entries)) {
                 return
             }
