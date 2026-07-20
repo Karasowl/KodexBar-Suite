@@ -1686,10 +1686,19 @@ class QuotasEngineTests(unittest.TestCase):
             def boom_timeout(method, url, headers=None, body=None, timeout=None):
                 raise quotas.FetchFallback("HTTP timeout failure for POST", "timeout", True)
 
+            def companion_for_provider(provider, source):
+                return [
+                    {
+                        "provider": provider,
+                        "source": "upstream",
+                        "usage": {"primary": None},
+                    }
+                ]
+
             with patch.object(quotas, "upstream_path", return_value="/fake/codexbar"), patch.object(
                 quotas,
                 "upstream_entries",
-                return_value=[{"provider": "stub", "source": "upstream", "usage": {"primary": None}}],
+                side_effect=companion_for_provider,
             ) as upstream:
                 with patch.object(quotas, "http_request", side_effect=boom_network):
                     codex_entries = quotas.fetch_provider("codex", None, home)
@@ -1697,7 +1706,9 @@ class QuotasEngineTests(unittest.TestCase):
                     grok_entries = quotas.fetch_provider("grok", None, home)
 
         self.assertEqual(codex_entries[0]["source"], "upstream")
+        self.assertEqual(codex_entries[0]["provider"], "codex")
         self.assertEqual(grok_entries[0]["source"], "upstream")
+        self.assertEqual(grok_entries[0]["provider"], "grok")
         self.assertGreaterEqual(upstream.call_count, 2)
 
     def test_network_without_stub_is_human(self) -> None:
@@ -1838,9 +1849,168 @@ class QuotasEngineTests(unittest.TestCase):
             ), patch.object(quotas, "upstream_entries", side_effect=companion_usage):
                 entries = quotas.fetch_provider("codex", None, home)
 
+        self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["source"], "upstream")
         self.assertNotIn("error", entries[0])
         self.assertEqual(entries[0]["usage"]["primary"]["usedPercent"], 12)
+
+    def test_fallback_mixed_list_other_provider_usage_is_dual_failure(self) -> None:
+        """F3 root: mixed [codex error TOKEN=mixed, grok usage] for codex → dual fail, no leak."""
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+
+            def fake_codex_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {"Content-Type": "application/json"}, b'{"unexpected": true}'
+
+            def companion_mixed(provider, source):
+                return [
+                    {
+                        "provider": "codex",
+                        "source": "upstream",
+                        "error": {
+                            "message": "codex failed TOKEN=mixed",
+                            "category": "timeout",
+                            "retryable": True,
+                        },
+                    },
+                    {
+                        "provider": "grok",
+                        "source": "upstream",
+                        "usage": {"primary": {"usedPercent": 40}},
+                    },
+                ]
+
+            with patch.object(quotas, "http_request", side_effect=fake_codex_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(quotas, "upstream_entries", side_effect=companion_mixed):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        dumped = json.dumps(entries)
+        self.assertNotIn("TOKEN=mixed", dumped)
+        self.assertNotIn("grok", dumped.lower())
+        self.assertEqual(len(entries), 1)
+        err = entries[0]["error"]
+        self.assertEqual(err["message"], quotas.CODEX_BOTH_FAILED)
+        self.assertEqual(err["category"], "invalid_response")
+        self._assert_human_user_message(err["message"])
+
+    def test_fallback_mixed_list_keeps_only_requested_provider_usage(self) -> None:
+        """F3 root: mixed [codex error TOKEN=mixed, codex usage] → only sanitized usage."""
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+
+            def fake_codex_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {"Content-Type": "application/json"}, b'{"unexpected": true}'
+
+            def companion_mixed(provider, source):
+                return [
+                    {
+                        "provider": "codex",
+                        "source": "upstream",
+                        "error": {
+                            "message": "codex failed TOKEN=mixed",
+                            "category": "timeout",
+                            "retryable": True,
+                        },
+                    },
+                    {
+                        "provider": "codex",
+                        "source": "upstream",
+                        "usage": {"primary": {"usedPercent": 22}},
+                        "engine": "codexbar",
+                    },
+                ]
+
+            with patch.object(quotas, "http_request", side_effect=fake_codex_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(quotas, "upstream_entries", side_effect=companion_mixed):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        dumped = json.dumps(entries)
+        self.assertNotIn("TOKEN=mixed", dumped)
+        self.assertEqual(len(entries), 1)
+        self.assertNotIn("error", entries[0])
+        self.assertEqual(entries[0]["provider"], "codex")
+        self.assertEqual(entries[0]["usage"]["primary"]["usedPercent"], 22)
+        self.assertEqual(set(entries[0].keys()), {"provider", "source", "usage", "engine"})
+
+    def test_fallback_usage_null_is_not_usable(self) -> None:
+        """F3 root: usage: null for requested provider → dual failure."""
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+
+            def fake_codex_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {"Content-Type": "application/json"}, b'{"unexpected": true}'
+
+            def companion_null_usage(provider, source):
+                return [{"provider": "codex", "source": "upstream", "usage": None}]
+
+            with patch.object(quotas, "http_request", side_effect=fake_codex_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(quotas, "upstream_entries", side_effect=companion_null_usage):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        self.assertEqual(entries[0]["error"]["message"], quotas.CODEX_BOTH_FAILED)
+
+    def test_fallback_strips_sibling_secret_fields(self) -> None:
+        """F3 root: valid usage for provider + sibling secret → secret discarded."""
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+
+            def fake_codex_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {"Content-Type": "application/json"}, b'{"unexpected": true}'
+
+            def companion_with_secret(provider, source):
+                return [
+                    {
+                        "provider": "codex",
+                        "source": "upstream",
+                        "usage": {"primary": {"usedPercent": 5}},
+                        "secret": "do-not-propagate-secret",
+                        "engine": "codexbar",
+                    }
+                ]
+
+            with patch.object(quotas, "http_request", side_effect=fake_codex_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(quotas, "upstream_entries", side_effect=companion_with_secret):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        dumped = json.dumps(entries)
+        self.assertNotIn("do-not-propagate-secret", dumped)
+        self.assertNotIn("secret", dumped)
+        self.assertEqual(entries[0]["usage"]["primary"]["usedPercent"], 5)
+        self.assertEqual(set(entries[0].keys()), {"provider", "source", "usage", "engine"})
+
+    def test_fallback_used_percent_out_of_range_is_not_usable(self) -> None:
+        """F3 root: usedPercent 101 in companion usage → dual failure."""
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+
+            def fake_codex_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {"Content-Type": "application/json"}, b'{"unexpected": true}'
+
+            def companion_bad_percent(provider, source):
+                return [
+                    {
+                        "provider": "codex",
+                        "source": "upstream",
+                        "usage": {"primary": {"usedPercent": 101}},
+                    }
+                ]
+
+            with patch.object(quotas, "http_request", side_effect=fake_codex_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(quotas, "upstream_entries", side_effect=companion_bad_percent):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        self.assertEqual(entries[0]["error"]["message"], quotas.CODEX_BOTH_FAILED)
+        self.assertEqual(entries[0]["error"]["category"], "invalid_response")
 
     def test_passthrough_delegation_still_propagates_companion_error(self) -> None:
         """F3: normal (non-fallback) passthrough keeps companion error text contract."""

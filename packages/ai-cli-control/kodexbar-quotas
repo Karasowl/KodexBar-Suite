@@ -1463,12 +1463,54 @@ def upstream_entries(provider: str, source: str | None) -> list[Any]:
     return value if isinstance(value, list) else [value]
 
 
-def _companion_entries_have_usable_usage(entries: list[Any]) -> bool:
-    """True when companion JSON includes at least one usage entry without an error key."""
+def _companion_usage_window_percents_ok(usage: dict[str, Any]) -> bool:
+    """False when any primary/secondary/tertiary usedPercent is present and outside [0, 100]."""
+    for key in ("primary", "secondary", "tertiary"):
+        window = usage.get(key)
+        if not isinstance(window, dict) or "usedPercent" not in window:
+            continue
+        percent = window.get("usedPercent")
+        if isinstance(percent, bool) or not isinstance(percent, (int, float)):
+            return False
+        if not _percent_in_range(float(percent)):
+            return False
+    return True
+
+
+def _companion_entry_is_usable_usage(entry: dict[str, Any]) -> bool:
+    """Usable companion usage: non-empty usage dict, no error key, valid usedPercent band."""
+    if "error" in entry:
+        return False
+    usage = entry.get("usage")
+    if not isinstance(usage, dict) or len(usage) == 0:
+        return False
+    return _companion_usage_window_percents_ok(usage)
+
+
+def _companion_usable_entry_for_provider(entries: list[Any], provider: str) -> dict[str, Any] | None:
+    """Return the first usable usage entry whose provider matches (case-insensitive)."""
+    wanted = provider.lower()
     for entry in entries:
-        if isinstance(entry, dict) and "usage" in entry and "error" not in entry:
-            return True
-    return False
+        if not isinstance(entry, dict):
+            continue
+        entry_provider = entry.get("provider")
+        if not isinstance(entry_provider, str) or entry_provider.lower() != wanted:
+            continue
+        if _companion_entry_is_usable_usage(entry):
+            return entry
+    return None
+
+
+def _sanitize_companion_usage_entry(entry: dict[str, Any], provider: str) -> dict[str, Any]:
+    """Rebuild a companion usage entry with only expected fields (drop sibling secrets)."""
+    cleaned: dict[str, Any] = {
+        "provider": entry["provider"] if isinstance(entry.get("provider"), str) else provider,
+        "source": entry["source"] if entry.get("source") is not None else "auto",
+        "usage": entry["usage"],
+    }
+    if "engine" in entry:
+        cleaned["engine"] = entry["engine"]
+    return cleaned
 
 
 def _dual_failure_message(provider: str, native_failure: FetchFallback, upstream_detail: str) -> str:
@@ -1498,21 +1540,26 @@ def fallback_entry(
             message = _dual_failure_message(provider, native_failure, str(upstream_failure))
         return [provider_error(provider, source or "auto", message, failure.category, failure.retryable)]
 
-    # Fallback path after a native failure: only passthrough valid usage data.
-    # Structured error entries from the companion must not leak upstream text
-    # (tokens, raw messages) and must not look like a successful companion read.
-    if native_failure is not None and not _companion_entries_have_usable_usage(entries):
-        message = _dual_failure_message(provider, native_failure, "companion returned an error entry")
-        return [
-            provider_error(
-                provider,
-                source or "auto",
-                message,
-                native_failure.category,
-                native_failure.retryable,
+    # Fallback after native failure: only the requested provider's usable usage entry.
+    # Never return a mixed companion list (other providers, error siblings, secrets).
+    if native_failure is not None:
+        usable = _companion_usable_entry_for_provider(entries, provider)
+        if usable is None:
+            message = _dual_failure_message(
+                provider, native_failure, "companion returned no usable usage for provider"
             )
-        ]
-    # Normal passthrough (no native failure) or companion returned usable usage: keep as-is.
+            return [
+                provider_error(
+                    provider,
+                    source or "auto",
+                    message,
+                    native_failure.category,
+                    native_failure.retryable,
+                )
+            ]
+        return [_sanitize_companion_usage_entry(usable, provider)]
+
+    # Normal passthrough (no native failure): upstream JSON wins as-is (antigravity / others).
     return entries
 
 
