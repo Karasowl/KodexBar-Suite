@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import struct
 import subprocess
 import tempfile
 import textwrap
@@ -21,6 +22,67 @@ spec = importlib.util.spec_from_loader(loader.name, loader)
 quotas = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(quotas)
+
+# Synthetic secrets used only in hermetic tests. Must never appear in engine output.
+TEST_CODEX_TOKEN = "test-codex-access-token-SECRET-do-not-leak"
+TEST_GROK_KEY = "test-grok-key-SECRET-do-not-leak"
+
+
+def _encode_varint(value: int) -> bytes:
+    parts: list[int] = []
+    while True:
+        bits = value & 0x7F
+        value >>= 7
+        parts.append(bits | (0x80 if value else 0))
+        if not value:
+            break
+    return bytes(parts)
+
+
+def _protobuf_key(field: int, wire_type: int) -> bytes:
+    return _encode_varint((field << 3) | wire_type)
+
+
+def build_minimal_grok_billing_frame(used_percent: float, reset_unix: int) -> bytes:
+    """Build a gRPC-web framed protobuf with fixed32 percent and varint timestamp."""
+    # field 1: submessage containing field 1 fixed32 float (short path preferred)
+    inner = _protobuf_key(1, 5) + struct.pack("<f", used_percent)
+    # field 5: submessage with field 1 varint timestamp so path is [1,5,1] preferred
+    ts_inner = _protobuf_key(1, 0) + _encode_varint(reset_unix)
+    field5 = _protobuf_key(5, 2) + _encode_varint(len(ts_inner)) + ts_inner
+    message = (
+        _protobuf_key(1, 2)
+        + _encode_varint(len(inner))
+        + inner
+        + field5
+    )
+    frame = b"\x00" + len(message).to_bytes(4, "big") + message
+    return frame
+
+
+def sample_codex_usage_payload() -> dict:
+    """Shape aligned with CodexUsageResponse / dossier (weekly + spark weekly)."""
+    return {
+        "plan_type": "pro",
+        "rate_limit": {
+            "primary_window": None,
+            "secondary_window": {
+                "used_percent": 33,
+                "reset_at": 1782600000,
+                "limit_window_seconds": 10080 * 60,
+            },
+        },
+        "additional_rate_limits": [
+            {
+                "limit_id": "codex-spark-weekly",
+                "limit_name": "Spark Weekly",
+                "used_percent": 0,
+                "reset_at": 1782700000,
+                "limit_window_seconds": 10080 * 60,
+            }
+        ],
+        "credits": {"has_credits": True, "balance": 663.3},
+    }
 
 
 class QuotasEngineTests(unittest.TestCase):
@@ -108,7 +170,8 @@ class QuotasEngineTests(unittest.TestCase):
             ]}), encoding="utf-8")
             self.assertEqual(quotas.enabled_providers(home), ["codex", "grok"])
 
-    def test_cli_aggregates_and_preserves_upstream_passthrough(self) -> None:
+    def test_cli_aggregates_native_auth_and_antigravity_upstream(self) -> None:
+        """Claude uses fixture, Codex/Grok missing auth stay native, Antigravity still upstream."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             home = root / "home"
@@ -119,6 +182,7 @@ class QuotasEngineTests(unittest.TestCase):
                 {"id": "claude", "enabled": True},
                 {"id": "codex", "enabled": True},
                 {"id": "grok", "enabled": True},
+                {"id": "antigravity", "enabled": True},
             ]}), encoding="utf-8")
             credentials = home / ".claude/.credentials.json"
             credentials.parent.mkdir(parents=True)
@@ -141,10 +205,16 @@ class QuotasEngineTests(unittest.TestCase):
                 check=True,
             )
             entries = json.loads(result.stdout)
-            self.assertEqual([entry["provider"] for entry in entries], ["claude", "codex", "grok"])
+            self.assertEqual(
+                [entry["provider"] for entry in entries],
+                ["claude", "codex", "grok", "antigravity"],
+            )
             self.assertIn("error", entries[0])
-            self.assertEqual(entries[1]["source"], "upstream")
-            self.assertEqual(entries[2]["source"], "upstream")
+            self.assertEqual(entries[1]["error"]["category"], "authentication")
+            self.assertEqual(entries[2]["error"]["category"], "authentication")
+            self.assertEqual(entries[3]["source"], "upstream")
+            self.assertNotIn(TEST_CODEX_TOKEN, result.stdout)
+            self.assertNotIn(TEST_GROK_KEY, result.stdout)
 
     def test_missing_or_corrupt_claude_credentials_fallback_without_losing_other_providers(self) -> None:
         for credentials_text in (None, "{corrupt json"):
@@ -158,6 +228,7 @@ class QuotasEngineTests(unittest.TestCase):
                     {"id": "claude", "enabled": True},
                     {"id": "codex", "enabled": True},
                     {"id": "grok", "enabled": True},
+                    {"id": "antigravity", "enabled": True},
                 ]}), encoding="utf-8")
                 if credentials_text is not None:
                     credentials = home / ".claude/.credentials.json"
@@ -181,10 +252,18 @@ class QuotasEngineTests(unittest.TestCase):
                     check=True,
                 )
                 entries = json.loads(result.stdout)
-                self.assertEqual([entry["provider"] for entry in entries], ["claude", "codex", "grok"])
-                self.assertEqual([entry["source"] for entry in entries], ["upstream", "upstream", "upstream"])
+                self.assertEqual(
+                    [entry["provider"] for entry in entries],
+                    ["claude", "codex", "grok", "antigravity"],
+                )
+                # Claude falls back to upstream without local OAuth. Codex/Grok stay native auth.
+                self.assertEqual(entries[0]["source"], "upstream")
+                self.assertEqual(entries[1]["error"]["category"], "authentication")
+                self.assertEqual(entries[2]["error"]["category"], "authentication")
+                self.assertEqual(entries[3]["source"], "upstream")
 
     def test_missing_upstream_reports_not_installed(self) -> None:
+        """Antigravity still depends on upstream when the companion CLI is absent."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             home = root / "home"
@@ -192,14 +271,14 @@ class QuotasEngineTests(unittest.TestCase):
             config = home / ".config/codexbar/config.json"
             config.parent.mkdir(parents=True)
             config.write_text(
-                json.dumps({"providers": [{"id": "codex", "enabled": True}]}),
+                json.dumps({"providers": [{"id": "antigravity", "enabled": True}]}),
                 encoding="utf-8",
             )
             bin_dir.mkdir()
             env = os.environ.copy()
             env.update({"HOME": str(home), "PATH": str(bin_dir)})
             result = subprocess.run(
-                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "codex"],
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "antigravity"],
                 env=env,
                 text=True,
                 capture_output=True,
@@ -221,7 +300,7 @@ class QuotasEngineTests(unittest.TestCase):
                 config = home / ".config/codexbar/config.json"
                 config.parent.mkdir(parents=True)
                 config.write_text(
-                    json.dumps({"providers": [{"id": "codex", "enabled": True}]}),
+                    json.dumps({"providers": [{"id": "antigravity", "enabled": True}]}),
                     encoding="utf-8",
                 )
                 bin_dir.mkdir()
@@ -234,14 +313,27 @@ class QuotasEngineTests(unittest.TestCase):
                 env = os.environ.copy()
                 env.update({"HOME": str(home), "PATH": str(bin_dir)})
                 result = subprocess.run(
-                    [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "codex"],
+                    [
+                        os.sys.executable,
+                        str(ENGINE),
+                        "usage",
+                        "--format",
+                        "json",
+                        "--json-only",
+                        "--provider",
+                        "antigravity",
+                    ],
                     env=env,
                     text=True,
                     capture_output=True,
                     check=True,
                 )
                 entry = json.loads(result.stdout)[0]
-                expected = "upstream codexbar exited with status 7" if name == "exit-nonzero" else "upstream codexbar returned invalid JSON at column 1"
+                expected = (
+                    "upstream codexbar exited with status 7"
+                    if name == "exit-nonzero"
+                    else "upstream codexbar returned invalid JSON at column 1"
+                )
                 self.assertEqual(entry["error"]["message"], expected)
                 self.assertNotIn("not installed", entry["error"]["message"])
                 self.assertNotIn("not json", entry["error"]["message"])
@@ -432,7 +524,8 @@ class QuotasEngineTests(unittest.TestCase):
                 check=True,
             )
             grok_entry = json.loads(grok.stdout)[0]
-            self.assertEqual(grok_entry["error"]["message"], "upstream codexbar is not installed")
+            self.assertEqual(grok_entry["error"]["category"], "authentication")
+            self.assertIn("grok login", grok_entry["error"]["message"].lower())
 
     def test_missing_config_without_upstream_or_claude_emits_first_run_guidance(self) -> None:
         """Matrix row 5: no config, no upstream, no usable Claude credentials -> guidance error."""
@@ -475,7 +568,8 @@ class QuotasEngineTests(unittest.TestCase):
                     check=True,
                 )
                 grok_entry = json.loads(grok.stdout)[0]
-                self.assertEqual(grok_entry["error"]["message"], "upstream codexbar is not installed")
+                self.assertEqual(grok_entry["error"]["category"], "authentication")
+                self.assertIn("grok login", grok_entry["error"]["message"].lower())
 
     # --- Auto-config first-run matrix (brainless): synthetic HOME/PATH only, never real HOME/CLIs ---
 
@@ -628,14 +722,12 @@ class QuotasEngineTests(unittest.TestCase):
                 sorted(entry["provider"] for entry in entries),
                 ["claude", "codex", "grok"],
             )
-            # Without upstream, non-claude providers report the honest missing-upstream fallback.
-            messages = {
-                entry["provider"]: entry.get("error", {}).get("message", "")
-                for entry in entries
-                if "error" in entry
-            }
-            self.assertEqual(messages.get("codex"), "upstream codexbar is not installed")
-            self.assertEqual(messages.get("grok"), "upstream codexbar is not installed")
+            # Codex/Grok native auth fails honestly without credentials (no upstream install).
+            by_provider = {entry["provider"]: entry for entry in entries}
+            self.assertEqual(by_provider["codex"]["error"]["category"], "authentication")
+            self.assertIn("codex", by_provider["codex"]["error"]["message"].lower())
+            self.assertEqual(by_provider["grok"]["error"]["category"], "authentication")
+            self.assertIn("grok login", by_provider["grok"]["error"]["message"].lower())
             # stdout must stay pure JSON (auto-config is silent).
             self.assertEqual(result.stderr.strip(), "")
 
@@ -705,7 +797,8 @@ class QuotasEngineTests(unittest.TestCase):
             )
             entries = json.loads(result.stdout)
             self.assertEqual([entry["provider"] for entry in entries], ["codex"])
-            self.assertEqual(entries[0]["error"]["message"], "upstream codexbar is not installed")
+            self.assertEqual(entries[0]["error"]["category"], "authentication")
+            self.assertIn("tokens", entries[0]["error"]["message"].lower())
 
     def test_write_auto_config_exclusive_concurrent_publish(self) -> None:
         """Two concurrent publishers: only one wins, the loser never alters winner content."""
@@ -746,6 +839,238 @@ class QuotasEngineTests(unittest.TestCase):
             self.assertEqual(json.loads(raw), winner_payload)
             # Loser must not have replaced or concatenated content.
             self.assertEqual(raw.count('"version"'), 1)
+
+    # --- Native Codex / Grok (hermetic: synthetic HOME/PATH, monkeypatched http_request) ---
+
+    def _write_codex_auth(self, home: Path, token: str = TEST_CODEX_TOKEN, account_id: str = "acct-test") -> None:
+        path = home / ".codex" / "auth.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({
+                "auth_mode": "chatgpt",
+                "OPENAI_API_KEY": None,
+                "tokens": {
+                    "access_token": token,
+                    "refresh_token": "refresh-not-used",
+                    "account_id": account_id,
+                },
+            }),
+            encoding="utf-8",
+        )
+
+    def _write_grok_auth(self, home: Path, key: str = TEST_GROK_KEY) -> None:
+        path = home / ".grok" / "auth.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({
+                "https://auth.x.ai::client": {
+                    "key": key,
+                    "auth_mode": "oidc",
+                    "team_id": "team-1",
+                    "expires_at": "2099-01-01T00:00:00Z",
+                }
+            }),
+            encoding="utf-8",
+        )
+
+    def test_codex_native_oauth_maps_weekly_and_spark(self) -> None:
+        payload = sample_codex_usage_payload()
+        response_body = json.dumps(payload).encode("utf-8")
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                self.assertEqual(method.upper(), "GET")
+                self.assertIn("/wham/usage", url)
+                self.assertEqual(headers["User-Agent"], "CodexBar")
+                self.assertEqual(headers["Authorization"], f"Bearer {TEST_CODEX_TOKEN}")
+                self.assertEqual(headers["ChatGPT-Account-Id"], "acct-test")
+                return 200, {"Content-Type": "application/json"}, response_body
+
+            with patch.object(quotas, "http_request", side_effect=fake_http):
+                entry = quotas.fetch_codex(home)
+
+        self.assertEqual(entry["provider"], "codex")
+        self.assertEqual(entry["source"], "oauth")
+        self.assertEqual(entry["engine"], "kodexbar")
+        self.assertIsNone(entry["usage"]["primary"])
+        self.assertEqual(entry["usage"]["secondary"]["usedPercent"], 33)
+        self.assertEqual(entry["usage"]["secondary"]["windowMinutes"], 10080)
+        self.assertIn("resetsAt", entry["usage"]["secondary"])
+        extras = entry["usage"]["extraRateWindows"]
+        self.assertEqual(extras[0]["id"], "codex-spark-weekly")
+        self.assertEqual(extras[0]["window"]["usedPercent"], 0)
+        dumped = json.dumps(entry)
+        self.assertNotIn(TEST_CODEX_TOKEN, dumped)
+
+    def test_codex_401_is_auth_relogin_without_upstream_delegation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+            upstream_calls: list[str] = []
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 401, {}, b"{}"
+
+            def fake_upstream(provider, source):
+                upstream_calls.append(provider)
+                return [{"provider": provider, "source": "upstream"}]
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_entries", side_effect=fake_upstream
+            ), patch.object(quotas, "upstream_path", return_value="/fake/codexbar"):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["error"]["category"], "authentication")
+        self.assertFalse(entries[0]["error"]["retryable"])
+        self.assertIn("log in", entries[0]["error"]["message"].lower())
+        self.assertEqual(upstream_calls, [])
+        self.assertNotIn(TEST_CODEX_TOKEN, json.dumps(entries))
+
+    def test_codex_500_without_upstream_is_retryable_honest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 500, {}, b"error"
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value=None
+            ):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        self.assertEqual(entries[0]["error"]["category"], "network")
+        self.assertTrue(entries[0]["error"]["retryable"])
+        self.assertIn("HTTP 500", entries[0]["error"]["message"])
+        self.assertNotIn(TEST_CODEX_TOKEN, json.dumps(entries))
+
+    def test_codex_500_with_upstream_delegates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 500, {}, b"error"
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(
+                quotas,
+                "upstream_entries",
+                return_value=[{"provider": "codex", "source": "upstream", "usage": {"primary": None}}],
+            ):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        self.assertEqual(entries[0]["source"], "upstream")
+        self.assertEqual(entries[0]["provider"], "codex")
+
+    def test_codex_alt_usage_path_when_base_url_lacks_backend_api(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+            config = home / ".codex" / "config.toml"
+            config.write_text('chatgpt_base_url = "https://example.test/codex"\n', encoding="utf-8")
+            seen: list[str] = []
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                seen.append(url)
+                return 200, {}, json.dumps(sample_codex_usage_payload()).encode()
+
+            with patch.object(quotas, "http_request", side_effect=fake_http):
+                quotas.fetch_codex(home)
+        self.assertEqual(seen, ["https://example.test/codex/api/codex/usage"])
+
+    def test_grok_native_grpc_web_maps_primary(self) -> None:
+        frame = build_minimal_grok_billing_frame(57.0, 1784733973)
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_grok_auth(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                self.assertEqual(method.upper(), "POST")
+                self.assertEqual(url, quotas.GROK_CREDITS_URL)
+                self.assertEqual(body, quotas.GROK_EMPTY_FRAME)
+                self.assertEqual(headers["Content-Type"], "application/grpc-web+proto")
+                self.assertEqual(headers["Authorization"], f"Bearer {TEST_GROK_KEY}")
+                self.assertEqual(headers["User-Agent"], "CodexBar")
+                return 200, {"content-type": "application/grpc-web+proto"}, frame
+
+            with patch.object(quotas, "http_request", side_effect=fake_http):
+                entry = quotas.fetch_grok(home)
+
+        self.assertEqual(entry["provider"], "grok")
+        self.assertEqual(entry["source"], "grok-web")
+        self.assertEqual(entry["engine"], "kodexbar")
+        self.assertAlmostEqual(entry["usage"]["primary"]["usedPercent"], 57.0, places=3)
+        self.assertEqual(entry["usage"]["primary"]["resetsAt"], "2026-07-22T15:26:13Z")
+        self.assertNotIn("windowMinutes", entry["usage"]["primary"])
+        self.assertNotIn(TEST_GROK_KEY, json.dumps(entry))
+
+    def test_grok_missing_key_is_auth_relogin(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            # No auth.json
+            with patch.object(quotas, "upstream_path", return_value="/fake/codexbar"), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("must not delegate on auth")
+            ):
+                entries = quotas.fetch_provider("grok", None, home)
+        self.assertEqual(entries[0]["error"]["category"], "authentication")
+        self.assertFalse(entries[0]["error"]["retryable"])
+        self.assertIn("grok login", entries[0]["error"]["message"].lower())
+
+    def test_grok_timeout_is_retryable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_grok_auth(home)
+            calls = {"n": 0}
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                calls["n"] += 1
+                raise quotas.FetchFallback("HTTP timeout failure for POST", "timeout", True)
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value=None
+            ):
+                entries = quotas.fetch_provider("grok", None, home)
+
+        self.assertEqual(calls["n"], 2)  # one retry on timeout
+        self.assertEqual(entries[0]["error"]["category"], "timeout")
+        self.assertTrue(entries[0]["error"]["retryable"])
+        self.assertNotIn(TEST_GROK_KEY, json.dumps(entries))
+
+    def test_antigravity_still_delegates_to_upstream(self) -> None:
+        with patch.object(
+            quotas,
+            "upstream_entries",
+            return_value=[{"provider": "antigravity", "source": "cli", "usage": {"primary": None}}],
+        ) as upstream, patch.object(quotas, "upstream_path", return_value="/fake/codexbar"):
+            entries = quotas.fetch_provider("antigravity", None)
+        upstream.assert_called_once_with("antigravity", None)
+        self.assertEqual(entries[0]["source"], "cli")
+        self.assertEqual(entries[0]["provider"], "antigravity")
+
+    def test_native_errors_never_include_secrets_in_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home, token=TEST_CODEX_TOKEN)
+            self._write_grok_auth(home, key=TEST_GROK_KEY)
+
+            def boom(method, url, headers=None, body=None, timeout=None):
+                return 500, {}, b"fail"
+
+            with patch.object(quotas, "http_request", side_effect=boom), patch.object(
+                quotas, "upstream_path", return_value=None
+            ):
+                codex_entries = quotas.fetch_provider("codex", None, home)
+                grok_entries = quotas.fetch_provider("grok", None, home)
+
+        blob = json.dumps(codex_entries) + json.dumps(grok_entries)
+        self.assertNotIn(TEST_CODEX_TOKEN, blob)
+        self.assertNotIn(TEST_GROK_KEY, blob)
+        self.assertNotIn("refresh-not-used", blob)
 
 
 if __name__ == "__main__":
