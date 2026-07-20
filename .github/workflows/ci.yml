@@ -1,0 +1,92 @@
+name: CI
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  suite-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            jq \
+            qtdeclarative5-dev-tools \
+            ripgrep \
+            ruby
+          if ! command -v qmllint >/dev/null 2>&1; then
+            for dir in /usr/lib/qt6/bin /usr/lib/qt5/bin /usr/lib/qt6/libexec /usr/lib/qt5/libexec; do
+              if [[ -x "${dir}/qmllint" ]]; then
+                echo "${dir}" >> "${GITHUB_PATH}"
+                break
+              fi
+            done
+          fi
+          command -v qmllint
+          command -v ruby
+          command -v jq
+          command -v rg
+          command -v node
+          ruby -e 'require "yaml"'
+
+      - name: ai-cli-control check
+        run: LANG=C make -C packages/ai-cli-control check
+
+      - name: kodexbar provider-logic tests
+        run: node --test packages/kodexbar/tests/provider-logic.test.js
+
+      - name: kodexbar validate
+        run: bash packages/kodexbar/scripts/validate.sh
+
+  packaging:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    steps:
+      - name: Install minimal packages
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed git python nodejs
+
+      - uses: actions/checkout@v4
+
+      - name: Prepare non-root builder
+        run: |
+          set -euo pipefail
+          useradd -m builder
+          chown -R builder:builder "${GITHUB_WORKSPACE}"
+
+      - name: Verify AUR .SRCINFO files
+        run: |
+          set -euo pipefail
+          runuser -u builder -- bash -euo pipefail -c '
+            cd packaging/aur
+            makepkg --printsrcinfo | diff -u .SRCINFO -
+            echo "packaging/aur .SRCINFO OK"
+            cd ../aur-codexbar-cli-bin
+            makepkg --printsrcinfo | diff -u .SRCINFO -
+            echo "packaging/aur-codexbar-cli-bin .SRCINFO OK"
+          '
+
+      - name: Verify plasmoid build reproducibility
+        run: |
+          set -euo pipefail
+          runuser -u builder -- bash -euo pipefail -c '
+            bash packaging/kde-store/build-plasmoid.sh
+            shopt -s nullglob
+            files=(packaging/kde-store/dist/*.plasmoid)
+            test "${#files[@]}" -eq 1
+            h1="$(sha256sum "${files[0]}" | awk "{print \$1}")"
+            bash packaging/kde-store/build-plasmoid.sh
+            h2="$(sha256sum "${files[0]}" | awk "{print \$1}")"
+            printf "run1=%s\n" "$h1"
+            printf "run2=%s\n" "$h2"
+            test "$h1" = "$h2"
+            echo "plasmoid sha256 reproducible: $h1"
+          '

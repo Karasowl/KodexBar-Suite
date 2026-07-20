@@ -12,7 +12,7 @@ fi
 jq empty metadata.json tests/fixtures/provider-logic.json
 python3 -c 'import xml.etree.ElementTree as ET; ET.parse("contents/config/main.xml")'
 bash -n scripts/validate.sh
-ruby -e 'require "yaml"; YAML.load_file(".github/workflows/validate.yml")'
+ruby -e 'require "yaml"; YAML.load_file("../../.github/workflows/ci.yml")'
 node tests/provider-logic.test.js
 
 if command -v qmllint >/dev/null 2>&1; then

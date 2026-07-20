@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## 0.8.0, unreleased
 
+- Add monorepo-root GitHub Actions CI (`.github/workflows/ci.yml`) for suite tests and packaging checks, and remove package-local workflows under `packages/*/.github/workflows/` that GitHub Actions never discovered.
 - On first run without `~/.config/codexbar/config.json`, detect installed AI CLIs (Claude, Codex, Grok, Antigravity) and auto-write a versioned CodexBar provider config so enabled quotas appear without manual editing. Existing configs are never overwritten or repaired.
 - Show a friendly missing-engine setup card in the Plasma widget when only the KDE Store applet is installed (command-not-found for `kodexbar-quotas`), with the copyable install command `paru -S kodexbar-suite` and a repository link. The card clears on the next successful engine response.
 - Print a short post-install AUR message (`kodexbar-suite.install`) explaining how to add the widget to a Plasma panel and that installed CLI quotas are detected automatically on first use.
