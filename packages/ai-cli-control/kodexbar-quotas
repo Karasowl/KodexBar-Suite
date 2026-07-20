@@ -122,8 +122,12 @@ def build_auto_config(detected: dict[str, bool]) -> dict[str, Any]:
     }
 
 
-def write_auto_config_atomic(config_path: Path, payload: dict[str, Any]) -> None:
-    """Write config.json via tempfile + rename in the same directory (atomic on same filesystem)."""
+def write_auto_config_atomic(config_path: Path, payload: dict[str, Any]) -> bool:
+    """Publish config.json exclusively via tempfile + hard link.
+
+    Returns True only when this call created config_path. If another process already
+    published the file, returns False without altering the winner's content.
+    """
     config_path.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(payload, ensure_ascii=False)
     fd, tmp_name = tempfile.mkstemp(
@@ -136,13 +140,19 @@ def write_auto_config_atomic(config_path: Path, payload: dict[str, Any]) -> None
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp_name, config_path)
+        try:
+            # Exclusive publish: link fails with FileExistsError if the race is lost.
+            os.link(tmp_name, config_path)
+        except FileExistsError:
+            return False
+        return True
     except Exception:
+        raise
+    finally:
         try:
             os.unlink(tmp_name)
         except OSError:
             pass
-        raise
 
 
 def ensure_auto_config(home: Path | None = None) -> bool:
@@ -150,7 +160,7 @@ def ensure_auto_config(home: Path | None = None) -> bool:
 
     Never overwrites an existing config (valid or malformed). Silent on stdout.
     Write failures are swallowed so the caller keeps the current absent-config path.
-    Returns True when a config file was written successfully.
+    Returns True when a config file was written successfully by this call.
     """
     root = home or home_directory()
     config_path = codexbar_config_path(root)
@@ -160,10 +170,9 @@ def ensure_auto_config(home: Path | None = None) -> bool:
     if not any(detected.values()):
         return False
     try:
-        write_auto_config_atomic(config_path, build_auto_config(detected))
+        return write_auto_config_atomic(config_path, build_auto_config(detected))
     except OSError:
         return False
-    return True
 
 
 def claude_access_token(home: Path | None = None) -> str:
@@ -406,12 +415,12 @@ def parse_usage(arguments: list[str]) -> tuple[str, str | None, bool] | None:
     return provider or "enabled", source, pretty
 
 
-def delegate_whole_call(arguments: list[str]) -> int:
-    executable = upstream_path()
-    if executable is None:
+def delegate_whole_call(arguments: list[str], executable: str | None = None) -> int:
+    resolved = executable if executable is not None else upstream_path()
+    if resolved is None:
         print("kodexbar-quotas: upstream codexbar is not installed", file=sys.stderr)
         return 127
-    return subprocess.call([executable, *arguments])
+    return subprocess.call([resolved, *arguments])
 
 
 def print_json(value: Any, pretty: bool) -> None:
@@ -450,8 +459,9 @@ def main(arguments: list[str]) -> int:
 
     def absent_config_usage() -> int:
         # Zero CLIs detected or auto-write failed. Keep legacy first-run matrix.
-        if upstream_path() is not None:
-            return delegate_whole_call(arguments)
+        upstream = upstream_path()
+        if upstream is not None:
+            return delegate_whole_call(arguments, upstream)
         if has_claude_credentials():
             if requested in ("enabled", "all"):
                 return emit_provider_usage(["claude"])

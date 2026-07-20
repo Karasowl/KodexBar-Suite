@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import textwrap
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -705,6 +706,46 @@ class QuotasEngineTests(unittest.TestCase):
             entries = json.loads(result.stdout)
             self.assertEqual([entry["provider"] for entry in entries], ["codex"])
             self.assertEqual(entries[0]["error"]["message"], "upstream codexbar is not installed")
+
+    def test_write_auto_config_exclusive_concurrent_publish(self) -> None:
+        """Two concurrent publishers: only one wins, the loser never alters winner content."""
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config.json"
+            payload_a = quotas.build_auto_config(
+                {"claude": True, "codex": False, "grok": False, "antigravity": False}
+            )
+            payload_b = quotas.build_auto_config(
+                {"claude": False, "codex": True, "grok": False, "antigravity": False}
+            )
+            barrier = threading.Barrier(2)
+            outcomes: list[tuple[str, bool]] = []
+            lock = threading.Lock()
+
+            def publish(label: str, payload: dict) -> None:
+                barrier.wait(timeout=5)
+                won = quotas.write_auto_config_atomic(config_path, payload)
+                with lock:
+                    outcomes.append((label, won))
+
+            threads = [
+                threading.Thread(target=publish, args=("a", payload_a)),
+                threading.Thread(target=publish, args=("b", payload_b)),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+            self.assertEqual(len(outcomes), 2)
+            wins = [label for label, won in outcomes if won]
+            losses = [label for label, won in outcomes if not won]
+            self.assertEqual(len(wins), 1, f"exactly one publisher must win: {outcomes}")
+            self.assertEqual(len(losses), 1, f"exactly one publisher must lose: {outcomes}")
+            self.assertTrue(config_path.is_file())
+            winner_payload = payload_a if wins[0] == "a" else payload_b
+            raw = config_path.read_text(encoding="utf-8")
+            self.assertEqual(json.loads(raw), winner_payload)
+            # Loser must not have replaced or concatenated content.
+            self.assertEqual(raw.count('"version"'), 1)
 
 
 if __name__ == "__main__":
