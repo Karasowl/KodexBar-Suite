@@ -67,7 +67,9 @@ CODEX_AUTH_UNREADABLE = (
     "Could not read Codex sign-in data. Check file permissions or sign in again (run: codex)."
 )
 CODEX_AUTH_INVALID_JSON = "Codex sign-in data is damaged. Sign in again (run: codex)."
-CODEX_CONFIG_TOML_INVALID = "Codex settings are invalid and were ignored."
+CODEX_CONFIG_TOML_INVALID = (
+    "Could not read Codex settings. Fix or remove the invalid config file, then retry."
+)
 CODEX_CREDENTIAL_MALFORMED = "Codex sign-in data looks damaged. Sign in again (run: codex)."
 CODEX_NETWORK = "Codex is unreachable right now. Check your connection and retry."
 CODEX_TIMEOUT = "Codex timed out. Check your connection and retry."

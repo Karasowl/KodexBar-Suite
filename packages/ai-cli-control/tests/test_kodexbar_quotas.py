@@ -1714,24 +1714,43 @@ class QuotasEngineTests(unittest.TestCase):
         self._assert_human_user_message(grok_err["message"])
 
     def test_user_visible_native_errors_have_no_technical_jargon(self) -> None:
+        """H4: every user-visible message constant is free of jargon and purge phrases."""
         messages = [
+            quotas.FIRST_RUN_CLAUDE_GUIDANCE,
             quotas.CODEX_AUTH_RELOGIN,
+            quotas.CODEX_AUTH_NOT_FOUND,
+            quotas.CODEX_AUTH_MISSING_TOKENS,
+            quotas.CODEX_AUTH_EXPIRED,
             quotas.CODEX_AUTH_UNREADABLE,
             quotas.CODEX_AUTH_INVALID_JSON,
+            quotas.CODEX_CONFIG_TOML_INVALID,
+            quotas.CODEX_CREDENTIAL_MALFORMED,
             quotas.CODEX_NETWORK,
             quotas.CODEX_TIMEOUT,
             quotas.CODEX_INVALID_RESPONSE,
+            quotas.CODEX_BOTH_FAILED,
             quotas.CODEX_PERMANENT,
             quotas.GROK_AUTH_RELOGIN,
+            quotas.GROK_AUTH_NOT_FOUND,
+            quotas.GROK_AUTH_MISSING_KEY,
             quotas.GROK_AUTH_UNREADABLE,
+            quotas.GROK_AUTH_INVALID_JSON,
+            quotas.GROK_CREDENTIAL_MALFORMED,
             quotas.GROK_NETWORK,
             quotas.GROK_TIMEOUT,
             quotas.GROK_INVALID_RESPONSE,
+            quotas.GROK_BOTH_FAILED,
             quotas.GROK_PERMANENT,
             quotas.GROK_PERMISSION_DENIED,
         ]
+        # Guard must not silently drop a constant: re-list distinct values for coverage report.
+        distinct = sorted(set(messages))
+        self.assertGreaterEqual(len(distinct), 20)
         for message in messages:
             self._assert_human_user_message(message)
+        # TOML invalid must be actionable (not "were ignored").
+        self.assertNotIn("were ignored", quotas.CODEX_CONFIG_TOML_INVALID.lower())
+        self.assertIn("fix or remove", quotas.CODEX_CONFIG_TOML_INVALID.lower())
 
 
 if __name__ == "__main__":
