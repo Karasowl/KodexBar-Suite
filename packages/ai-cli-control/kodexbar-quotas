@@ -722,7 +722,11 @@ def _codex_finite_number(value: Any) -> float | None:
     """Return a finite float, or None when the value is not a real number."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    number = float(value)
+    try:
+        number = float(value)
+    except (OverflowError, ValueError, TypeError):
+        # Giant JSON integers (hundreds of digits) overflow float() — treat as unusable.
+        return None
     if not math.isfinite(number):
         return None
     return number
@@ -1223,7 +1227,11 @@ def map_grok_usage(
     try:
         if not isinstance(used_percent, (int, float)) or isinstance(used_percent, bool):
             raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
-        percent = float(used_percent)
+        try:
+            percent = float(used_percent)
+        except (OverflowError, ValueError, TypeError):
+            # Giant JSON integers overflow float() — same unusable treatment as Codex.
+            raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
         # Same [0, 100] band as the protobuf percent filter and Codex usedPercent.
         if not math.isfinite(percent) or not _percent_in_range(percent):
             raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
@@ -1471,16 +1479,44 @@ def upstream_entries(provider: str, source: str | None) -> list[Any]:
     return value if isinstance(value, list) else [value]
 
 
+# Sources the native engine and known delegation paths already emit or accept.
+_COMPANION_KNOWN_SOURCES = frozenset(
+    {
+        "oauth",
+        "cli",
+        "web",
+        "grok-web",
+        "auto",
+        "api",
+        "claude",
+    }
+)
+# Identity keys produced by map_claude_usage / map_codex_usage / map_grok_usage.
+_COMPANION_IDENTITY_KEYS = frozenset(
+    {
+        "providerID",
+        "loginMethod",
+        "accountEmail",
+        "accountOrganization",
+    }
+)
+
+
+def _companion_used_percent_number(value: Any) -> float | None:
+    """Finite usedPercent in [0, 100], or None when unusable (including float overflow)."""
+    number = _codex_finite_number(value)
+    if number is None or not _percent_in_range(number):
+        return None
+    return number
+
+
 def _companion_usage_window_percents_ok(usage: dict[str, Any]) -> bool:
     """False when any primary/secondary/tertiary usedPercent is present and outside [0, 100]."""
     for key in ("primary", "secondary", "tertiary"):
         window = usage.get(key)
         if not isinstance(window, dict) or "usedPercent" not in window:
             continue
-        percent = window.get("usedPercent")
-        if isinstance(percent, bool) or not isinstance(percent, (int, float)):
-            return False
-        if not _percent_in_range(float(percent)):
+        if _companion_used_percent_number(window.get("usedPercent")) is None:
             return False
     return True
 
@@ -1509,16 +1545,119 @@ def _companion_usable_entry_for_provider(entries: list[Any], provider: str) -> d
     return None
 
 
-def _sanitize_companion_usage_entry(entry: dict[str, Any], provider: str) -> dict[str, Any]:
-    """Rebuild a companion usage entry with only expected fields (drop sibling secrets)."""
-    cleaned: dict[str, Any] = {
-        "provider": entry["provider"] if isinstance(entry.get("provider"), str) else provider,
-        "source": entry["source"] if entry.get("source") is not None else "auto",
-        "usage": entry["usage"],
-    }
-    if "engine" in entry:
-        cleaned["engine"] = entry["engine"]
+def _sanitize_companion_usage_window(window: Any) -> dict[str, Any] | None:
+    """Rebuild one usage window with only native keys. None rejects an invalid usedPercent."""
+    if window is None:
+        return None
+    if not isinstance(window, dict):
+        return None
+    cleaned: dict[str, Any] = {}
+    if "usedPercent" in window:
+        percent = _companion_used_percent_number(window.get("usedPercent"))
+        if percent is None:
+            return None
+        cleaned["usedPercent"] = percent
+    if "windowMinutes" in window:
+        minutes = _codex_finite_number(window.get("windowMinutes"))
+        if minutes is not None and minutes >= 0:
+            cleaned["windowMinutes"] = int(minutes)
+    if "resetsAt" in window:
+        resets_at = window.get("resetsAt")
+        if isinstance(resets_at, str) and resets_at:
+            cleaned["resetsAt"] = resets_at
+    # Drop any other nested keys (token, raw, secrets).
     return cleaned
+
+
+def _sanitize_companion_identity(identity: Any) -> dict[str, Any] | None:
+    if not isinstance(identity, dict):
+        return None
+    cleaned: dict[str, Any] = {}
+    for key in _COMPANION_IDENTITY_KEYS:
+        value = identity.get(key)
+        if isinstance(value, str) and value:
+            cleaned[key] = value
+    return cleaned or None
+
+
+def _sanitize_companion_extra_rate_windows(items: Any) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    extras: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        window = _sanitize_companion_usage_window(item.get("window"))
+        if window is None:
+            continue
+        extra: dict[str, Any] = {"window": window}
+        window_id = item.get("id")
+        if isinstance(window_id, str) and window_id:
+            extra["id"] = window_id
+        title = item.get("title")
+        if isinstance(title, str) and title:
+            extra["title"] = title
+        extras.append(extra)
+    return extras
+
+
+def _sanitize_companion_usage(usage: Any) -> dict[str, Any] | None:
+    """Deep-rebuild usage to the native envelope schema (strict allowlist)."""
+    if not isinstance(usage, dict) or len(usage) == 0:
+        return None
+    cleaned: dict[str, Any] = {}
+    for key in ("primary", "secondary", "tertiary"):
+        if key not in usage:
+            continue
+        raw_window = usage.get(key)
+        if raw_window is None:
+            cleaned[key] = None
+            continue
+        window = _sanitize_companion_usage_window(raw_window)
+        if window is None and isinstance(raw_window, dict) and "usedPercent" in raw_window:
+            # Invalid usedPercent: reject the whole usage blob.
+            return None
+        cleaned[key] = window
+    if "identity" in usage:
+        identity = _sanitize_companion_identity(usage.get("identity"))
+        if identity is not None:
+            cleaned["identity"] = identity
+    if "updatedAt" in usage:
+        updated_at = usage.get("updatedAt")
+        if isinstance(updated_at, str) and updated_at:
+            cleaned["updatedAt"] = updated_at
+    if "extraRateWindows" in usage:
+        extras = _sanitize_companion_extra_rate_windows(usage.get("extraRateWindows"))
+        if extras:
+            cleaned["extraRateWindows"] = extras
+    # Any other top-level usage key (token, raw, cost blobs, …) is dropped by omission.
+    return cleaned if cleaned else None
+
+
+def _sanitize_companion_source(value: Any) -> str:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in _COMPANION_KNOWN_SOURCES:
+            return normalized
+    return "auto"
+
+
+def _sanitize_companion_usage_entry(entry: dict[str, Any], provider: str) -> dict[str, Any] | None:
+    """Rebuild a companion usage entry with only expected fields (deep allowlist).
+
+    Never copies arbitrary nested usage keys, unknown sources, or upstream engine values.
+    Fallback path always marks engine as kodexbar (this suite's companion route).
+    Returns None when deep rebuild leaves no usable native usage schema.
+    """
+    usage = _sanitize_companion_usage(entry.get("usage"))
+    if usage is None:
+        return None
+    return {
+        "provider": provider,
+        "source": _sanitize_companion_source(entry.get("source")),
+        "usage": usage,
+        "engine": "kodexbar",
+    }
 
 
 def _dual_failure_message(provider: str, native_failure: FetchFallback, upstream_detail: str) -> str:
@@ -1552,7 +1691,8 @@ def fallback_entry(
     # Never return a mixed companion list (other providers, error siblings, secrets).
     if native_failure is not None:
         usable = _companion_usable_entry_for_provider(entries, provider)
-        if usable is None:
+        cleaned = _sanitize_companion_usage_entry(usable, provider) if usable is not None else None
+        if cleaned is None:
             message = _dual_failure_message(
                 provider, native_failure, "companion returned no usable usage for provider"
             )
@@ -1565,7 +1705,7 @@ def fallback_entry(
                     native_failure.retryable,
                 )
             ]
-        return [_sanitize_companion_usage_entry(usable, provider)]
+        return [cleaned]
 
     # Normal passthrough (no native failure): upstream JSON wins as-is (antigravity / others).
     return entries

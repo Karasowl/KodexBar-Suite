@@ -266,8 +266,10 @@ class QuotasEngineTests(unittest.TestCase):
                     [entry["provider"] for entry in entries],
                     ["claude", "codex", "grok", "antigravity"],
                 )
-                # Claude falls back to upstream without local OAuth. Codex/Grok stay native auth.
-                self.assertEqual(entries[0]["source"], "upstream")
+                # Claude falls back to companion (sanitized source). Codex/Grok stay native auth.
+                # Antigravity is passthrough and keeps the companion source as-is.
+                self.assertEqual(entries[0]["source"], "auto")
+                self.assertEqual(entries[0]["engine"], "kodexbar")
                 self.assertEqual(entries[1]["error"]["category"], "authentication")
                 self.assertEqual(entries[2]["error"]["category"], "authentication")
                 self.assertEqual(entries[3]["source"], "upstream")
@@ -1057,7 +1059,8 @@ class QuotasEngineTests(unittest.TestCase):
             ):
                 entries = quotas.fetch_provider("codex", None, home)
 
-        self.assertEqual(entries[0]["source"], "upstream")
+        self.assertEqual(entries[0]["source"], "auto")
+        self.assertEqual(entries[0]["engine"], "kodexbar")
         self.assertEqual(entries[0]["provider"], "codex")
 
     def test_codex_alt_usage_path_when_base_url_lacks_backend_api(self) -> None:
@@ -1456,7 +1459,8 @@ class QuotasEngineTests(unittest.TestCase):
                     entries = quotas.fetch_provider("grok", None, home)
 
                 self.assertEqual(upstream_calls, ["grok"])
-                self.assertEqual(entries[0]["source"], "upstream")
+                self.assertEqual(entries[0]["source"], "auto")
+                self.assertEqual(entries[0]["engine"], "kodexbar")
                 self.assertNotIn("error", entries[0])
 
     def test_grok_transient_grpc_statuses_without_upstream_are_network_or_timeout(self) -> None:
@@ -1555,7 +1559,8 @@ class QuotasEngineTests(unittest.TestCase):
                 entries = quotas.fetch_provider("codex", None, home)
 
         self.assertEqual(upstream_calls, [("codex", None)])
-        self.assertEqual(entries[0]["source"], "upstream")
+        self.assertEqual(entries[0]["source"], "auto")
+        self.assertEqual(entries[0]["engine"], "kodexbar")
         self.assertNotIn("error", entries[0])
 
     def test_codex_schema_drift_without_upstream_is_human(self) -> None:
@@ -1618,7 +1623,8 @@ class QuotasEngineTests(unittest.TestCase):
                     entries = quotas.fetch_provider("codex", None, home)
 
                 self.assertEqual(upstream_calls, ["codex"], msg=name)
-                self.assertEqual(entries[0]["source"], "upstream", msg=name)
+                self.assertEqual(entries[0]["source"], "auto", msg=name)
+                self.assertEqual(entries[0]["engine"], "kodexbar", msg=name)
                 self.assertNotIn("error", entries[0], msg=name)
 
     def test_codex_corrupt_numerics_without_upstream_are_human_drift(self) -> None:
@@ -1680,7 +1686,8 @@ class QuotasEngineTests(unittest.TestCase):
                 entries = quotas.fetch_provider("grok", None, home)
 
         self.assertEqual(upstream_calls, ["grok"])
-        self.assertEqual(entries[0]["source"], "upstream")
+        self.assertEqual(entries[0]["source"], "auto")
+        self.assertEqual(entries[0]["engine"], "kodexbar")
 
     def test_grok_protobuf_garbage_without_upstream_is_human(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1749,9 +1756,11 @@ class QuotasEngineTests(unittest.TestCase):
                 with patch.object(quotas, "http_request", side_effect=boom_timeout):
                     grok_entries = quotas.fetch_provider("grok", None, home)
 
-        self.assertEqual(codex_entries[0]["source"], "upstream")
+        self.assertEqual(codex_entries[0]["source"], "auto")
+        self.assertEqual(codex_entries[0]["engine"], "kodexbar")
         self.assertEqual(codex_entries[0]["provider"], "codex")
-        self.assertEqual(grok_entries[0]["source"], "upstream")
+        self.assertEqual(grok_entries[0]["source"], "auto")
+        self.assertEqual(grok_entries[0]["engine"], "kodexbar")
         self.assertEqual(grok_entries[0]["provider"], "grok")
         self.assertGreaterEqual(upstream.call_count, 2)
 
@@ -1877,7 +1886,7 @@ class QuotasEngineTests(unittest.TestCase):
         self._assert_human_user_message(err["message"])
 
     def test_fallback_companion_usable_usage_still_passthrough(self) -> None:
-        """F3: companion usage success on FALLBACK path remains passthrough."""
+        """F3: companion usage success on FALLBACK path is deep-sanitized, not raw passthrough."""
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             self._write_codex_auth(home)
@@ -1894,9 +1903,10 @@ class QuotasEngineTests(unittest.TestCase):
                 entries = quotas.fetch_provider("codex", None, home)
 
         self.assertEqual(len(entries), 1)
-        self.assertEqual(entries[0]["source"], "upstream")
+        self.assertEqual(entries[0]["source"], "auto")
+        self.assertEqual(entries[0]["engine"], "kodexbar")
         self.assertNotIn("error", entries[0])
-        self.assertEqual(entries[0]["usage"]["primary"]["usedPercent"], 12)
+        self.assertEqual(entries[0]["usage"]["primary"]["usedPercent"], 12.0)
 
     def test_fallback_mixed_list_other_provider_usage_is_dual_failure(self) -> None:
         """F3 root: mixed [codex error TOKEN=mixed, grok usage] for codex → dual fail, no leak."""
@@ -1977,7 +1987,9 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertNotIn("error", entries[0])
         self.assertEqual(entries[0]["provider"], "codex")
-        self.assertEqual(entries[0]["usage"]["primary"]["usedPercent"], 22)
+        self.assertEqual(entries[0]["usage"]["primary"]["usedPercent"], 22.0)
+        self.assertEqual(entries[0]["source"], "auto")
+        self.assertEqual(entries[0]["engine"], "kodexbar")
         self.assertEqual(set(entries[0].keys()), {"provider", "source", "usage", "engine"})
 
     def test_fallback_usage_null_is_not_usable(self) -> None:
@@ -2027,7 +2039,9 @@ class QuotasEngineTests(unittest.TestCase):
         dumped = json.dumps(entries)
         self.assertNotIn("do-not-propagate-secret", dumped)
         self.assertNotIn("secret", dumped)
-        self.assertEqual(entries[0]["usage"]["primary"]["usedPercent"], 5)
+        self.assertEqual(entries[0]["usage"]["primary"]["usedPercent"], 5.0)
+        self.assertEqual(entries[0]["source"], "auto")
+        self.assertEqual(entries[0]["engine"], "kodexbar")
         self.assertEqual(set(entries[0].keys()), {"provider", "source", "usage", "engine"})
 
     def test_fallback_used_percent_out_of_range_is_not_usable(self) -> None:
@@ -2055,6 +2069,95 @@ class QuotasEngineTests(unittest.TestCase):
 
         self.assertEqual(entries[0]["error"]["message"], quotas.CODEX_BOTH_FAILED)
         self.assertEqual(entries[0]["error"]["category"], "invalid_response")
+
+    def test_fallback_deep_sanitize_strips_nested_tokens(self) -> None:
+        """F3: nested usage.token/raw and token-like source/engine never leave the fallback path."""
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+
+            def fake_codex_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {"Content-Type": "application/json"}, b'{"unexpected": true}'
+
+            def companion_deep_tokens(provider, source):
+                return [
+                    {
+                        "provider": "codex",
+                        "source": "TOKEN=source",
+                        "engine": "TOKEN=engine",
+                        "usage": {
+                            "token": "TOKEN=deep",
+                            "raw": {"leak": "TOKEN=raw"},
+                            "primary": {
+                                "usedPercent": 33,
+                                "resetsAt": "2026-07-21T12:00:00Z",
+                                "token": "TOKEN=window",
+                                "raw": "TOKEN=winraw",
+                            },
+                            "secondary": None,
+                        },
+                        "secret": "TOKEN=sibling",
+                    }
+                ]
+
+            with patch.object(quotas, "http_request", side_effect=fake_codex_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(quotas, "upstream_entries", side_effect=companion_deep_tokens):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        dumped = json.dumps(entries)
+        self.assertNotIn("TOKEN=", dumped)
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertNotIn("error", entry)
+        self.assertEqual(entry["provider"], "codex")
+        self.assertEqual(entry["source"], "auto")
+        self.assertEqual(entry["engine"], "kodexbar")
+        self.assertEqual(set(entry.keys()), {"provider", "source", "usage", "engine"})
+        self.assertEqual(set(entry["usage"].keys()), {"primary", "secondary"})
+        self.assertEqual(
+            entry["usage"]["primary"],
+            {"usedPercent": 33.0, "resetsAt": "2026-07-21T12:00:00Z"},
+        )
+        self.assertIsNone(entry["usage"]["secondary"])
+
+    def test_fallback_giant_used_percent_integer_is_not_usable(self) -> None:
+        """F1: companion usedPercent as a 310-digit integer is unusable without OverflowError."""
+        giant = int("9" * 310)
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+
+            def fake_codex_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {"Content-Type": "application/json"}, b'{"unexpected": true}'
+
+            def companion_giant(provider, source):
+                return [
+                    {
+                        "provider": "codex",
+                        "source": "oauth",
+                        "usage": {"primary": {"usedPercent": giant}},
+                    }
+                ]
+
+            with patch.object(quotas, "http_request", side_effect=fake_codex_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(quotas, "upstream_entries", side_effect=companion_giant):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        self.assertEqual(entries[0]["error"]["message"], quotas.CODEX_BOTH_FAILED)
+        self.assertEqual(entries[0]["error"]["category"], "invalid_response")
+
+    def test_codex_finite_number_rejects_giant_integer(self) -> None:
+        """F1: native numeric path treats giant ints as non-finite without crashing."""
+        giant = int("1" * 310)
+        self.assertIsNone(quotas._codex_finite_number(giant))
+        with self.assertRaises(quotas.FetchFallback) as raised:
+            quotas.map_codex_window({"used_percent": giant})
+        self.assertEqual(raised.exception.category, "invalid_response")
+        with self.assertRaises(quotas.FetchFallback) as raised_grok:
+            quotas.map_grok_usage(giant, None, None)
+        self.assertEqual(raised_grok.exception.category, "invalid_response")
 
     def test_passthrough_delegation_still_propagates_companion_error(self) -> None:
         """F3: normal (non-fallback) passthrough keeps companion error text contract."""
