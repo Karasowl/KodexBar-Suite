@@ -1313,6 +1313,11 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertNotIn(TEST_GROK_KEY, json.dumps(entries))
 
     def test_grok_trailer_status_7_without_credential_evidence_is_permanent(self) -> None:
+        """Status 7 without credential-shaped message: identity/plan denial → permanent.
+
+        Dossier: x.ai often returns 7 for accounts without a personal team. That is not
+        fixed by re-login, so it must not be authentication and must not fall back.
+        """
         trailer = build_grpc_web_trailer_frame(7, "resource exhausted region")
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -1322,10 +1327,63 @@ class QuotasEngineTests(unittest.TestCase):
                 return 200, {}, trailer
 
             with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
-                quotas, "upstream_path", return_value=None
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("status 7 permanent must not fall back")
             ):
                 entries = quotas.fetch_provider("grok", None, home)
-        self.assertEqual(entries[0]["error"]["category"], "permanent")
+        err = entries[0]["error"]
+        self.assertEqual(err["category"], "permanent")
+        self.assertEqual(err["message"], quotas.GROK_PERMISSION_DENIED)
+        self._assert_human_user_message(err["message"])
+
+    def test_grok_trailer_status_7_with_credential_evidence_is_authentication(self) -> None:
+        """Status 7 with credential-shaped grpc-message → authentication / re-login.
+
+        Same code path as the permanent case above: only the message evidence flips the
+        category. Companion must not be consulted (auth is never a fallback category).
+        """
+        trailer = build_grpc_web_trailer_frame(7, "invalid credential token expired")
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_grok_auth(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {}, trailer
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("status 7 auth must not fall back")
+            ):
+                entries = quotas.fetch_provider("grok", None, home)
+        err = entries[0]["error"]
+        self.assertEqual(err["category"], "authentication")
+        self.assertEqual(err["message"], quotas.GROK_AUTH_RELOGIN)
+        self._assert_human_user_message(err["message"])
+
+    def test_grok_trailer_status_8_resource_exhausted_is_permanent_no_fallback(self) -> None:
+        """Status 8 RESOURCE_EXHAUSTED: permanent rate-limit, never companion fallback."""
+        trailer = build_grpc_web_trailer_frame(8, "resource exhausted")
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_grok_auth(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {}, trailer
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(
+                quotas,
+                "upstream_entries",
+                side_effect=AssertionError("status 8 must not fall back to companion"),
+            ):
+                entries = quotas.fetch_provider("grok", None, home)
+        err = entries[0]["error"]
+        self.assertEqual(err["category"], "permanent")
+        self.assertEqual(err["message"], quotas.GROK_PERMANENT)
+        self._assert_human_user_message(err["message"])
 
     def test_grok_transient_grpc_statuses_delegate_to_upstream_stub(self) -> None:
         """H2: DEADLINE_EXCEEDED(4), UNAVAILABLE(14), INTERNAL(13) fall back when companion present."""

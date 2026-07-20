@@ -1294,14 +1294,23 @@ def classify_grok_grpc_status(status: int, message: str | None) -> dict[str, Any
     """Map gRPC status to a provider error entry, or raise FetchFallback for transient codes.
 
     - 16 UNAUTHENTICATED → authentication (no companion fallback)
-    - 7 PERMISSION_DENIED → authentication only with credential evidence, else permanent
+    - 7 PERMISSION_DENIED → context-dependent (see below). Not unconditional auth.
+    - 8 RESOURCE_EXHAUSTED → permanent rate-limit / quota (no companion fallback:
+      the companion would hit the same limit)
     - 4 DEADLINE_EXCEEDED → timeout (companion may fall back)
     - 14 UNAVAILABLE / 13 INTERNAL → network (companion may fall back)
     - other non-zero → permanent (no companion fallback)
+
+    Status 7 is context-dependent per the Grok billing dossier: x.ai often returns 7 for
+    "account without personal team" style identity/plan denials (permanent, not fixed by
+    re-login). Map to authentication only when the grpc-message shows credential evidence
+    (invalid/expired token, unauthenticated, etc.). Otherwise permanent identity-only.
     """
     if status == 16:
         return provider_error("grok", "grok-web", GROK_AUTH_RELOGIN, "authentication", False)
     if status == 7:
+        # Dossier: 7 is NOT always auth. Credential-shaped message → re-login;
+        # otherwise identity/plan denial stays permanent (no companion fallback).
         if _grpc_message_suggests_invalid_credentials(message):
             return provider_error("grok", "grok-web", GROK_AUTH_RELOGIN, "authentication", False)
         return provider_error(
@@ -1311,6 +1320,10 @@ def classify_grok_grpc_status(status: int, message: str | None) -> dict[str, Any
             "permanent",
             False,
         )
+    if status == 8:
+        # RESOURCE_EXHAUSTED: rate limit / quota, permanent for this fetch path.
+        # Do not fall back to companion (same upstream limit).
+        return provider_error("grok", "grok-web", GROK_PERMANENT, "permanent", False)
     if status == 4:
         raise FetchFallback(GROK_TIMEOUT, "timeout", True)
     if status in (13, 14):
