@@ -5,7 +5,9 @@ All notable changes to this project are documented in this file.
 ## 0.9.0
 
 - Fetch Codex and Grok quotas natively in `kodexbar-quotas` (stdlib HTTP) without requiring the companion `codexbar` binary for those providers.
-- Keep Antigravity on the upstream `codexbar` path. Use that CLI as optional fallback for Codex/Grok only on retryable network or infrastructure failures.
+- Keep Antigravity on the upstream `codexbar` path. Use that CLI as optional fallback for Codex/Grok on network, timeout, and schema-drift (invalid response) failures when the companion is installed.
+- Fall back to installed `codexbar` when the native Codex or Grok parser cannot map a provider response, so schema changes do not leave the widget stuck without the maintained companion path.
+- Show plain-language English errors for Codex and Grok (re-login, connection, and optional `codexbar-cli-bin` install guidance) without technical jargon or secrets.
 - On Codex or Grok authentication failure (missing credentials, 401/403, expired token), surface a re-login message and do not refresh OAuth tokens automatically.
 - Move AUR dependency `codexbar-cli-bin` from hard `depends` to `optdepends` for Antigravity and Codex/Grok fallback.
 
