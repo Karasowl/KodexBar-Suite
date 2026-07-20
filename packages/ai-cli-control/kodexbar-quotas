@@ -50,6 +50,8 @@ def enabled_providers(home: Path | None = None) -> list[str]:
     """Read the ordered enabled provider list from CodexBar's public config."""
     root = home or home_directory()
     config = read_json(root / ".config" / "codexbar" / "config.json")
+    if not isinstance(config, dict):
+        raise ValueError("CodexBar config root must be a JSON object")
     providers = config.get("providers")
     if not isinstance(providers, list):
         raise ValueError("CodexBar config has no providers array")
@@ -69,7 +71,12 @@ def claude_access_token(home: Path | None = None) -> str:
         credentials = read_json(root / ".claude" / ".credentials.json")
     except (OSError, json.JSONDecodeError) as error:
         raise FetchFallback("Claude OAuth credentials are unavailable", "authentication") from error
-    token = credentials.get("claudeAiOauth", {}).get("accessToken")
+    if not isinstance(credentials, dict):
+        raise FetchFallback("Claude OAuth credentials are unavailable", "authentication")
+    oauth = credentials.get("claudeAiOauth")
+    if not isinstance(oauth, dict):
+        raise FetchFallback("Claude OAuth credentials are unavailable", "authentication")
+    token = oauth.get("accessToken")
     if not isinstance(token, str) or not token.strip():
         raise FetchFallback("Claude OAuth credentials are unavailable", "authentication")
     return token.strip()

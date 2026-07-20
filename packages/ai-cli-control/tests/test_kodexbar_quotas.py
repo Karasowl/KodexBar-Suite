@@ -354,6 +354,8 @@ class QuotasEngineTests(unittest.TestCase):
         cases = {
             "invalid-json": "{not json",
             "no-providers-array": json.dumps({"other": True}),
+            "root-array": "[]",
+            "root-null": "null",
         }
         for name, body in cases.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
@@ -432,37 +434,47 @@ class QuotasEngineTests(unittest.TestCase):
             self.assertEqual(grok_entry["error"]["message"], "upstream codexbar is not installed")
 
     def test_missing_config_without_upstream_or_claude_emits_first_run_guidance(self) -> None:
-        """Matrix row 5: no config, no upstream, no Claude credentials -> guidance error."""
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            env = self._synthetic_env(root)
-            result = subprocess.run(
-                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
-                env=env,
-                text=True,
-                capture_output=True,
-                check=True,
-            )
-            entries = json.loads(result.stdout)
-            self.assertEqual(len(entries), 1)
-            entry = entries[0]
-            self.assertEqual(entry["provider"], "claude")
-            self.assertEqual(entry["error"]["kind"], "provider")
-            self.assertEqual(entry["error"]["category"], "authentication")
-            self.assertEqual(entry["error"]["message"], quotas.FIRST_RUN_CLAUDE_GUIDANCE)
-            self.assertIn("Claude Code", entry["error"]["message"])
-            self.assertIn("config.json", entry["error"]["message"])
+        """Matrix row 5: no config, no upstream, no usable Claude credentials -> guidance error."""
+        credential_cases = {
+            "absent": None,
+            "root-array": "[]",
+            "oauth-not-object": json.dumps({"claudeAiOauth": "bad"}),
+        }
+        for name, credentials_body in credential_cases.items():
+            with self.subTest(credentials=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                env = self._synthetic_env(root)
+                if credentials_body is not None:
+                    credentials = Path(env["HOME"]) / ".claude" / ".credentials.json"
+                    credentials.parent.mkdir(parents=True)
+                    credentials.write_text(credentials_body, encoding="utf-8")
+                result = subprocess.run(
+                    [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                )
+                entries = json.loads(result.stdout)
+                self.assertEqual(len(entries), 1)
+                entry = entries[0]
+                self.assertEqual(entry["provider"], "claude")
+                self.assertEqual(entry["error"]["kind"], "provider")
+                self.assertEqual(entry["error"]["category"], "authentication")
+                self.assertEqual(entry["error"]["message"], quotas.FIRST_RUN_CLAUDE_GUIDANCE)
+                self.assertIn("Claude Code", entry["error"]["message"])
+                self.assertIn("config.json", entry["error"]["message"])
 
-            # Explicit non-Claude provider still reports the honest upstream-missing fallback.
-            grok = subprocess.run(
-                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "grok"],
-                env=env,
-                text=True,
-                capture_output=True,
-                check=True,
-            )
-            grok_entry = json.loads(grok.stdout)[0]
-            self.assertEqual(grok_entry["error"]["message"], "upstream codexbar is not installed")
+                # Explicit non-Claude provider still reports the honest upstream-missing fallback.
+                grok = subprocess.run(
+                    [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "grok"],
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                )
+                grok_entry = json.loads(grok.stdout)[0]
+                self.assertEqual(grok_entry["error"]["message"], "upstream codexbar is not installed")
 
 
 if __name__ == "__main__":
