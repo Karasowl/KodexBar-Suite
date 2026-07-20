@@ -7,6 +7,7 @@ desde una copia temporal abierta por SQLite en modo de solo lectura.
 
 import argparse
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -28,6 +29,85 @@ UUID_SHAPE = re.compile(
 LONG_HEX_RUN = re.compile(r"[0-9a-fA-F]{24,}")
 LONG_DECIMAL_RUN = re.compile(r"[0-9]{12,}")
 OPAQUE_TOKEN = re.compile(r"(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])[A-Za-z0-9_-]{20,}")
+
+HELP_TEXT = {
+    "en": {
+        "usage": (
+            "ai recover [-h] <provider> [selector] [options]\n"
+            "       ai recover {list,dump} ..."
+        ),
+        "description": "Recover local conversations by project.",
+        "epilog": """examples:
+  ai recover claude
+  ai recover claude last
+  ai recover codex 3 --save
+  ai recover list --provider codex
+  ai recover dump --provider antigravity --id <ID> --max-chars 50000
+
+the project is the current directory unless you use --cwd.
+without a destination in a terminal, you can copy, save, or show the conversation.
+piped or redirected output is the normal dump, without a menu.""",
+        "list": "list recent sessions",
+        "dump": "show a normalized conversation",
+        "provider": "codex, grok, agy, antigravity, or claude",
+        "provider_one": "one provider",
+        "cwd": "project, defaults to the current directory",
+        "limit": "maximum per provider, default 10",
+        "limit_list": "maximum sessions listed, default 10",
+        "session_id": "session identifier or last",
+        "max_chars": "maximum characters, default 100000",
+        "selector": "last, listing index, or session identifier",
+        "copy": "copy the dump to the clipboard",
+        "save": "save Markdown, with optional path",
+        "stdout": "print the dump on stdout",
+        "limit_error": "--limit and --max-chars must be greater than zero",
+    },
+    "es": {
+        "usage": (
+            "ai recover [-h] <proveedor> [selector] [opciones]\n"
+            "       ai recover {list,dump} ..."
+        ),
+        "description": "Recupera conversaciones locales por proyecto.",
+        "epilog": """ejemplos:
+  ai recover claude
+  ai recover claude last
+  ai recover codex 3 --save
+  ai recover list --provider codex
+  ai recover dump --provider antigravity --id <ID> --max-chars 50000
+
+el proyecto es el directorio actual salvo que uses --cwd.
+sin destino y en una terminal, puedes copiar, guardar o mostrar la conversación.
+la salida con pipe o redirección es el dump normal, sin menú.""",
+        "list": "lista sesiones recientes",
+        "dump": "muestra una conversación normalizada",
+        "provider": "codex, grok, agy, antigravity o claude",
+        "provider_one": "un proveedor",
+        "cwd": "proyecto, por defecto el directorio actual",
+        "limit": "máximo por proveedor, por defecto 10",
+        "limit_list": "máximo de sesiones listadas, por defecto 10",
+        "session_id": "identificador de sesión o last",
+        "max_chars": "máximo de caracteres, por defecto 100000",
+        "selector": "last, índice de la lista o identificador de sesión",
+        "copy": "copia el dump al portapapeles",
+        "save": "guarda Markdown, con ruta opcional",
+        "stdout": "muestra el dump en stdout",
+        "limit_error": "--limit y --max-chars deben ser mayores que cero",
+    },
+}
+
+
+def locale_language(environ=None):
+    """Return Spanish only for an explicitly Spanish standard locale."""
+    environment = os.environ if environ is None else environ
+    for variable in ("LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG"):
+        value = environment.get(variable, "")
+        if value:
+            return "es" if value.lower().startswith("es") else "en"
+    return "en"
+
+
+def help_text(language=None):
+    return HELP_TEXT[language or locale_language()]
 
 
 def warn(message):
@@ -761,51 +841,47 @@ def export_positional_dump(args, selected, dump):
     return 0
 
 
-def build_help_parser():
+def build_help_parser(language=None):
+    text = help_text(language)
     return argparse.ArgumentParser(
         prog="ai recover",
-        usage="ai recover [-h] <proveedor> [selector] [opciones]\n       ai recover {list,dump} ...",
-        description="Recupera conversaciones locales por proyecto.",
-        epilog="""ejemplos:
-  ai recover claude
-  ai recover claude last
-  ai recover codex 3 --save
-  ai recover list --provider codex
-  ai recover dump --provider antigravity --id <ID> --max-chars 50000
-
-el proyecto es el directorio actual salvo que uses --cwd.
-sin destino y en una terminal, puedes copiar, guardar o mostrar la conversación.
-la salida con pipe o redirección es el dump normal, sin menú.""",
+        usage=text["usage"],
+        description=text["description"],
+        epilog=text["epilog"],
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
 
-def build_legacy_parser():
-    parser = build_help_parser()
+def build_legacy_parser(language=None):
+    text = help_text(language)
+    # Use a clean parent (no custom usage) so subparser help is stable across
+    # Python versions. Custom usage only belongs on the top-level help parser.
+    parser = argparse.ArgumentParser(prog="ai recover", description=text["description"])
     subparsers = parser.add_subparsers(dest="command", required=True)
-    listing = subparsers.add_parser("list", help="lista sesiones recientes")
-    listing.add_argument("--provider", required=True, help="codex, grok, agy, antigravity o claude")
-    listing.add_argument("--cwd", default=".", help="proyecto, por defecto el directorio actual")
-    listing.add_argument("--limit", type=int, default=10, help="máximo por proveedor, por defecto 10")
-    dumping = subparsers.add_parser("dump", help="muestra una conversación normalizada")
-    dumping.add_argument("--provider", required=True, help="un proveedor")
-    dumping.add_argument("--id", required=True, help="identificador de sesión o last")
-    dumping.add_argument("--cwd", default=".", help="proyecto, por defecto el directorio actual")
-    dumping.add_argument("--max-chars", type=int, default=100000, help="máximo de caracteres, por defecto 100000")
+    listing = subparsers.add_parser("list", help=text["list"])
+    listing.add_argument("--provider", required=True, help=text["provider"])
+    listing.add_argument("--cwd", default=".", help=text["cwd"])
+    listing.add_argument("--limit", type=int, default=10, help=text["limit"])
+    dumping = subparsers.add_parser("dump", help=text["dump"])
+    dumping.add_argument("--provider", required=True, help=text["provider_one"])
+    dumping.add_argument("--id", required=True, help=text["session_id"])
+    dumping.add_argument("--cwd", default=".", help=text["cwd"])
+    dumping.add_argument("--max-chars", type=int, default=100000, help=text["max_chars"])
     return parser
 
 
-def build_positional_parser():
-    parser = argparse.ArgumentParser(prog="ai recover", description="Recupera conversaciones locales por proyecto.")
-    parser.add_argument("provider", help="codex, grok, agy, antigravity o claude")
-    parser.add_argument("selector", nargs="?", help="last, índice de la lista o identificador de sesión")
-    parser.add_argument("--cwd", default=".", help="proyecto, por defecto el directorio actual")
-    parser.add_argument("--limit", type=int, default=10, help="máximo de sesiones listadas, por defecto 10")
-    parser.add_argument("--max-chars", type=int, default=100000, help="máximo de caracteres, por defecto 100000")
+def build_positional_parser(language=None):
+    text = help_text(language)
+    parser = argparse.ArgumentParser(prog="ai recover", description=text["description"])
+    parser.add_argument("provider", help=text["provider"])
+    parser.add_argument("selector", nargs="?", help=text["selector"])
+    parser.add_argument("--cwd", default=".", help=text["cwd"])
+    parser.add_argument("--limit", type=int, default=10, help=text["limit_list"])
+    parser.add_argument("--max-chars", type=int, default=100000, help=text["max_chars"])
     destinations = parser.add_mutually_exclusive_group()
-    destinations.add_argument("--copy", action="store_true", help="copia el dump al portapapeles")
-    destinations.add_argument("--save", nargs="?", const="", default=None, metavar="PATH", help="guarda Markdown, con ruta opcional")
-    destinations.add_argument("--stdout", action="store_true", help="muestra el dump en stdout")
+    destinations.add_argument("--copy", action="store_true", help=text["copy"])
+    destinations.add_argument("--save", nargs="?", const="", default=None, metavar="PATH", help=text["save"])
+    destinations.add_argument("--stdout", action="store_true", help=text["stdout"])
     return parser
 
 
@@ -837,20 +913,22 @@ def command_positional(args):
 
 def _main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    language = locale_language()
+    text = help_text(language)
     if not argv or argv[0] in {"-h", "--help"}:
-        build_help_parser().parse_args(argv)
+        build_help_parser(language).parse_args(argv)
         return 0
     if argv[0] in {"list", "dump"}:
-        parser = build_legacy_parser()
+        parser = build_legacy_parser(language)
         args = parser.parse_args(argv)
         if getattr(args, "limit", 1) < 1 or getattr(args, "max_chars", 1) < 1:
-            parser.error("--limit y --max-chars deben ser mayores que cero")
+            parser.error(text["limit_error"])
         command = command_list if args.command == "list" else command_dump
     else:
-        parser = build_positional_parser()
+        parser = build_positional_parser(language)
         args = parser.parse_args(argv)
         if args.limit < 1 or args.max_chars < 1:
-            parser.error("--limit y --max-chars deben ser mayores que cero")
+            parser.error(text["limit_error"])
         command = command_positional
     try:
         return command(args)

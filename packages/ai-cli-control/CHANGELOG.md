@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.8.1
+
+- Default `ai recover` help text to English unless an explicit Spanish locale is set (`LANG`/`LC_*` starting with `es`).
+- Make recover help tests assert stable tokens instead of argparse usage line layout that differs across Python 3.12–3.14.
+
 ## 0.8.0, 2026-07-19
 
 - Add monorepo-root GitHub Actions CI (`.github/workflows/ci.yml`) for suite tests and packaging checks, and remove package-local workflows under `packages/*/.github/workflows/` that GitHub Actions never discovered.

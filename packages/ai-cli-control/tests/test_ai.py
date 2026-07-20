@@ -710,7 +710,7 @@ class AiSelectorTests(unittest.TestCase):
         help_result = self.run_ai("recover")
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("usage: ", help_result.stdout)
-        self.assertIn("Recupera conversaciones locales por proyecto", help_result.stdout)
+        self.assertIn("Recover local conversations by project.", help_result.stdout)
         listed = self.run_ai("recover", "list", "--provider", "grok", "--cwd", str(self.temp))
         self.assertEqual(listed.returncode, 0, listed.stderr)
         self.assertEqual(listed.stdout, "")
@@ -824,22 +824,88 @@ class RecoverEngineTests(unittest.TestCase):
             check=False, env=env, cwd=self.temp,
         )
 
+    def _recover_help_env(self, lang: str) -> dict[str, str]:
+        environment = os.environ.copy()
+        environment.pop("LANGUAGE", None)
+        environment.update({"LANG": lang, "LC_ALL": lang})
+        return environment
+
+    def _assert_list_help_tokens(self, stdout: str) -> None:
+        """Assert list-help tokens without depending on argparse usage layout."""
+        # Python 3.12 may wrap or re-parent custom usage lines differently from 3.14.
+        lowered = stdout.lower()
+        self.assertIn("ai recover", lowered)
+        self.assertIn("list", lowered)
+        self.assertIn("--provider", lowered)
+        self.assertIn("usage:", lowered)
+
     def test_recover_help_uses_ai_command_and_examples(self) -> None:
+        english_env = self._recover_help_env("C")
         recover_help = subprocess.run(
-            [str(AI), "recover", "--help"], text=True, capture_output=True, check=False
+            [str(AI), "recover", "--help"], text=True, capture_output=True, check=False, env=english_env
         )
         list_help = subprocess.run(
-            [str(AI), "recover", "list", "--help"], text=True, capture_output=True, check=False
+            [str(AI), "recover", "list", "--help"], text=True, capture_output=True, check=False, env=english_env
         )
         self.assertEqual(recover_help.returncode, 0, recover_help.stderr)
         self.assertEqual(list_help.returncode, 0, list_help.stderr)
         self.assertIn("ai recover claude", recover_help.stdout)
-        self.assertIn("ejemplos:", recover_help.stdout)
+        self.assertIn("examples:", recover_help.stdout)
         self.assertIn("ai recover codex 3 --save", recover_help.stdout)
         self.assertIn("ai recover dump --provider antigravity --id <ID> --max-chars 50000", recover_help.stdout)
-        self.assertIn("el proyecto es el directorio actual salvo que uses --cwd.", recover_help.stdout)
-        self.assertIn("la salida con pipe o redirección es el dump normal, sin menú.", recover_help.stdout)
-        self.assertIn("usage: ai recover list [-h] --provider PROVIDER", list_help.stdout)
+        self.assertIn("the project is the current directory unless you use --cwd.", recover_help.stdout)
+        self.assertIn("piped or redirected output is the normal dump, without a menu.", recover_help.stdout)
+        self.assertIn("Recover local conversations by project.", recover_help.stdout)
+        self._assert_list_help_tokens(list_help.stdout)
+        self.assertNotIn("ejemplos:", recover_help.stdout)
+        self.assertNotIn("<proveedor>", recover_help.stdout)
+
+    def test_recover_help_locale_c_english_and_es_mx_spanish(self) -> None:
+        english = subprocess.run(
+            [str(AI), "recover", "--help"],
+            text=True,
+            capture_output=True,
+            check=False,
+            env=self._recover_help_env("C"),
+        )
+        spanish = subprocess.run(
+            [str(AI), "recover", "--help"],
+            text=True,
+            capture_output=True,
+            check=False,
+            env=self._recover_help_env("es_MX.UTF-8"),
+        )
+        english_list = subprocess.run(
+            [str(AI), "recover", "list", "--help"],
+            text=True,
+            capture_output=True,
+            check=False,
+            env=self._recover_help_env("C"),
+        )
+        spanish_list = subprocess.run(
+            [str(AI), "recover", "list", "--help"],
+            text=True,
+            capture_output=True,
+            check=False,
+            env=self._recover_help_env("es_MX.UTF-8"),
+        )
+        self.assertEqual(english.returncode, 0, english.stderr)
+        self.assertEqual(spanish.returncode, 0, spanish.stderr)
+        self.assertEqual(english_list.returncode, 0, english_list.stderr)
+        self.assertEqual(spanish_list.returncode, 0, spanish_list.stderr)
+        self.assertIn("examples:", english.stdout)
+        self.assertIn("Recover local conversations by project.", english.stdout)
+        self.assertIn("<provider>", english.stdout)
+        self.assertNotIn("ejemplos:", english.stdout)
+        self.assertIn("ejemplos:", spanish.stdout)
+        self.assertIn("Recupera conversaciones locales por proyecto.", spanish.stdout)
+        self.assertIn("<proveedor>", spanish.stdout)
+        self.assertIn("el proyecto es el directorio actual salvo que uses --cwd.", spanish.stdout)
+        self.assertNotIn("examples:", spanish.stdout)
+        self._assert_list_help_tokens(english_list.stdout)
+        self._assert_list_help_tokens(spanish_list.stdout)
+        self.assertIn("project, defaults to the current directory", english_list.stdout)
+        self.assertIn("proyecto, por defecto el directorio actual", spanish_list.stdout)
 
     def test_positional_listing_shows_stable_indexes_and_legacy_list_stays_plain(self) -> None:
         positional = self.run_recover("codex", "--cwd", str(self.project))
