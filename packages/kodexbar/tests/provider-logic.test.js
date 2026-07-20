@@ -1,5 +1,7 @@
 const assert = require("node:assert/strict")
+const { spawnSync } = require("node:child_process")
 const fs = require("node:fs")
+const os = require("node:os")
 const path = require("node:path")
 const vm = require("node:vm")
 
@@ -12,6 +14,17 @@ const legacyConfigQmlPath = path.join(root, "contents/ui/config/configGeneral.qm
 const legacyConfigEntryQmlPath = path.join(root, "contents/config/config.qml")
 const configXmlPath = path.join(root, "contents/config/main.xml")
 const metadataPath = path.join(root, "metadata.json")
+const quotasEnginePath = path.resolve(root, "../ai-cli-control/kodexbar-quotas")
+// Absolute interpreter so synthetic PATH cannot hide python3 itself.
+const python3Path = (() => {
+    const candidates = ["/usr/bin/python3", "/bin/python3"]
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+            return candidate
+        }
+    }
+    return "python3"
+})()
 const source = fs.readFileSync(logicPath, "utf8").replace(/^\.pragma library\s*$/m, "")
 const context = {}
 vm.createContext(context)
@@ -393,11 +406,51 @@ assert.equal(
     "the CodexBar no-fetch-strategy response is classified as non-transient"
 )
 
-// First-run guidance from kodexbar-quotas must remain visible (not purged as unfetchable).
-const firstRunClaudeGuidance =
+// First-run guidance from the real kodexbar-quotas engine must remain visible
+// (not purged as unfetchable). The JS side pins the exact literal so a Python
+// message change fails this test instead of keeping a stale copy.
+const expectedFirstRunClaudeGuidance =
     "Claude quotas need a Claude Code sign-in or a CodexBar provider config. " +
     "Sign in with Claude Code to create ~/.claude/.credentials.json, " +
     "or create ~/.config/codexbar/config.json with an enabled providers list."
+const syntheticHome = fs.mkdtempSync(path.join(os.tmpdir(), "kodexbar-first-run-home-"))
+const syntheticBin = fs.mkdtempSync(path.join(os.tmpdir(), "kodexbar-first-run-bin-"))
+let firstRunClaudeGuidance
+try {
+    const engineEnv = {
+        ...process.env,
+        HOME: syntheticHome,
+        PATH: syntheticBin,
+        LANG: "C"
+    }
+    for (const key of ["BROWSER", "DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"]) {
+        delete engineEnv[key]
+    }
+    const engineResult = spawnSync(
+        python3Path,
+        [quotasEnginePath, "usage", "--format", "json", "--json-only", "--provider", "all"],
+        {
+            env: engineEnv,
+            encoding: "utf8"
+        }
+    )
+    assert.equal(
+        engineResult.status,
+        0,
+        `kodexbar-quotas first-run exit ${engineResult.status}: ${engineResult.stderr || engineResult.error || engineResult.stdout}`
+    )
+    const engineEntries = JSON.parse(engineResult.stdout)
+    assert.equal(engineEntries.length, 1, "first-run engine emits a single Claude guidance entry")
+    firstRunClaudeGuidance = engineEntries[0].error.message
+    assert.equal(
+        firstRunClaudeGuidance,
+        expectedFirstRunClaudeGuidance,
+        "real kodexbar-quotas first-run guidance matches the pinned literal"
+    )
+} finally {
+    fs.rmSync(syntheticHome, { recursive: true, force: true })
+    fs.rmSync(syntheticBin, { recursive: true, force: true })
+}
 assert.equal(
     context.isUnfetchableProviderError({
         provider: "claude",
