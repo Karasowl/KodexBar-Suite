@@ -728,6 +728,11 @@ def _codex_finite_number(value: Any) -> float | None:
     return number
 
 
+def _percent_in_range(value: float) -> bool:
+    """True when value is a usable utilization percent in [0, 100]."""
+    return 0.0 <= value <= 100.0
+
+
 def map_codex_window(value: Any) -> dict[str, Any] | None:
     """Map one Codex rate-limit window. Raises FetchFallback on corrupt numerics."""
     if not isinstance(value, dict):
@@ -736,9 +741,10 @@ def map_codex_window(value: Any) -> dict[str, Any] | None:
     if used is None:
         used = value.get("usedPercent")
     used_number = _codex_finite_number(used)
-    if used is not None and isinstance(used, (int, float)) and not isinstance(used, bool) and used_number is None:
-        # Present but non-finite (NaN/Infinity): schema drift, not a soft miss.
-        raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True)
+    if used is not None and isinstance(used, (int, float)) and not isinstance(used, bool):
+        # Present but non-finite (NaN/Infinity) or outside [0, 100]: schema drift / corrupt.
+        if used_number is None or not _percent_in_range(used_number):
+            raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True)
     if used_number is None:
         return None
     window: dict[str, Any] = {"usedPercent": used_number}
@@ -1218,7 +1224,8 @@ def map_grok_usage(
         if not isinstance(used_percent, (int, float)) or isinstance(used_percent, bool):
             raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
         percent = float(used_percent)
-        if not math.isfinite(percent):
+        # Same [0, 100] band as the protobuf percent filter and Codex usedPercent.
+        if not math.isfinite(percent) or not _percent_in_range(percent):
             raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
         primary: dict[str, Any] = {"usedPercent": percent}
         if resets_at:

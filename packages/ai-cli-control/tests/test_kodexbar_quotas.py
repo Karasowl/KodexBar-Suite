@@ -1492,6 +1492,9 @@ class QuotasEngineTests(unittest.TestCase):
             ("reset_at_nan", {"reset_at": float("nan")}),
             ("timestamp_huge", {"reset_at": 1e100}),
             ("window_infinity", {"limit_window_seconds": float("inf")}),
+            ("used_percent_negative", {"used_percent": -1}),
+            ("used_percent_over_100", {"used_percent": 101}),
+            ("used_percent_huge", {"used_percent": 1e308}),
         )
         for name, overrides in cases:
             with self.subTest(case=name), tempfile.TemporaryDirectory() as directory:
@@ -1522,6 +1525,9 @@ class QuotasEngineTests(unittest.TestCase):
             {"reset_at": float("nan")},
             {"reset_at": 1e100},
             {"limit_window_seconds": float("inf")},
+            {"used_percent": -1},
+            {"used_percent": 101},
+            {"used_percent": 1e308},
         )
         for overrides in cases:
             with self.subTest(overrides=overrides), tempfile.TemporaryDirectory() as directory:
@@ -1544,6 +1550,14 @@ class QuotasEngineTests(unittest.TestCase):
                 self.assertEqual(err["message"], quotas.CODEX_INVALID_RESPONSE)
                 self.assertIn("codexbar-cli-bin", err["message"])
                 self._assert_human_user_message(err["message"])
+
+    def test_grok_out_of_range_used_percent_is_invalid_response(self) -> None:
+        """F1: Grok map_grok_usage rejects usedPercent outside [0, 100]."""
+        for percent in (-1.0, 101.0, 1e308):
+            with self.subTest(percent=percent):
+                with self.assertRaises(quotas.FetchFallback) as raised:
+                    quotas.map_grok_usage(percent, None, None)
+                self.assertEqual(raised.exception.category, "invalid_response")
 
     def test_grok_protobuf_garbage_delegates_to_upstream_stub(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
