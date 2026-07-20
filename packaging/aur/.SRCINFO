@@ -17,6 +17,6 @@ pkgbase = kodexbar-suite
 	optdepends = xclip: X11 clipboard support for ai recover --copy
 	optdepends = xsel: alternate X11 clipboard support for ai recover --copy
 	source = kodexbar-suite-0.9.0.tar.gz::https://github.com/Karasowl/KodexBar-Suite/archive/refs/tags/v0.9.0.tar.gz
-	sha256sums = SKIP
+	sha256sums = 307c171b4ac987cee48a56d0286a9ab6d8b2e6ff8693cd20d4891e331a6f2e63
 
 pkgname = kodexbar-suite
