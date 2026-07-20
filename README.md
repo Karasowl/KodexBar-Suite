@@ -69,6 +69,8 @@ cd KodexBar-Suite
 ./install.sh
 ```
 
+For Codex, Grok, and Antigravity quota numbers on a non-Arch install, also install the official CodexBar CLI and keep `codexbar` on your `PATH`. See [CodexBar CLI docs](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
+
 ### Migrating from a manual `~/.local` install to the package
 
 A previous manual install under `~/.local` takes priority over the system package: a typical `PATH` puts `~/.local/bin` before `/usr/bin`, and Plasma prefers user-local applet data over `/usr/share/plasma/plasmoids`. To use only the packaged files:

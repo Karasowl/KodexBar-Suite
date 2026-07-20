@@ -15,7 +15,7 @@ pkgdesc='CodexBar CLI (official binary): AI provider usage quotas backend used b
 arch=('x86_64' 'aarch64')
 url='https://github.com/steipete/CodexBar'
 license=('MIT')
-depends=('curl' 'sqlite')
+depends=('curl' 'sqlite' 'gcc-libs')
 provides=('codexbar-cli')
 conflicts=('codexbar')
 # Swift release binary: keep the upstream-built image intact.
@@ -35,6 +35,6 @@ package() {
   install -Dm755 "${srcdir}/CodexBarCLI" "${libdir}/CodexBarCLI"
   install -Dm644 "${srcdir}/VERSION" "${libdir}/VERSION"
   install -d "${pkgdir}/usr/bin"
-  ln -s "/usr/lib/${pkgname}/CodexBarCLI" "${pkgdir}/usr/bin/codexbar"
+  ln -s "../lib/${pkgname}/CodexBarCLI" "${pkgdir}/usr/bin/codexbar"
   install -Dm644 "${srcdir}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }

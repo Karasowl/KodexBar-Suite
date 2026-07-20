@@ -8,6 +8,7 @@ pkgbase = codexbar-cli-bin
 	license = MIT
 	depends = curl
 	depends = sqlite
+	depends = gcc-libs
 	provides = codexbar-cli
 	conflicts = codexbar
 	options = !strip

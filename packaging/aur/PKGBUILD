@@ -1,7 +1,7 @@
 # Maintainer: Karasowl <https://github.com/Karasowl>
 #
 # System package for KodexBar Suite: Plasma widget, ai selector, quota engine
-# (native Claude quotas; Codex/Grok/Antigravity via hard dep codexbar-cli-bin),
+# (native Claude quotas, Codex/Grok/Antigravity via hard dep codexbar-cli-bin),
 # panel adapter, and tray indicator. Optional desktop-specific runtime deps are
 # listed in optdepends so a pure Arch/CachyOS install stays minimal.
 
