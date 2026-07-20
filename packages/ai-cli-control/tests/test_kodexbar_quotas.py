@@ -1864,41 +1864,60 @@ class QuotasEngineTests(unittest.TestCase):
 
         self.assertIn("TOKEN=passthrough-ok", entries[0]["error"]["message"])
 
+    # Suffixes (and _MISSING_* pattern) that mark user-visible message constants.
+    # Discover automatically so a new constant fails this test if unsanitized.
+    _VISIBLE_MESSAGE_SUFFIXES = (
+        "_RELOGIN",
+        "_NETWORK",
+        "_TIMEOUT",
+        "_INVALID_RESPONSE",
+        "_PERMANENT",
+        "_BOTH_FAILED",
+        "_MALFORMED",
+        "_UNREADABLE",
+        "_INVALID_JSON",
+        "_NOT_FOUND",
+        "_CONFIG_TOML_INVALID",
+        "_GUIDANCE",
+        "_PERMISSION_DENIED",
+        "_AUTH_EXPIRED",
+    )
+    _VISIBLE_MISSING_NAME = re.compile(r"_MISSING_[A-Z0-9_]+$")
+
+    @classmethod
+    def _iter_visible_message_constants(cls) -> list[tuple[str, str]]:
+        """All module string constants that match visible-message name conventions."""
+        found: list[tuple[str, str]] = []
+        for name in dir(quotas):
+            if name.startswith("_"):
+                continue
+            if not (
+                any(name.endswith(suffix) for suffix in cls._VISIBLE_MESSAGE_SUFFIXES)
+                or cls._VISIBLE_MISSING_NAME.search(name)
+            ):
+                continue
+            value = getattr(quotas, name)
+            if isinstance(value, str):
+                found.append((name, value))
+        return sorted(found)
+
     def test_user_visible_native_errors_have_no_technical_jargon(self) -> None:
         """H4: every user-visible message constant is free of jargon and purge phrases."""
-        messages = [
-            quotas.FIRST_RUN_CLAUDE_GUIDANCE,
-            quotas.CODEX_AUTH_RELOGIN,
-            quotas.CODEX_AUTH_NOT_FOUND,
-            quotas.CODEX_AUTH_MISSING_TOKENS,
-            quotas.CODEX_AUTH_EXPIRED,
-            quotas.CODEX_AUTH_UNREADABLE,
-            quotas.CODEX_AUTH_INVALID_JSON,
-            quotas.CODEX_CONFIG_TOML_INVALID,
-            quotas.CODEX_CREDENTIAL_MALFORMED,
-            quotas.CODEX_NETWORK,
-            quotas.CODEX_TIMEOUT,
-            quotas.CODEX_INVALID_RESPONSE,
-            quotas.CODEX_BOTH_FAILED,
-            quotas.CODEX_PERMANENT,
-            quotas.GROK_AUTH_RELOGIN,
-            quotas.GROK_AUTH_NOT_FOUND,
-            quotas.GROK_AUTH_MISSING_KEY,
-            quotas.GROK_AUTH_UNREADABLE,
-            quotas.GROK_AUTH_INVALID_JSON,
-            quotas.GROK_CREDENTIAL_MALFORMED,
-            quotas.GROK_NETWORK,
-            quotas.GROK_TIMEOUT,
-            quotas.GROK_INVALID_RESPONSE,
-            quotas.GROK_BOTH_FAILED,
-            quotas.GROK_PERMANENT,
-            quotas.GROK_PERMISSION_DENIED,
-        ]
-        # Guard must not silently drop a constant: re-list distinct values for coverage report.
-        distinct = sorted(set(messages))
-        self.assertGreaterEqual(len(distinct), 20)
-        for message in messages:
-            self._assert_human_user_message(message)
+        named = self._iter_visible_message_constants()
+        self.assertTrue(named, "expected at least one visible message constant by name convention")
+        names = [name for name, _ in named]
+        # Core providers must contribute constants; missing discovery is a test bug.
+        self.assertTrue(any(n.startswith("CODEX_") for n in names), names)
+        self.assertTrue(any(n.startswith("GROK_") for n in names), names)
+        self.assertIn("FIRST_RUN_CLAUDE_GUIDANCE", names)
+        self.assertIn("CODEX_CONFIG_TOML_INVALID", names)
+        self.assertIn("GROK_PERMISSION_DENIED", names)
+        self.assertIn("CODEX_AUTH_MISSING_TOKENS", names)
+        self.assertIn("GROK_AUTH_MISSING_KEY", names)
+
+        for name, message in named:
+            with self.subTest(constant=name):
+                self._assert_human_user_message(message)
         # TOML invalid must be actionable (not "were ignored").
         self.assertNotIn("were ignored", quotas.CODEX_CONFIG_TOML_INVALID.lower())
         self.assertIn("fix or remove", quotas.CODEX_CONFIG_TOML_INVALID.lower())
