@@ -468,6 +468,24 @@ assert.deepEqual(
     "first-run Claude guidance stays in the widget provider list"
 )
 
+// Native Codex/Grok human errors must stay visible (re-login, network, schema drift).
+// Pinned literals match packages/ai-cli-control/kodexbar-quotas user-facing constants.
+const nativeHumanErrorMessages = [
+    "Sign in to Codex again to see quotas (run: codex).",
+    "Sign in to Grok again (run: grok login).",
+    "Codex is unreachable right now. Check your connection and retry.",
+    "Grok is unreachable right now. Check your connection and retry.",
+    "Could not read Codex quotas. Install the codexbar-cli-bin package as a fallback, or update KodexBar.",
+    "Could not read Grok quotas. Install the codexbar-cli-bin package as a fallback, or update KodexBar."
+]
+for (const errorMessage of nativeHumanErrorMessages) {
+    assert.equal(
+        context.isUnfetchableProviderError({ provider: "codex", errorMessage }),
+        false,
+        `native human error must not match unfetchable purge: ${errorMessage}`
+    )
+}
+
 const reconciledSeedCache = plain(context.reconcileSeedCache(
     fixture.seedReconciliation.previousCache, fixture.seedReconciliation.seedEntries))
 assert.deepEqual(

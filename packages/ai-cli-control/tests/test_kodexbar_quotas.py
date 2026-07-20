@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import struct
 import subprocess
 import tempfile
@@ -890,7 +891,7 @@ class QuotasEngineTests(unittest.TestCase):
             entries = json.loads(result.stdout)
             self.assertEqual([entry["provider"] for entry in entries], ["codex"])
             self.assertEqual(entries[0]["error"]["category"], "authentication")
-            self.assertIn("tokens", entries[0]["error"]["message"].lower())
+            self.assertEqual(entries[0]["error"]["message"], quotas.CODEX_AUTH_RELOGIN)
 
     def test_write_auto_config_exclusive_concurrent_publish(self) -> None:
         """Two concurrent publishers: only one wins, the loser never alters winner content."""
@@ -1017,7 +1018,7 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["error"]["category"], "authentication")
         self.assertFalse(entries[0]["error"]["retryable"])
-        self.assertIn("log in", entries[0]["error"]["message"].lower())
+        self.assertEqual(entries[0]["error"]["message"], quotas.CODEX_AUTH_RELOGIN)
         self.assertEqual(upstream_calls, [])
         self.assertNotIn(TEST_CODEX_TOKEN, json.dumps(entries))
 
@@ -1036,7 +1037,7 @@ class QuotasEngineTests(unittest.TestCase):
 
         self.assertEqual(entries[0]["error"]["category"], "network")
         self.assertTrue(entries[0]["error"]["retryable"])
-        self.assertIn("HTTP 500", entries[0]["error"]["message"])
+        self.assertEqual(entries[0]["error"]["message"], quotas.CODEX_NETWORK)
         self.assertNotIn(TEST_CODEX_TOKEN, json.dumps(entries))
 
     def test_codex_500_with_upstream_delegates(self) -> None:
@@ -1111,6 +1112,7 @@ class QuotasEngineTests(unittest.TestCase):
                 entries = quotas.fetch_provider("grok", None, home)
         self.assertEqual(entries[0]["error"]["category"], "authentication")
         self.assertFalse(entries[0]["error"]["retryable"])
+        self.assertEqual(entries[0]["error"]["message"], quotas.GROK_AUTH_RELOGIN)
         self.assertIn("grok login", entries[0]["error"]["message"].lower())
 
     def test_grok_timeout_is_retryable(self) -> None:
@@ -1131,6 +1133,7 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(calls["n"], 2)  # one retry on timeout
         self.assertEqual(entries[0]["error"]["category"], "timeout")
         self.assertTrue(entries[0]["error"]["retryable"])
+        self.assertEqual(entries[0]["error"]["message"], quotas.GROK_TIMEOUT)
         self.assertNotIn(TEST_GROK_KEY, json.dumps(entries))
 
     def test_antigravity_still_delegates_to_upstream(self) -> None:
@@ -1239,7 +1242,7 @@ class QuotasEngineTests(unittest.TestCase):
             self._write_codex_auth(home, token=bad)
             entry = quotas.fetch_codex(home)
         self.assertEqual(entry["error"]["category"], "authentication")
-        self.assertIn("malformed", entry["error"]["message"].lower())
+        self.assertEqual(entry["error"]["message"], quotas.CODEX_CREDENTIAL_MALFORMED)
         self.assertNotIn(TEST_CODEX_TOKEN, json.dumps(entry))
         self.assertNotIn("extra", entry["error"]["message"])
 
@@ -1252,7 +1255,7 @@ class QuotasEngineTests(unittest.TestCase):
             with self.assertRaises(quotas.FetchFallback) as raised:
                 quotas.codex_access_credentials(home)
         self.assertEqual(raised.exception.category, "permanent")
-        self.assertIn("invalid JSON", str(raised.exception))
+        self.assertEqual(str(raised.exception), quotas.CODEX_AUTH_INVALID_JSON)
 
     def test_codex_missing_auth_is_authentication(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1276,7 +1279,7 @@ class QuotasEngineTests(unittest.TestCase):
             with self.assertRaises(quotas.FetchFallback) as raised:
                 quotas.read_chatgpt_base_url(home)
         self.assertEqual(raised.exception.category, "permanent")
-        self.assertIn("config.toml", str(raised.exception).lower())
+        self.assertEqual(str(raised.exception), quotas.CODEX_CONFIG_TOML_INVALID)
 
     def test_valid_toml_reads_chatgpt_base_url(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1348,6 +1351,214 @@ class QuotasEngineTests(unittest.TestCase):
             quotas.read_http_body_limited(HugeStream(), max_bytes=64)
         self.assertEqual(raised.exception.category, "invalid_response")
         self.assertIn("size limit", str(raised.exception).lower())
+
+    # --- Resilience: schema-drift fallback + human error messages ---
+
+    _USER_JARGON = ("protobuf", "gRPC", "invalid_response", "OSError", "traceback")
+    # Widget purge regex from packages/kodexbar/contents/code/providerLogic.js
+    # (isUnfetchableProviderError). Native human errors must not match it.
+    _UNFETCHABLE_PURGE = re.compile(
+        r"\bno\s+(?:available\s+)?fetch\s+strategy\b|"
+        r"\bunfetchable\s+provider\b|"
+        r"\bprovider\s+cannot\s+be\s+fetched\b",
+        re.I,
+    )
+
+    def _assert_human_user_message(self, message: str) -> None:
+        lowered = message.lower()
+        for word in self._USER_JARGON:
+            self.assertNotIn(word.lower(), lowered, f"user message must not include {word!r}: {message}")
+        self.assertIsNone(
+            self._UNFETCHABLE_PURGE.search(message),
+            f"user message must not match unfetchable purge regex: {message}",
+        )
+
+    def test_codex_schema_drift_delegates_to_upstream_stub(self) -> None:
+        """HTTP 200 with unmappable JSON falls back to codexbar when installed."""
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+            upstream_calls: list[tuple[str, str | None]] = []
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {"Content-Type": "application/json"}, b'{"plan_type":"pro","rate_limit":{}}'
+
+            def fake_upstream(provider, source):
+                upstream_calls.append((provider, source))
+                return [{"provider": "codex", "source": "upstream", "usage": {"primary": None}}]
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(quotas, "upstream_entries", side_effect=fake_upstream):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        self.assertEqual(upstream_calls, [("codex", None)])
+        self.assertEqual(entries[0]["source"], "upstream")
+        self.assertNotIn("error", entries[0])
+
+    def test_codex_schema_drift_without_upstream_is_human(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {"Content-Type": "application/json"}, b'{"unexpected": true}'
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value=None
+            ), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("must not call without stub")
+            ):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        err = entries[0]["error"]
+        self.assertEqual(err["category"], "invalid_response")
+        self.assertEqual(err["message"], quotas.CODEX_INVALID_RESPONSE)
+        self.assertIn("codexbar-cli-bin", err["message"])
+        self._assert_human_user_message(err["message"])
+
+    def test_grok_protobuf_garbage_delegates_to_upstream_stub(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_grok_auth(home)
+            upstream_calls: list[str] = []
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {}, b"\x00\x00\x00\x00\x04notp"
+
+            def fake_upstream(provider, source):
+                upstream_calls.append(provider)
+                return [{"provider": "grok", "source": "upstream", "usage": {"primary": None}}]
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(quotas, "upstream_entries", side_effect=fake_upstream):
+                entries = quotas.fetch_provider("grok", None, home)
+
+        self.assertEqual(upstream_calls, ["grok"])
+        self.assertEqual(entries[0]["source"], "upstream")
+
+    def test_grok_protobuf_garbage_without_upstream_is_human(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_grok_auth(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                # Truncated varint after a valid percent path: invalid_response.
+                percent = _protobuf_key(1, 5) + struct.pack("<f", 57.0)
+                nested = percent + b"\x80"
+                message = _protobuf_key(1, 2) + _encode_varint(len(nested)) + nested
+                frame = b"\x00" + len(message).to_bytes(4, "big") + message
+                return 200, {}, frame
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value=None
+            ):
+                entries = quotas.fetch_provider("grok", None, home)
+
+        err = entries[0]["error"]
+        self.assertEqual(err["category"], "invalid_response")
+        self.assertEqual(err["message"], quotas.GROK_INVALID_RESPONSE)
+        self.assertIn("codexbar-cli-bin", err["message"])
+        self._assert_human_user_message(err["message"])
+
+    def test_codex_missing_token_never_delegates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            # No auth.json
+            with patch.object(quotas, "upstream_path", return_value="/fake/codexbar"), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("must not delegate on auth")
+            ):
+                entries = quotas.fetch_provider("codex", None, home)
+        self.assertEqual(entries[0]["error"]["category"], "authentication")
+        self.assertEqual(entries[0]["error"]["message"], quotas.CODEX_AUTH_RELOGIN)
+        self._assert_human_user_message(entries[0]["error"]["message"])
+
+    def test_network_and_timeout_still_delegate_with_stub(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+            self._write_grok_auth(home)
+
+            def boom_network(method, url, headers=None, body=None, timeout=None):
+                raise quotas.FetchFallback("HTTP request failed", "network", True)
+
+            def boom_timeout(method, url, headers=None, body=None, timeout=None):
+                raise quotas.FetchFallback("HTTP timeout failure for POST", "timeout", True)
+
+            with patch.object(quotas, "upstream_path", return_value="/fake/codexbar"), patch.object(
+                quotas,
+                "upstream_entries",
+                return_value=[{"provider": "stub", "source": "upstream", "usage": {"primary": None}}],
+            ) as upstream:
+                with patch.object(quotas, "http_request", side_effect=boom_network):
+                    codex_entries = quotas.fetch_provider("codex", None, home)
+                with patch.object(quotas, "http_request", side_effect=boom_timeout):
+                    grok_entries = quotas.fetch_provider("grok", None, home)
+
+        self.assertEqual(codex_entries[0]["source"], "upstream")
+        self.assertEqual(grok_entries[0]["source"], "upstream")
+        self.assertGreaterEqual(upstream.call_count, 2)
+
+    def test_network_without_stub_is_human(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+            self._write_grok_auth(home)
+
+            def boom(method, url, headers=None, body=None, timeout=None):
+                raise quotas.FetchFallback("HTTP request failed", "network", True)
+
+            with patch.object(quotas, "http_request", side_effect=boom), patch.object(
+                quotas, "upstream_path", return_value=None
+            ):
+                codex = quotas.fetch_provider("codex", None, home)
+                grok = quotas.fetch_provider("grok", None, home)
+
+        self.assertEqual(codex[0]["error"]["message"], quotas.CODEX_NETWORK)
+        self.assertEqual(grok[0]["error"]["message"], quotas.GROK_NETWORK)
+        self._assert_human_user_message(codex[0]["error"]["message"])
+        self._assert_human_user_message(grok[0]["error"]["message"])
+
+    def test_permanent_no_plan_style_never_delegates(self) -> None:
+        """Non-parse permanent failures must not fall back to codexbar."""
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 404, {}, b"not found"
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("must not delegate permanent")
+            ):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        self.assertEqual(entries[0]["error"]["category"], "permanent")
+        self.assertEqual(entries[0]["error"]["message"], quotas.CODEX_PERMANENT)
+        self._assert_human_user_message(entries[0]["error"]["message"])
+
+    def test_user_visible_native_errors_have_no_technical_jargon(self) -> None:
+        messages = [
+            quotas.CODEX_AUTH_RELOGIN,
+            quotas.CODEX_AUTH_UNREADABLE,
+            quotas.CODEX_AUTH_INVALID_JSON,
+            quotas.CODEX_NETWORK,
+            quotas.CODEX_TIMEOUT,
+            quotas.CODEX_INVALID_RESPONSE,
+            quotas.CODEX_PERMANENT,
+            quotas.GROK_AUTH_RELOGIN,
+            quotas.GROK_AUTH_UNREADABLE,
+            quotas.GROK_NETWORK,
+            quotas.GROK_TIMEOUT,
+            quotas.GROK_INVALID_RESPONSE,
+            quotas.GROK_PERMANENT,
+            quotas.GROK_PERMISSION_DENIED,
+        ]
+        for message in messages:
+            self._assert_human_user_message(message)
 
 
 if __name__ == "__main__":
