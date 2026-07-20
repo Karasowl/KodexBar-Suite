@@ -476,6 +476,236 @@ class QuotasEngineTests(unittest.TestCase):
                 grok_entry = json.loads(grok.stdout)[0]
                 self.assertEqual(grok_entry["error"]["message"], "upstream codexbar is not installed")
 
+    # --- Auto-config first-run matrix (brainless): synthetic HOME/PATH only, never real HOME/CLIs ---
+
+    def _place_fake_cli(self, bin_dir: Path, name: str) -> None:
+        path = bin_dir / name
+        path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        path.chmod(0o755)
+
+    def test_auto_config_detection_helpers_are_local_and_pure(self) -> None:
+        """Detection uses only HOME layout and PATH names (no network)."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            bin_dir = root / "bin"
+            home.mkdir()
+            bin_dir.mkdir()
+            env_path = str(bin_dir)
+            with patch.dict(os.environ, {"HOME": str(home), "PATH": env_path}, clear=False):
+                self.assertFalse(quotas.detect_claude_installed(home))
+                self.assertFalse(quotas.detect_codex_installed(home))
+                self.assertFalse(quotas.detect_grok_installed(home))
+                self.assertFalse(quotas.detect_antigravity_installed(home))
+
+                credentials = home / ".claude" / ".credentials.json"
+                credentials.parent.mkdir(parents=True)
+                credentials.write_text(
+                    json.dumps({"claudeAiOauth": {"accessToken": "tok"}}),
+                    encoding="utf-8",
+                )
+                self.assertTrue(quotas.detect_claude_installed(home))
+
+                (home / ".codex").mkdir()
+                (home / ".codex" / "auth.json").write_text("{}", encoding="utf-8")
+                self.assertTrue(quotas.detect_codex_installed(home))
+
+                (home / ".grok").mkdir()
+                self.assertTrue(quotas.detect_grok_installed(home))
+
+                self._place_fake_cli(bin_dir, "agy")
+                self.assertTrue(quotas.detect_antigravity_installed(home))
+
+                # PATH-only signals (no home side effects beyond what we set).
+                self._place_fake_cli(bin_dir, "claude")
+                self._place_fake_cli(bin_dir, "codex")
+                self._place_fake_cli(bin_dir, "grok")
+                self._place_fake_cli(bin_dir, "antigravity")
+                empty_home = root / "empty-home"
+                empty_home.mkdir()
+                self.assertTrue(quotas.detect_claude_installed(empty_home))
+                self.assertTrue(quotas.detect_codex_installed(empty_home))
+                self.assertTrue(quotas.detect_grok_installed(empty_home))
+                self.assertTrue(quotas.detect_antigravity_installed(empty_home))
+
+    def test_build_auto_config_includes_version_and_four_ids(self) -> None:
+        payload = quotas.build_auto_config({
+            "claude": True,
+            "codex": False,
+            "grok": True,
+            "antigravity": False,
+        })
+        self.assertEqual(payload["version"], 1)
+        self.assertEqual(
+            [item["id"] for item in payload["providers"]],
+            ["claude", "codex", "grok", "antigravity"],
+        )
+        self.assertEqual(
+            [item["enabled"] for item in payload["providers"]],
+            [True, False, True, False],
+        )
+
+    def test_existing_config_is_never_overwritten_byte_for_byte(self) -> None:
+        """Config present (valid): remains intact after a full usage invoke."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = self._synthetic_env(root)
+            home = Path(env["HOME"])
+            config = home / ".config" / "codexbar" / "config.json"
+            config.parent.mkdir(parents=True)
+            original = '{"version":1,"providers":[{"id":"codex","enabled":true}]}\n'
+            config.write_text(original, encoding="utf-8")
+            # Detection would otherwise try to enable other providers if we rewrote.
+            self._place_fake_cli(Path(env["PATH"]), "claude")
+            self._place_fake_cli(Path(env["PATH"]), "grok")
+            result = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(config.read_text(encoding="utf-8"), original)
+            # Output remains parseable JSON and only reflects the existing enabled list.
+            entries = json.loads(result.stdout)
+            self.assertEqual([entry["provider"] for entry in entries], ["codex"])
+
+    def test_malformed_existing_config_is_not_repaired_or_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = self._synthetic_env(root, with_upstream=True)
+            home = Path(env["HOME"])
+            config = home / ".config" / "codexbar" / "config.json"
+            config.parent.mkdir(parents=True)
+            original = "{not-valid-json"
+            config.write_text(original, encoding="utf-8")
+            self._place_fake_cli(Path(env["PATH"]), "claude")
+            subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(config.read_text(encoding="utf-8"), original)
+
+    def test_auto_config_generates_versioned_json_for_detected_clis(self) -> None:
+        """Config absent + CLIs detected → atomic write with version 1 and enabled only for detected."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = self._synthetic_env(root)
+            home = Path(env["HOME"])
+            bin_dir = Path(env["PATH"])
+            self._place_fake_cli(bin_dir, "claude")
+            self._place_fake_cli(bin_dir, "codex")
+            # grok via home directory signal
+            (home / ".grok").mkdir()
+            # antigravity not present
+
+            result = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            config_path = home / ".config" / "codexbar" / "config.json"
+            self.assertTrue(config_path.is_file())
+            raw = config_path.read_text(encoding="utf-8")
+            # Literal acceptance: generated JSON includes version 1 (stdlib dumps uses ": ").
+            self.assertIn('"version": 1', raw)
+            payload = json.loads(raw)
+            self.assertEqual(payload["version"], 1)
+            by_id = {item["id"]: item["enabled"] for item in payload["providers"]}
+            self.assertEqual(
+                by_id,
+                {"claude": True, "codex": True, "grok": True, "antigravity": False},
+            )
+            # Normal path: only detected/enabled providers are queried.
+            entries = json.loads(result.stdout)
+            self.assertEqual(
+                sorted(entry["provider"] for entry in entries),
+                ["claude", "codex", "grok"],
+            )
+            # Without upstream, non-claude providers report the honest missing-upstream fallback.
+            messages = {
+                entry["provider"]: entry.get("error", {}).get("message", "")
+                for entry in entries
+                if "error" in entry
+            }
+            self.assertEqual(messages.get("codex"), "upstream codexbar is not installed")
+            self.assertEqual(messages.get("grok"), "upstream codexbar is not installed")
+            # stdout must stay pure JSON (auto-config is silent).
+            self.assertEqual(result.stderr.strip(), "")
+
+    def test_auto_config_zero_clis_writes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = self._synthetic_env(root)
+            home = Path(env["HOME"])
+            config_path = home / ".config" / "codexbar" / "config.json"
+            result = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertFalse(config_path.exists())
+            entries = json.loads(result.stdout)
+            self.assertEqual(entries[0]["error"]["message"], quotas.FIRST_RUN_CLAUDE_GUIDANCE)
+
+    def test_auto_config_write_failure_does_not_break_call(self) -> None:
+        """If the config directory cannot be created/written, keep absent-config behavior."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = self._synthetic_env(root)
+            home = Path(env["HOME"])
+            bin_dir = Path(env["PATH"])
+            self._place_fake_cli(bin_dir, "codex")
+            # Block writing config: create a file where the config directory should be.
+            blocker = home / ".config"
+            blocker.write_text("not-a-directory", encoding="utf-8")
+            result = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            # No config.json created under the blocked tree.
+            self.assertFalse((home / ".config" / "codexbar" / "config.json").exists())
+            # Call still succeeds with the legacy absent-config guidance (codex on PATH is not
+            # credentials for Claude, and write failed so enabled list was never established).
+            entries = json.loads(result.stdout)
+            self.assertEqual(entries[0]["provider"], "claude")
+            self.assertEqual(entries[0]["error"]["message"], quotas.FIRST_RUN_CLAUDE_GUIDANCE)
+
+    def test_auto_config_codex_auth_json_without_cli_enables_codex(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = self._synthetic_env(root)
+            home = Path(env["HOME"])
+            auth = home / ".codex" / "auth.json"
+            auth.parent.mkdir(parents=True)
+            auth.write_text("{}", encoding="utf-8")
+            result = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            payload = json.loads((home / ".config" / "codexbar" / "config.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["version"], 1)
+            self.assertEqual(
+                {item["id"]: item["enabled"] for item in payload["providers"]},
+                {"claude": False, "codex": True, "grok": False, "antigravity": False},
+            )
+            entries = json.loads(result.stdout)
+            self.assertEqual([entry["provider"] for entry in entries], ["codex"])
+            self.assertEqual(entries[0]["error"]["message"], "upstream codexbar is not installed")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,17 +9,20 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 TIMEOUT_SECONDS = 15
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok"}
-# First-run guidance when config is absent, upstream is missing, and Claude is not signed in.
+# Stable order for auto-generated CodexBar config (upstream Codable expects version + providers).
+AUTO_CONFIG_PROVIDER_IDS = ("claude", "codex", "grok", "antigravity")
+# First-run guidance when config is absent, no CLIs are detected, upstream is missing, and Claude is not signed in.
 # Must NOT match the widget unfetchable-provider purge regex in providerLogic.js.
 FIRST_RUN_CLAUDE_GUIDANCE = (
     "Claude quotas need a Claude Code sign-in or a CodexBar provider config. "
@@ -41,6 +44,11 @@ def home_directory() -> Path:
     return Path(os.environ.get("HOME", str(Path.home()))).expanduser()
 
 
+def codexbar_config_path(home: Path | None = None) -> Path:
+    root = home or home_directory()
+    return root / ".config" / "codexbar" / "config.json"
+
+
 def read_json(path: Path) -> Any:
     with path.open(encoding="utf-8") as handle:
         return json.load(handle)
@@ -48,8 +56,7 @@ def read_json(path: Path) -> Any:
 
 def enabled_providers(home: Path | None = None) -> list[str]:
     """Read the ordered enabled provider list from CodexBar's public config."""
-    root = home or home_directory()
-    config = read_json(root / ".config" / "codexbar" / "config.json")
+    config = read_json(codexbar_config_path(home))
     if not isinstance(config, dict):
         raise ValueError("CodexBar config root must be a JSON object")
     providers = config.get("providers")
@@ -63,6 +70,100 @@ def enabled_providers(home: Path | None = None) -> list[str]:
         if isinstance(provider_id, str) and provider_id:
             result.append(provider_id.lower())
     return result
+
+
+def command_on_path(name: str) -> bool:
+    """True when an executable named `name` is on PATH (local, no network)."""
+    return shutil.which(name) is not None
+
+
+def detect_claude_installed(home: Path | None = None) -> bool:
+    """Claude is present when OAuth credentials are valid or `claude` is on PATH."""
+    root = home or home_directory()
+    return has_claude_credentials(root) or command_on_path("claude")
+
+
+def detect_codex_installed(home: Path | None = None) -> bool:
+    """Codex is present when auth.json exists or `codex` is on PATH."""
+    root = home or home_directory()
+    return (root / ".codex" / "auth.json").is_file() or command_on_path("codex")
+
+
+def detect_grok_installed(home: Path | None = None) -> bool:
+    """Grok is present when `grok` is on PATH or `~/.grok` exists."""
+    root = home or home_directory()
+    return command_on_path("grok") or (root / ".grok").is_dir()
+
+
+def detect_antigravity_installed(home: Path | None = None) -> bool:
+    """Antigravity is present when `agy` or `antigravity` is on PATH."""
+    return command_on_path("agy") or command_on_path("antigravity")
+
+
+def detect_installed_providers(home: Path | None = None) -> dict[str, bool]:
+    """Local-only detection of installed provider CLIs/credentials (pure, testable)."""
+    root = home or home_directory()
+    return {
+        "claude": detect_claude_installed(root),
+        "codex": detect_codex_installed(root),
+        "grok": detect_grok_installed(root),
+        "antigravity": detect_antigravity_installed(root),
+    }
+
+
+def build_auto_config(detected: dict[str, bool]) -> dict[str, Any]:
+    """CodexBar config payload: version 1 and all four provider ids, enabled only when detected."""
+    return {
+        "version": 1,
+        "providers": [
+            {"id": provider_id, "enabled": bool(detected.get(provider_id))}
+            for provider_id in AUTO_CONFIG_PROVIDER_IDS
+        ],
+    }
+
+
+def write_auto_config_atomic(config_path: Path, payload: dict[str, Any]) -> None:
+    """Write config.json via tempfile + rename in the same directory (atomic on same filesystem)."""
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(payload, ensure_ascii=False)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=".config.",
+        suffix=".tmp",
+        dir=str(config_path.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, config_path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
+def ensure_auto_config(home: Path | None = None) -> bool:
+    """If config is absent and at least one CLI is detected, generate it once.
+
+    Never overwrites an existing config (valid or malformed). Silent on stdout.
+    Write failures are swallowed so the caller keeps the current absent-config path.
+    Returns True when a config file was written successfully.
+    """
+    root = home or home_directory()
+    config_path = codexbar_config_path(root)
+    if config_path.exists():
+        return False
+    detected = detect_installed_providers(root)
+    if not any(detected.values()):
+        return False
+    try:
+        write_auto_config_atomic(config_path, build_auto_config(detected))
+    except OSError:
+        return False
+    return True
 
 
 def claude_access_token(home: Path | None = None) -> str:
@@ -333,39 +434,45 @@ def main(arguments: list[str]) -> int:
     if parsed is None:
         return delegate_whole_call(arguments)
     requested, source, pretty = parsed
-    try:
-        enabled = enabled_providers()
-    except FileNotFoundError:
-        # Config file absent: first-run matrix (rows 3-5). Malformed config is not this branch.
+    # When config is missing, auto-detect installed CLIs and write ~/.config/codexbar/config.json
+    # once (never overwrites an existing file). After a successful write, the normal config path runs.
+    ensure_auto_config()
+
+    def emit_provider_usage(provider_ids: list[str]) -> int:
+        usage_entries: list[Any] = []
+        for provider in provider_ids:
+            if provider not in SUPPORTED_PROVIDERS:
+                usage_entries.extend(fallback_entry(provider, source))
+            else:
+                usage_entries.extend(fetch_provider(provider, source))
+        print_json(usage_entries, pretty)
+        return 0
+
+    def absent_config_usage() -> int:
+        # Zero CLIs detected or auto-write failed. Keep legacy first-run matrix.
         if upstream_path() is not None:
             return delegate_whole_call(arguments)
         if has_claude_credentials():
-            enabled = ["claude"]
-        else:
-            if requested in ("enabled", "all", "claude"):
-                print_json([first_run_claude_guidance_entry()], pretty)
-                return 0
-            providers = [requested]
-            entries = []
-            for provider in providers:
-                if provider not in SUPPORTED_PROVIDERS:
-                    entries.extend(fallback_entry(provider, source))
-                else:
-                    entries.extend(fetch_provider(provider, source))
-            print_json(entries, pretty)
+            if requested in ("enabled", "all"):
+                return emit_provider_usage(["claude"])
+            return emit_provider_usage([requested])
+        if requested in ("enabled", "all", "claude"):
+            print_json([first_run_claude_guidance_entry()], pretty)
             return 0
-    except (OSError, ValueError, json.JSONDecodeError):
-        # Config present but unreadable/malformed, or other config load failures: keep legacy delegate.
+        return emit_provider_usage([requested])
+
+    try:
+        enabled = enabled_providers()
+    except FileNotFoundError:
+        return absent_config_usage()
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        # Config path exists but is unreadable/malformed: never repair. Legacy delegate.
+        # If no config file is present at all (write failure left nothing), use the absent path.
+        if isinstance(error, OSError) and not codexbar_config_path().is_file():
+            return absent_config_usage()
         return delegate_whole_call(arguments)
     providers = enabled if requested in ("enabled", "all") else [requested]
-    entries: list[Any] = []
-    for provider in providers:
-        if provider not in SUPPORTED_PROVIDERS:
-            entries.extend(fallback_entry(provider, source))
-        else:
-            entries.extend(fetch_provider(provider, source))
-    print_json(entries, pretty)
-    return 0
+    return emit_provider_usage(providers)
 
 
 if __name__ == "__main__":
