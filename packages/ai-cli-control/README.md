@@ -125,9 +125,13 @@ The installed executable is `~/.local/share/ai-cli-control/ai`, with `~/.local/b
 
 ## Quotas engine
 
-`kodexbar-quotas` is the widget's default local command. It reads the enabled providers from `~/.config/codexbar/config.json`. Claude is queried directly from `https://api.anthropic.com/api/oauth/usage` with the Claude OAuth token and a 15-second timeout. Codex, Antigravity, Grok, missing credentials, unexpected responses, and ordinary request failures use upstream `codexbar` per provider. Provider errors retain their exact cause and structured retry category. Claude HTTP 429 remains a non-retryable provider error so the widget can retain its cached reading. `cost --format json --json-only` is an upstream passthrough, or `[]` when upstream is absent.
+`kodexbar-quotas` is the widget's default local command. It reads the enabled providers from `~/.config/codexbar/config.json`. Claude, Codex, and Grok are fetched natively with stdlib HTTP:
 
-Codex, Antigravity, and Grok remain upstream passthroughs in this version. During the Swift-source port, their acquisition paths depended on dashboard cookie and session handling plus provider-private response schemas, including protobuf endpoints, which cannot be reproduced faithfully with stdlib Python. Only Claude exposed the direct OAuth JSON request implemented here.
+- Claude: OAuth JSON at `https://api.anthropic.com/api/oauth/usage` (15-second timeout).
+- Codex: OAuth usage at the ChatGPT backend (`/wham/usage` or `/api/codex/usage`) using `~/.codex/auth.json`. No automatic token refresh. Auth failures ask the user to run `codex` to log in.
+- Grok: cookie-free gRPC-web billing at Grok's credits endpoint using `~/.grok/auth.json`. Auth failures ask the user to run `grok login`.
+
+Antigravity and any unknown provider still use upstream `codexbar` per provider. Codex and Grok may fall back to that companion only for retryable network or infrastructure failures, never for authentication errors. Provider errors retain their exact cause and structured retry category. Claude HTTP 429 remains a non-retryable provider error so the widget can retain its cached reading. `cost --format json --json-only` is an upstream passthrough, or `[]` when upstream is absent.
 
 Usage invocations with flags the engine does not implement, such as `--status`, are delegated wholly to upstream `codexbar`.
 
