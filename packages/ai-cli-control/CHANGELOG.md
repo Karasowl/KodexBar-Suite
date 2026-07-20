@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## 0.8.0, unreleased
+## 0.8.0, 2026-07-19
 
 - Add monorepo-root GitHub Actions CI (`.github/workflows/ci.yml`) for suite tests and packaging checks, and remove package-local workflows under `packages/*/.github/workflows/` that GitHub Actions never discovered.
 - On first run without `~/.config/codexbar/config.json`, detect installed AI CLIs (Claude, Codex, Grok, Antigravity) and auto-write a versioned CodexBar provider config so enabled quotas appear without manual editing. Existing configs are never overwritten or repaired.

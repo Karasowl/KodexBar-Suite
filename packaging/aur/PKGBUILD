@@ -6,7 +6,7 @@
 # listed in optdepends so a pure Arch/CachyOS install stays minimal.
 
 pkgname=kodexbar-suite
-pkgver=0.7.0
+pkgver=0.8.0
 pkgrel=1
 pkgdesc='KodexBar Suite: Plasma widget, ai CLI, Claude quotas natively (Codex/Grok/Antigravity via codexbar-cli-bin)'
 arch=('any')
@@ -24,8 +24,11 @@ optdepends=(
   'xsel: alternate X11 clipboard support for ai recover --copy'
 )
 install=kodexbar-suite.install
+# Future release tag tarball. The release unit pins the real checksum when the
+# tag exists. Until then, sha256sums stays SKIP so local makepkg --skipinteg and
+# source-present builds remain usable.
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Karasowl/KodexBar-Suite/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('1db69f8a69384866371652db6ccac6adc15cdc75edd20c83d0916bc2b0c904b4')
+sha256sums=('SKIP')
 
 package() {
   cd "${srcdir}/KodexBar-Suite-${pkgver}"
