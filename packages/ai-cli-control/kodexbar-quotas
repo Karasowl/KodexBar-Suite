@@ -51,21 +51,55 @@ FIRST_RUN_CLAUDE_GUIDANCE = (
     "Sign in with Claude Code to create ~/.claude/.credentials.json, "
     "or create ~/.config/codexbar/config.json with an enabled providers list."
 )
-CODEX_AUTH_NOT_FOUND = "Codex auth.json not found. Run codex to log in."
-CODEX_AUTH_MISSING_TOKENS = "Codex auth.json exists but contains no tokens. Run codex to log in."
-CODEX_AUTH_EXPIRED = "Codex OAuth token expired or invalid. Run codex to log in."
-CODEX_AUTH_UNREADABLE = "Codex auth.json is unreadable."
-CODEX_AUTH_INVALID_JSON = "Codex auth.json contains invalid JSON."
-CODEX_CONFIG_TOML_INVALID = "Codex config.toml is invalid and will not be used."
-CODEX_CREDENTIAL_MALFORMED = "credential looks malformed, run codex to log in"
-GROK_AUTH_RELOGIN = "Grok credentials missing or expired. Run grok login."
-GROK_AUTH_NOT_FOUND = "Grok auth.json not found. Run grok login."
-GROK_AUTH_MISSING_KEY = "Grok auth.json has no usable key. Run grok login."
-GROK_AUTH_UNREADABLE = "Grok auth.json is unreadable."
-GROK_AUTH_INVALID_JSON = "Grok auth.json contains invalid JSON."
-GROK_CREDENTIAL_MALFORMED = "credential looks malformed, run grok login"
+# User-visible Codex messages (English, no technical jargon, no secrets).
+# Must NOT match the widget unfetchable-provider purge regex in providerLogic.js.
+CODEX_AUTH_RELOGIN = "Sign in to Codex again to see quotas (run: codex)."
+CODEX_AUTH_NOT_FOUND = CODEX_AUTH_RELOGIN
+CODEX_AUTH_MISSING_TOKENS = CODEX_AUTH_RELOGIN
+CODEX_AUTH_EXPIRED = CODEX_AUTH_RELOGIN
+CODEX_AUTH_UNREADABLE = (
+    "Could not read Codex sign-in data. Check file permissions or sign in again (run: codex)."
+)
+CODEX_AUTH_INVALID_JSON = "Codex sign-in data is damaged. Sign in again (run: codex)."
+CODEX_CONFIG_TOML_INVALID = "Codex settings are invalid and were ignored."
+CODEX_CREDENTIAL_MALFORMED = "Codex sign-in data looks damaged. Sign in again (run: codex)."
+CODEX_NETWORK = "Codex is unreachable right now. Check your connection and retry."
+CODEX_TIMEOUT = "Codex timed out. Check your connection and retry."
+CODEX_INVALID_RESPONSE = (
+    "Could not read Codex quotas. Install the codexbar-cli-bin package as a fallback, "
+    "or update KodexBar."
+)
+CODEX_PERMANENT = (
+    "Could not read Codex quotas. Try signing in again (run: codex), or update KodexBar."
+)
+
+# User-visible Grok messages (English, no technical jargon, no secrets).
+GROK_AUTH_RELOGIN = "Sign in to Grok again (run: grok login)."
+GROK_AUTH_NOT_FOUND = GROK_AUTH_RELOGIN
+GROK_AUTH_MISSING_KEY = GROK_AUTH_RELOGIN
+GROK_AUTH_UNREADABLE = (
+    "Could not read Grok sign-in data. Check file permissions or sign in again (run: grok login)."
+)
+GROK_AUTH_INVALID_JSON = "Grok sign-in data is damaged. Sign in again (run: grok login)."
+GROK_CREDENTIAL_MALFORMED = "Grok sign-in data looks damaged. Sign in again (run: grok login)."
+GROK_NETWORK = "Grok is unreachable right now. Check your connection and retry."
+GROK_TIMEOUT = "Grok timed out. Check your connection and retry."
+GROK_INVALID_RESPONSE = (
+    "Could not read Grok quotas. Install the codexbar-cli-bin package as a fallback, "
+    "or update KodexBar."
+)
+GROK_PERMANENT = (
+    "Could not read Grok quotas. Try signing in again (run: grok login), or update KodexBar."
+)
+GROK_PERMISSION_DENIED = (
+    "Grok denied access to billing data. Check your plan or sign in again (run: grok login)."
+)
+
 CLAUDE_CREDENTIAL_MALFORMED = "credential looks malformed, run claude to log in"
 HTTP_REQUEST_FAILED = "HTTP request failed"
+# Categories where native Codex/Grok may fall back to installed upstream codexbar.
+# Decided by category, not by the retryable flag alone (schema drift is often non-retryable).
+NATIVE_UPSTREAM_FALLBACK_CATEGORIES = frozenset({"network", "timeout", "invalid_response"})
 
 
 class FetchFallback(Exception):
@@ -75,6 +109,61 @@ class FetchFallback(Exception):
         super().__init__(message)
         self.category = category
         self.retryable = retryable
+
+
+def human_native_error_message(provider: str, category: str, original: str | None = None) -> str:
+    """Map native Codex/Grok failure categories to user-visible English text.
+
+    Keeps internal categories intact for widget purge/retry logic. Never embeds
+    secrets. Avoids technical jargon (protobuf, gRPC, OSError, etc.).
+    """
+    normalized = provider.lower()
+    text = (original or "").strip()
+    # Prefer known safe constants when callers already chose one.
+    known = {
+        CODEX_AUTH_RELOGIN,
+        CODEX_AUTH_UNREADABLE,
+        CODEX_AUTH_INVALID_JSON,
+        CODEX_CONFIG_TOML_INVALID,
+        CODEX_CREDENTIAL_MALFORMED,
+        CODEX_NETWORK,
+        CODEX_TIMEOUT,
+        CODEX_INVALID_RESPONSE,
+        CODEX_PERMANENT,
+        GROK_AUTH_RELOGIN,
+        GROK_AUTH_UNREADABLE,
+        GROK_AUTH_INVALID_JSON,
+        GROK_CREDENTIAL_MALFORMED,
+        GROK_NETWORK,
+        GROK_TIMEOUT,
+        GROK_INVALID_RESPONSE,
+        GROK_PERMANENT,
+        GROK_PERMISSION_DENIED,
+    }
+    if text in known:
+        return text
+
+    if normalized == "codex":
+        if category == "authentication":
+            return CODEX_AUTH_RELOGIN
+        if category == "timeout":
+            return CODEX_TIMEOUT
+        if category == "network":
+            return CODEX_NETWORK
+        if category == "invalid_response":
+            return CODEX_INVALID_RESPONSE
+        return CODEX_PERMANENT
+    if normalized == "grok":
+        if category == "authentication":
+            return GROK_AUTH_RELOGIN
+        if category == "timeout":
+            return GROK_TIMEOUT
+        if category == "network":
+            return GROK_NETWORK
+        if category == "invalid_response":
+            return GROK_INVALID_RESPONSE
+        return GROK_PERMANENT
+    return text or "Could not read quotas. Retry later or update KodexBar."
 
 
 def home_directory() -> Path:
@@ -684,7 +773,7 @@ def map_codex_additional_limits(items: Any) -> list[dict[str, Any]]:
 def map_codex_usage(payload: Any, updated_at: str | None = None) -> dict[str, Any]:
     """Map CodexUsageResponse (wham/usage) to the widget envelope."""
     if not isinstance(payload, dict):
-        raise FetchFallback("Invalid response from Codex usage API.", "invalid_response", False)
+        raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True)
 
     rate_limit = payload.get("rate_limit") if isinstance(payload.get("rate_limit"), dict) else {}
     primary_raw = map_codex_window(rate_limit.get("primary_window"))
@@ -693,7 +782,7 @@ def map_codex_usage(payload: Any, updated_at: str | None = None) -> dict[str, An
     extras = map_codex_additional_limits(payload.get("additional_rate_limits"))
 
     if primary is None and secondary is None and not extras:
-        raise FetchFallback("Codex usage response has no rate limit windows", "invalid_response", False)
+        raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True)
 
     plan_type = payload.get("plan_type")
     identity: dict[str, Any] = {"providerID": "codex"}
@@ -741,7 +830,7 @@ def fetch_codex(home: Path | None = None) -> dict[str, Any]:
         )
     except FetchFallback as error:
         raise FetchFallback(
-            f"Codex usage {error.category} failure",
+            human_native_error_message("codex", error.category),
             error.category,
             error.retryable,
         ) from error
@@ -752,13 +841,13 @@ def fetch_codex(home: Path | None = None) -> dict[str, Any]:
         retryable = status in (408, 425) or status >= 500
         if retryable:
             category = "timeout" if status == 408 else "network"
-            raise FetchFallback(f"Codex usage request failed with HTTP {status}", category, True)
-        raise FetchFallback(f"Codex API error {status}", "permanent", False)
+            raise FetchFallback(human_native_error_message("codex", category), category, True)
+        raise FetchFallback(CODEX_PERMANENT, "permanent", False)
 
     try:
         payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise FetchFallback("Invalid response from Codex usage API.", "invalid_response", False) from error
+        raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True) from error
     return map_codex_usage(payload)
 
 
@@ -975,20 +1064,20 @@ def parse_grpc_web_frames(body: bytes) -> tuple[bytes | None, int | None, str | 
     A non-zero trailer status wins over any data frames (response is not success).
     """
     if len(body) < 5:
-        raise FetchFallback("Grok billing response is too short", "invalid_response", False)
+        raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
     data_parts: list[bytes] = []
     grpc_status: int | None = None
     grpc_message: str | None = None
     offset = 0
     while offset < len(body):
         if offset + 5 > len(body):
-            raise FetchFallback("Grok billing gRPC-web frame is truncated", "invalid_response", False)
+            raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
         flags = body[offset]
         message_length = int.from_bytes(body[offset + 1 : offset + 5], "big")
         start = offset + 5
         end = start + message_length
         if end > len(body):
-            raise FetchFallback("Grok billing gRPC-web frame is truncated", "invalid_response", False)
+            raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
         frame_payload = body[start:end]
         offset = end
         if flags & 0x80:
@@ -1007,7 +1096,7 @@ def unwrap_grpc_web_frame(body: bytes) -> bytes:
     """Compatibility helper: first data frame payload only (prefer parse_grpc_web_frames)."""
     data, _status, _message = parse_grpc_web_frames(body)
     if data is None:
-        raise FetchFallback("Grok billing response has no data frame", "invalid_response", False)
+        raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
     return data
 
 
@@ -1021,7 +1110,7 @@ def scan_grok_billing_protobuf(message: bytes) -> tuple[float, str | None]:
     state = _ProtobufScanState()
     _scan_protobuf_fields(memoryview(message), (), 0, state)
     if not state.valid:
-        raise FetchFallback("Failed to parse Grok billing protobuf", "invalid_response", False)
+        raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
 
     percent_candidates = [
         (len(field_path), field_path, value)
@@ -1053,7 +1142,7 @@ def scan_grok_billing_protobuf(message: bytes) -> tuple[float, str | None]:
             if reset_dt is not None and reset_dt > datetime.now(timezone.utc):
                 used_percent = 0.0
         if used_percent is None:
-            raise FetchFallback("Failed to parse Grok billing protobuf", "invalid_response", False)
+            raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
 
     return used_percent, resets_at
 
@@ -1133,12 +1222,11 @@ def classify_grok_grpc_status(status: int, message: str | None) -> dict[str, Any
         return provider_error(
             "grok",
             "grok-web",
-            "Grok billing permission denied",
+            GROK_PERMISSION_DENIED,
             "permanent",
             False,
         )
-    detail = f"Grok billing gRPC status {status}"
-    return provider_error("grok", "grok-web", detail, "permanent", False)
+    return provider_error("grok", "grok-web", GROK_PERMANENT, "permanent", False)
 
 
 def fetch_grok(home: Path | None = None) -> dict[str, Any]:
@@ -1180,15 +1268,16 @@ def fetch_grok(home: Path | None = None) -> dict[str, Any]:
                 continue
             # Re-raise without chaining secrets from lower layers.
             raise FetchFallback(
-                f"Grok billing {error.category} failure",
+                human_native_error_message("grok", error.category),
                 error.category,
                 error.retryable,
             )
 
         if status in (408, 502, 503, 504) and attempt == 0:
+            category = "timeout" if status == 408 else "network"
             last_error = FetchFallback(
-                f"Grok billing request failed with HTTP {status}",
-                "timeout" if status == 408 else "network",
+                human_native_error_message("grok", category),
+                category,
                 True,
             )
             continue
@@ -1203,8 +1292,8 @@ def fetch_grok(home: Path | None = None) -> dict[str, Any]:
         retryable = status in (408, 425) or status >= 500
         if retryable:
             category = "timeout" if status == 408 else "network"
-            raise FetchFallback(f"Grok billing request failed with HTTP {status}", category, True)
-        raise FetchFallback(f"Grok billing HTTP {status}", "permanent", False)
+            raise FetchFallback(human_native_error_message("grok", category), category, True)
+        raise FetchFallback(GROK_PERMANENT, "permanent", False)
 
     header_status = _grpc_status_from_headers(resp_headers)
     try:
@@ -1212,7 +1301,7 @@ def fetch_grok(home: Path | None = None) -> dict[str, Any]:
     except FetchFallback:
         raise
     except Exception:
-        raise FetchFallback("Failed to parse Grok billing response", "invalid_response", False)
+        raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
 
     # Trailer status takes precedence when present. Non-zero status is never success,
     # even if a data frame is also present.
@@ -1222,14 +1311,14 @@ def fetch_grok(home: Path | None = None) -> dict[str, Any]:
 
     if data_message is None:
         # grpc-status 0 (or absent) without data is empty/soft.
-        raise FetchFallback("Grok billing response is empty", "invalid_response", False)
+        raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
 
     try:
         used_percent, resets_at = scan_grok_billing_protobuf(data_message)
     except FetchFallback:
         raise
     except Exception:
-        raise FetchFallback("Failed to parse Grok billing response", "invalid_response", False)
+        raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
     return map_grok_usage(used_percent, resets_at, auth_entry)
 
 
@@ -1278,6 +1367,11 @@ def fallback_entry(
         failure = native_failure or upstream_failure
         if native_failure is None:
             message = str(upstream_failure)
+        elif provider.lower() in ("codex", "grok"):
+            # Native path already chose a human message; keep it when companion also fails.
+            message = human_native_error_message(
+                provider, native_failure.category, str(native_failure)
+            )
         else:
             message = f"{native_failure}. Fallback failed: {upstream_failure}"
         return [provider_error(provider, source or "auto", message, failure.category, failure.retryable)]
@@ -1290,27 +1384,36 @@ def _native_provider_result(
     fetch_fn: Callable[[Path | None], dict[str, Any]],
     default_source: str,
 ) -> list[Any]:
-    """Run a native fetch. Auth errors never fall back. Retryable/infra may use upstream."""
+    """Run a native fetch.
+
+    Fallback to installed upstream codexbar is decided by error CATEGORY:
+    - authentication: never fall back (re-login message only)
+    - network / timeout / invalid_response (schema drift, parse failure): fall back if present
+    - permanent and other non-parse failures: no fall back
+    """
     try:
         entry = fetch_fn(home)
     except FetchFallback as error:
+        message = human_native_error_message(provider, error.category, str(error))
         if error.category == "authentication":
             return [
                 provider_error(
                     provider,
                     source or default_source,
-                    str(error),
+                    message,
                     "authentication",
                     False,
                 )
             ]
-        if error.retryable and upstream_path() is not None:
-            return fallback_entry(provider, source, error)
+        if error.category in NATIVE_UPSTREAM_FALLBACK_CATEGORIES and upstream_path() is not None:
+            # Preserve category/retryable; surface human text if companion also fails.
+            humanized = FetchFallback(message, error.category, error.retryable)
+            return fallback_entry(provider, source, humanized)
         return [
             provider_error(
                 provider,
                 source or default_source,
-                str(error),
+                message,
                 error.category,
                 error.retryable,
             )
@@ -1318,9 +1421,22 @@ def _native_provider_result(
     # Auth/permanent errors returned as structured entries must not be re-routed to upstream.
     if isinstance(entry, dict) and "error" in entry:
         category = (entry.get("error") or {}).get("category")
+        err_obj = entry.get("error") if isinstance(entry.get("error"), dict) else {}
+        raw_message = str(err_obj.get("message") or "")
+        if category in (None, ""):
+            return [entry]
+        # Humanize structured native errors (auth returned as entry, permanent plan issues).
+        if provider.lower() in ("codex", "grok"):
+            entry = {
+                **entry,
+                "error": {
+                    **err_obj,
+                    "message": human_native_error_message(provider, str(category), raw_message),
+                },
+            }
         if category == "authentication":
             return [entry]
-        # Other structured native errors (e.g. rate_limit style) stay as-is.
+        # Other structured native errors (e.g. permanent plan denial) stay as-is, no upstream.
         return [entry]
     return [entry]
 
