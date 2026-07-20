@@ -1785,6 +1785,85 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertNotIn("secret-should-not-leak", grok_err["message"])
         self._assert_human_user_message(grok_err["message"])
 
+    def test_fallback_companion_structured_error_does_not_leak_upstream_text(self) -> None:
+        """F3: companion error entry on FALLBACK path → BOTH_FAILED, no TOKEN leak."""
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+
+            def fake_codex_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {"Content-Type": "application/json"}, b'{"unexpected": true}'
+
+            def companion_error_entry(provider, source):
+                # Valid JSON companion response with a structured error (not a raised FetchFallback).
+                return [
+                    {
+                        "provider": provider,
+                        "source": "upstream",
+                        "error": {
+                            "message": "upstream blew up TOKEN=abc do-not-leak",
+                            "category": "timeout",
+                            "retryable": True,
+                        },
+                    }
+                ]
+
+            with patch.object(quotas, "http_request", side_effect=fake_codex_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(quotas, "upstream_entries", side_effect=companion_error_entry):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        dumped = json.dumps(entries)
+        self.assertNotIn("TOKEN=abc", dumped)
+        self.assertNotIn("do-not-leak", dumped)
+        err = entries[0]["error"]
+        self.assertEqual(err["message"], quotas.CODEX_BOTH_FAILED)
+        self.assertEqual(err["category"], "invalid_response")
+        self._assert_human_user_message(err["message"])
+
+    def test_fallback_companion_usable_usage_still_passthrough(self) -> None:
+        """F3: companion usage success on FALLBACK path remains passthrough."""
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+
+            def fake_codex_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {"Content-Type": "application/json"}, b'{"unexpected": true}'
+
+            def companion_usage(provider, source):
+                return [{"provider": "codex", "source": "upstream", "usage": {"primary": {"usedPercent": 12}}}]
+
+            with patch.object(quotas, "http_request", side_effect=fake_codex_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(quotas, "upstream_entries", side_effect=companion_usage):
+                entries = quotas.fetch_provider("codex", None, home)
+
+        self.assertEqual(entries[0]["source"], "upstream")
+        self.assertNotIn("error", entries[0])
+        self.assertEqual(entries[0]["usage"]["primary"]["usedPercent"], 12)
+
+    def test_passthrough_delegation_still_propagates_companion_error(self) -> None:
+        """F3: normal (non-fallback) passthrough keeps companion error text contract."""
+        def companion_error(provider, source):
+            return [
+                {
+                    "provider": "antigravity",
+                    "source": "auto",
+                    "error": {
+                        "message": "antigravity TOKEN=passthrough-ok",
+                        "category": "permanent",
+                        "retryable": False,
+                    },
+                }
+            ]
+
+        with patch.object(quotas, "upstream_path", return_value="/fake/codexbar"), patch.object(
+            quotas, "upstream_entries", side_effect=companion_error
+        ):
+            entries = quotas.fetch_provider("antigravity", None)
+
+        self.assertIn("TOKEN=passthrough-ok", entries[0]["error"]["message"])
+
     def test_user_visible_native_errors_have_no_technical_jargon(self) -> None:
         """H4: every user-visible message constant is free of jargon and purge phrases."""
         messages = [

@@ -1463,25 +1463,57 @@ def upstream_entries(provider: str, source: str | None) -> list[Any]:
     return value if isinstance(value, list) else [value]
 
 
+def _companion_entries_have_usable_usage(entries: list[Any]) -> bool:
+    """True when companion JSON includes at least one usage entry without an error key."""
+    for entry in entries:
+        if isinstance(entry, dict) and "usage" in entry and "error" not in entry:
+            return True
+    return False
+
+
+def _dual_failure_message(provider: str, native_failure: FetchFallback, upstream_detail: str) -> str:
+    """User-visible text when native and companion both failed (never leak upstream text)."""
+    normalized = provider.lower()
+    if normalized == "codex":
+        return CODEX_BOTH_FAILED
+    if normalized == "grok":
+        return GROK_BOTH_FAILED
+    return f"{native_failure}. Fallback failed: {upstream_detail}"
+
+
 def fallback_entry(
     provider: str,
     source: str | None,
     native_failure: FetchFallback | None = None,
 ) -> list[Any]:
     try:
-        return upstream_entries(provider, source)
+        entries = upstream_entries(provider, source)
     except FetchFallback as upstream_failure:
         failure = native_failure or upstream_failure
         if native_failure is None:
+            # Normal passthrough delegation (e.g. antigravity): keep upstream text.
             message = str(upstream_failure)
-        elif provider.lower() == "codex":
-            # Companion was present and also failed: do not advise installing it.
-            message = CODEX_BOTH_FAILED
-        elif provider.lower() == "grok":
-            message = GROK_BOTH_FAILED
         else:
-            message = f"{native_failure}. Fallback failed: {upstream_failure}"
+            # Fallback after native failure: never surface companion/upstream raw text.
+            message = _dual_failure_message(provider, native_failure, str(upstream_failure))
         return [provider_error(provider, source or "auto", message, failure.category, failure.retryable)]
+
+    # Fallback path after a native failure: only passthrough valid usage data.
+    # Structured error entries from the companion must not leak upstream text
+    # (tokens, raw messages) and must not look like a successful companion read.
+    if native_failure is not None and not _companion_entries_have_usable_usage(entries):
+        message = _dual_failure_message(provider, native_failure, "companion returned an error entry")
+        return [
+            provider_error(
+                provider,
+                source or "auto",
+                message,
+                native_failure.category,
+                native_failure.retryable,
+            )
+        ]
+    # Normal passthrough (no native failure) or companion returned usable usage: keep as-is.
+    return entries
 
 
 def _native_provider_result(
