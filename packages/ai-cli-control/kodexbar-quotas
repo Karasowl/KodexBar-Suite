@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -37,6 +38,11 @@ GROK_EMPTY_FRAME = b"\x00\x00\x00\x00\x00"
 # Unix timestamps roughly year 2023–2036 for Grok reset heuristics.
 GROK_TS_MIN = 1_700_000_000
 GROK_TS_MAX = 2_100_000_000
+# Unix timestamps roughly year 2001–2100 for Codex reset_at (reject NaN/Inf/outliers).
+CODEX_TS_MIN = 1_000_000_000
+CODEX_TS_MAX = 4_102_444_800
+# Window length upper bound (~1 year of seconds) for Codex limit_window_seconds.
+CODEX_WINDOW_SECONDS_MAX = 366 * 24 * 3600
 # Preferred Grok billing field paths (dossier). Percent candidates must end with field 1.
 GROK_PREFERRED_TS_PATH = (1, 5, 1)
 PROTOBUF_MAX_DEPTH = 32
@@ -700,29 +706,53 @@ def codex_usage_url(home: Path | None = None) -> str:
     return f"{CODEX_DEFAULT_BASE}{CODEX_USAGE_PATH_WHAM}"
 
 
+def _codex_finite_number(value: Any) -> float | None:
+    """Return a finite float, or None when the value is not a real number."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not math.isfinite(number):
+        return None
+    return number
+
+
 def map_codex_window(value: Any) -> dict[str, Any] | None:
+    """Map one Codex rate-limit window. Raises FetchFallback on corrupt numerics."""
     if not isinstance(value, dict):
         return None
     used = value.get("used_percent")
     if used is None:
         used = value.get("usedPercent")
-    if not isinstance(used, (int, float)):
+    used_number = _codex_finite_number(used)
+    if used is not None and isinstance(used, (int, float)) and not isinstance(used, bool) and used_number is None:
+        # Present but non-finite (NaN/Infinity): schema drift, not a soft miss.
+        raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True)
+    if used_number is None:
         return None
-    window: dict[str, Any] = {"usedPercent": used}
+    window: dict[str, Any] = {"usedPercent": used_number}
     reset_at = value.get("reset_at")
     if reset_at is None:
         reset_at = value.get("resetsAt")
-    if isinstance(reset_at, (int, float)):
-        window["resetsAt"] = unix_seconds_to_iso(reset_at)
+    if isinstance(reset_at, (int, float)) and not isinstance(reset_at, bool):
+        reset_number = _codex_finite_number(reset_at)
+        if reset_number is None or not (CODEX_TS_MIN <= reset_number <= CODEX_TS_MAX):
+            raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True)
+        window["resetsAt"] = unix_seconds_to_iso(reset_number)
     elif isinstance(reset_at, str) and reset_at:
         window["resetsAt"] = reset_at
     limit_seconds = value.get("limit_window_seconds")
-    if isinstance(limit_seconds, (int, float)):
-        window["windowMinutes"] = int(limit_seconds) // 60
+    if isinstance(limit_seconds, (int, float)) and not isinstance(limit_seconds, bool):
+        limit_number = _codex_finite_number(limit_seconds)
+        if limit_number is None or limit_number < 0 or limit_number > CODEX_WINDOW_SECONDS_MAX:
+            raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True)
+        window["windowMinutes"] = int(limit_number) // 60
     else:
         minutes = value.get("windowMinutes")
-        if isinstance(minutes, (int, float)):
-            window["windowMinutes"] = int(minutes)
+        if isinstance(minutes, (int, float)) and not isinstance(minutes, bool):
+            minutes_number = _codex_finite_number(minutes)
+            if minutes_number is None or minutes_number < 0 or minutes_number > (CODEX_WINDOW_SECONDS_MAX // 60):
+                raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True)
+            window["windowMinutes"] = int(minutes_number)
     return window
 
 
@@ -771,39 +801,48 @@ def map_codex_additional_limits(items: Any) -> list[dict[str, Any]]:
 
 
 def map_codex_usage(payload: Any, updated_at: str | None = None) -> dict[str, Any]:
-    """Map CodexUsageResponse (wham/usage) to the widget envelope."""
-    if not isinstance(payload, dict):
+    """Map CodexUsageResponse (wham/usage) to the widget envelope.
+
+    Any unexpected mapping failure becomes invalid_response so the native path
+    can fall back to the companion instead of crashing the process.
+    """
+    try:
+        if not isinstance(payload, dict):
+            raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True)
+
+        rate_limit = payload.get("rate_limit") if isinstance(payload.get("rate_limit"), dict) else {}
+        primary_raw = map_codex_window(rate_limit.get("primary_window"))
+        secondary_raw = map_codex_window(rate_limit.get("secondary_window"))
+        primary, secondary = normalize_codex_primary_secondary(primary_raw, secondary_raw)
+        extras = map_codex_additional_limits(payload.get("additional_rate_limits"))
+
+        if primary is None and secondary is None and not extras:
+            raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True)
+
+        plan_type = payload.get("plan_type")
+        identity: dict[str, Any] = {"providerID": "codex"}
+        if isinstance(plan_type, str) and plan_type:
+            identity["loginMethod"] = plan_type
+
+        usage: dict[str, Any] = {
+            "identity": identity,
+            "primary": primary,
+            "secondary": secondary,
+            "tertiary": None,
+            "updatedAt": updated_at or iso_now(),
+        }
+        if extras:
+            usage["extraRateWindows"] = extras
+        return {
+            "provider": "codex",
+            "source": "oauth",
+            "usage": usage,
+            "engine": "kodexbar",
+        }
+    except FetchFallback:
+        raise
+    except Exception:
         raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True)
-
-    rate_limit = payload.get("rate_limit") if isinstance(payload.get("rate_limit"), dict) else {}
-    primary_raw = map_codex_window(rate_limit.get("primary_window"))
-    secondary_raw = map_codex_window(rate_limit.get("secondary_window"))
-    primary, secondary = normalize_codex_primary_secondary(primary_raw, secondary_raw)
-    extras = map_codex_additional_limits(payload.get("additional_rate_limits"))
-
-    if primary is None and secondary is None and not extras:
-        raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True)
-
-    plan_type = payload.get("plan_type")
-    identity: dict[str, Any] = {"providerID": "codex"}
-    if isinstance(plan_type, str) and plan_type:
-        identity["loginMethod"] = plan_type
-
-    usage: dict[str, Any] = {
-        "identity": identity,
-        "primary": primary,
-        "secondary": secondary,
-        "tertiary": None,
-        "updatedAt": updated_at or iso_now(),
-    }
-    if extras:
-        usage["extraRateWindows"] = extras
-    return {
-        "provider": "codex",
-        "source": "oauth",
-        "usage": usage,
-        "engine": "kodexbar",
-    }
 
 
 def fetch_codex(home: Path | None = None) -> dict[str, Any]:
@@ -848,7 +887,12 @@ def fetch_codex(home: Path | None = None) -> dict[str, Any]:
         payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True) from error
-    return map_codex_usage(payload)
+    try:
+        return map_codex_usage(payload)
+    except FetchFallback:
+        raise
+    except Exception:
+        raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True)
 
 
 # --- Grok native (cookie-free gRPC-web billing) ---
@@ -1153,35 +1197,50 @@ def map_grok_usage(
     auth_entry: dict[str, Any] | None = None,
     updated_at: str | None = None,
 ) -> dict[str, Any]:
-    primary: dict[str, Any] = {"usedPercent": used_percent}
-    if resets_at:
-        primary["resetsAt"] = resets_at
-    # Web path does not compute windowMinutes.
-    identity: dict[str, Any] = {"providerID": "grok"}
-    if isinstance(auth_entry, dict):
-        auth_mode = auth_entry.get("auth_mode")
-        if auth_mode == "oidc":
-            identity["loginMethod"] = "SuperGrok"
-        elif isinstance(auth_mode, str) and auth_mode:
-            identity["loginMethod"] = auth_mode
-        email = auth_entry.get("email")
-        if isinstance(email, str) and email:
-            identity["accountEmail"] = email
-        team_id = auth_entry.get("team_id")
-        if isinstance(team_id, str) and team_id:
-            identity["accountOrganization"] = team_id
-    return {
-        "provider": "grok",
-        "source": "grok-web",
-        "usage": {
-            "identity": identity,
-            "primary": primary,
-            "secondary": None,
-            "tertiary": None,
-            "updatedAt": updated_at or iso_now(),
-        },
-        "engine": "kodexbar",
-    }
+    """Map scanned Grok billing fields to the widget envelope.
+
+    Any unexpected mapping failure becomes invalid_response so the native path
+    can fall back to the companion instead of crashing the process.
+    """
+    try:
+        if not isinstance(used_percent, (int, float)) or isinstance(used_percent, bool):
+            raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
+        percent = float(used_percent)
+        if not math.isfinite(percent):
+            raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
+        primary: dict[str, Any] = {"usedPercent": percent}
+        if resets_at:
+            primary["resetsAt"] = resets_at
+        # Web path does not compute windowMinutes.
+        identity: dict[str, Any] = {"providerID": "grok"}
+        if isinstance(auth_entry, dict):
+            auth_mode = auth_entry.get("auth_mode")
+            if auth_mode == "oidc":
+                identity["loginMethod"] = "SuperGrok"
+            elif isinstance(auth_mode, str) and auth_mode:
+                identity["loginMethod"] = auth_mode
+            email = auth_entry.get("email")
+            if isinstance(email, str) and email:
+                identity["accountEmail"] = email
+            team_id = auth_entry.get("team_id")
+            if isinstance(team_id, str) and team_id:
+                identity["accountOrganization"] = team_id
+        return {
+            "provider": "grok",
+            "source": "grok-web",
+            "usage": {
+                "identity": identity,
+                "primary": primary,
+                "secondary": None,
+                "tertiary": None,
+                "updatedAt": updated_at or iso_now(),
+            },
+            "engine": "kodexbar",
+        }
+    except FetchFallback:
+        raise
+    except Exception:
+        raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
 
 
 def _grpc_status_from_headers(headers: dict[str, str]) -> int | None:
@@ -1319,7 +1378,12 @@ def fetch_grok(home: Path | None = None) -> dict[str, Any]:
         raise
     except Exception:
         raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
-    return map_grok_usage(used_percent, resets_at, auth_entry)
+    try:
+        return map_grok_usage(used_percent, resets_at, auth_entry)
+    except FetchFallback:
+        raise
+    except Exception:
+        raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
 
 
 def upstream_path() -> str | None:

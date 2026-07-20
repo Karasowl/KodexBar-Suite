@@ -1417,6 +1417,74 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertIn("codexbar-cli-bin", err["message"])
         self._assert_human_user_message(err["message"])
 
+    def _codex_corrupt_numeric_payload(self, **window_overrides: object) -> bytes:
+        """Sample Codex JSON with secondary_window numeric fields overridden (allows NaN/Inf)."""
+        payload = sample_codex_usage_payload()
+        window = payload["rate_limit"]["secondary_window"]
+        assert isinstance(window, dict)
+        window.update(window_overrides)
+        # Python json allows NaN/Infinity (non-standard) which mirrors corrupt upstream values.
+        return json.dumps(payload, allow_nan=True).encode("utf-8")
+
+    def test_codex_corrupt_numerics_delegate_to_upstream_stub(self) -> None:
+        """H1: NaN/Inf/out-of-range Codex numerics become invalid_response and delegate."""
+        cases = (
+            ("reset_at_nan", {"reset_at": float("nan")}),
+            ("timestamp_huge", {"reset_at": 1e100}),
+            ("window_infinity", {"limit_window_seconds": float("inf")}),
+        )
+        for name, overrides in cases:
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                self._write_codex_auth(home)
+                response_body = self._codex_corrupt_numeric_payload(**overrides)
+                upstream_calls: list[str] = []
+
+                def fake_http(method, url, headers=None, body=None, timeout=None, _payload=response_body):
+                    return 200, {"Content-Type": "application/json"}, _payload
+
+                def fake_upstream(provider, source):
+                    upstream_calls.append(provider)
+                    return [{"provider": "codex", "source": "upstream", "usage": {"primary": None}}]
+
+                with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                    quotas, "upstream_path", return_value="/fake/codexbar"
+                ), patch.object(quotas, "upstream_entries", side_effect=fake_upstream):
+                    entries = quotas.fetch_provider("codex", None, home)
+
+                self.assertEqual(upstream_calls, ["codex"], msg=name)
+                self.assertEqual(entries[0]["source"], "upstream", msg=name)
+                self.assertNotIn("error", entries[0], msg=name)
+
+    def test_codex_corrupt_numerics_without_upstream_are_human_drift(self) -> None:
+        """H1: without companion, corrupt numerics surface human schema-drift text."""
+        cases = (
+            {"reset_at": float("nan")},
+            {"reset_at": 1e100},
+            {"limit_window_seconds": float("inf")},
+        )
+        for overrides in cases:
+            with self.subTest(overrides=overrides), tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                self._write_codex_auth(home)
+                response_body = self._codex_corrupt_numeric_payload(**overrides)
+
+                def fake_http(method, url, headers=None, body=None, timeout=None, _payload=response_body):
+                    return 200, {"Content-Type": "application/json"}, _payload
+
+                with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                    quotas, "upstream_path", return_value=None
+                ), patch.object(
+                    quotas, "upstream_entries", side_effect=AssertionError("must not call without stub")
+                ):
+                    entries = quotas.fetch_provider("codex", None, home)
+
+                err = entries[0]["error"]
+                self.assertEqual(err["category"], "invalid_response")
+                self.assertEqual(err["message"], quotas.CODEX_INVALID_RESPONSE)
+                self.assertIn("codexbar-cli-bin", err["message"])
+                self._assert_human_user_message(err["message"])
+
     def test_grok_protobuf_garbage_delegates_to_upstream_stub(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
