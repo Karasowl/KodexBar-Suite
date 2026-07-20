@@ -43,21 +43,30 @@ def _protobuf_key(field: int, wire_type: int) -> bytes:
     return _encode_varint((field << 3) | wire_type)
 
 
-def build_minimal_grok_billing_frame(used_percent: float, reset_unix: int) -> bytes:
-    """Build a gRPC-web framed protobuf with fixed32 percent and varint timestamp."""
-    # field 1: submessage containing field 1 fixed32 float (short path preferred)
-    inner = _protobuf_key(1, 5) + struct.pack("<f", used_percent)
-    # field 5: submessage with field 1 varint timestamp so path is [1,5,1] preferred
+def build_minimal_grok_billing_message(used_percent: float, reset_unix: int) -> bytes:
+    """Protobuf body with percent at path [1,1] and timestamp at preferred [1,5,1]."""
+    # field 1 fixed32 percent (path ends with field 1 — normative candidate)
+    percent_field = _protobuf_key(1, 5) + struct.pack("<f", used_percent)
+    # field 5 / field 1 varint timestamp → path [1, 5, 1]
     ts_inner = _protobuf_key(1, 0) + _encode_varint(reset_unix)
     field5 = _protobuf_key(5, 2) + _encode_varint(len(ts_inner)) + ts_inner
-    message = (
-        _protobuf_key(1, 2)
-        + _encode_varint(len(inner))
-        + inner
-        + field5
-    )
-    frame = b"\x00" + len(message).to_bytes(4, "big") + message
-    return frame
+    nested = percent_field + field5
+    return _protobuf_key(1, 2) + _encode_varint(len(nested)) + nested
+
+
+def build_minimal_grok_billing_frame(used_percent: float, reset_unix: int) -> bytes:
+    """Build a gRPC-web data frame with normative percent and timestamp paths."""
+    message = build_minimal_grok_billing_message(used_percent, reset_unix)
+    return b"\x00" + len(message).to_bytes(4, "big") + message
+
+
+def build_grpc_web_trailer_frame(status: int, message: str = "") -> bytes:
+    """gRPC-web trailer frame (flag 0x80) with grpc-status and optional grpc-message."""
+    lines = [f"grpc-status: {status}\r\n"]
+    if message:
+        lines.append(f"grpc-message: {message}\r\n")
+    payload = "".join(lines).encode("utf-8")
+    return b"\x80" + len(payload).to_bytes(4, "big") + payload
 
 
 def sample_codex_usage_payload() -> dict:
@@ -442,8 +451,8 @@ class QuotasEngineTests(unittest.TestCase):
             env.pop(key, None)
         return env
 
-    def test_malformed_config_still_delegates_to_upstream(self) -> None:
-        """Matrix row 2: config present but invalid still delegates (legacy path)."""
+    def test_malformed_config_keeps_native_codex_grok(self) -> None:
+        """Malformed config must not whole-delegate codex/grok (that was the H3 bug)."""
         cases = {
             "invalid-json": "{not json",
             "no-providers-array": json.dumps({"other": True}),
@@ -455,6 +464,26 @@ class QuotasEngineTests(unittest.TestCase):
                 root = Path(directory)
                 env = self._synthetic_env(root, with_upstream=True)
                 home = Path(env["HOME"])
+                bin_dir = Path(env["PATH"])
+                log_path = bin_dir / "upstream-calls.log"
+                # Recording upstream: only antigravity/unknowns should hit it for codex/grok absence.
+                upstream = bin_dir / "codexbar"
+                upstream.write_text(
+                    "#!" + os.sys.executable + "\n"
+                    + textwrap.dedent(f"""\
+                        import json, sys
+                        from pathlib import Path
+                        log = Path({str(log_path)!r})
+                        provider = "unknown"
+                        if "--provider" in sys.argv:
+                            provider = sys.argv[sys.argv.index("--provider") + 1]
+                        with log.open("a", encoding="utf-8") as handle:
+                            handle.write(provider + "\\n")
+                        print(json.dumps([{{"provider": provider, "source": "upstream", "usage": {{"primary": None}}}}]))
+                    """),
+                    encoding="utf-8",
+                )
+                upstream.chmod(0o755)
                 config = home / ".config" / "codexbar" / "config.json"
                 config.parent.mkdir(parents=True)
                 config.write_text(body, encoding="utf-8")
@@ -465,33 +494,96 @@ class QuotasEngineTests(unittest.TestCase):
                     capture_output=True,
                     check=True,
                 )
-                payload = json.loads(result.stdout)
-                self.assertEqual(payload["delegated"][0], "usage")
-                self.assertIn("--provider", payload["delegated"])
+                entries = json.loads(result.stdout)
+                self.assertIsInstance(entries, list)
+                by_provider = {entry["provider"]: entry for entry in entries}
+                self.assertIn("codex", by_provider)
+                self.assertIn("grok", by_provider)
+                self.assertEqual(by_provider["codex"]["error"]["category"], "authentication")
+                self.assertEqual(by_provider["grok"]["error"]["category"], "authentication")
+                if log_path.is_file():
+                    called = log_path.read_text(encoding="utf-8").split()
+                    self.assertNotIn("codex", called)
+                    self.assertNotIn("grok", called)
 
-    def test_missing_config_with_upstream_delegates_whole_call(self) -> None:
-        """Matrix row 3: no config, upstream present, full-call delegation."""
+    def test_missing_config_with_upstream_keeps_native_codex_grok(self) -> None:
+        """No config + upstream: codex/grok re-login natively, zero codex/grok upstream calls."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             env = self._synthetic_env(root, with_upstream=True)
-            result = subprocess.run(
+            home = Path(env["HOME"])
+            bin_dir = Path(env["PATH"])
+            log_path = bin_dir / "upstream-calls.log"
+            upstream = bin_dir / "codexbar"
+            upstream.write_text(
+                "#!" + os.sys.executable + "\n"
+                + textwrap.dedent(f"""\
+                    import json, sys
+                    from pathlib import Path
+                    log = Path({str(log_path)!r})
+                    provider = "unknown"
+                    if "--provider" in sys.argv:
+                        provider = sys.argv[sys.argv.index("--provider") + 1]
+                    with log.open("a", encoding="utf-8") as handle:
+                        handle.write(provider + "\\n")
+                    print(json.dumps([{{"provider": provider, "source": "upstream", "usage": {{"primary": None}}}}]))
+                """),
+                encoding="utf-8",
+            )
+            upstream.chmod(0o755)
+
+            # Explicit codex without credentials: re-login, stub never called for codex.
+            codex_result = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "codex"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            codex_entry = json.loads(codex_result.stdout)[0]
+            self.assertEqual(codex_entry["provider"], "codex")
+            self.assertEqual(codex_entry["error"]["category"], "authentication")
+            self.assertIn("codex", codex_entry["error"]["message"].lower())
+            self.assertFalse(log_path.exists() or (log_path.is_file() and "codex" in log_path.read_text(encoding="utf-8")))
+
+            # Explicit grok likewise.
+            grok_result = subprocess.run(
+                [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "grok"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            grok_entry = json.loads(grok_result.stdout)[0]
+            self.assertEqual(grok_entry["error"]["category"], "authentication")
+            if log_path.is_file():
+                self.assertNotIn("grok", log_path.read_text(encoding="utf-8"))
+
+            # --provider all still walks native codex/grok (no whole-call argv dump).
+            all_result = subprocess.run(
                 [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
                 env=env,
                 text=True,
                 capture_output=True,
                 check=True,
             )
-            payload = json.loads(result.stdout)
-            self.assertEqual(payload["delegated"][0], "usage")
-            self.assertIn("all", payload["delegated"])
+            all_entries = json.loads(all_result.stdout)
+            self.assertIsInstance(all_entries, list)
+            by_provider = {entry["provider"]: entry for entry in all_entries}
+            self.assertEqual(by_provider["codex"]["error"]["category"], "authentication")
+            self.assertEqual(by_provider["grok"]["error"]["category"], "authentication")
+            if log_path.is_file():
+                called = log_path.read_text(encoding="utf-8").split()
+                self.assertNotIn("codex", called)
+                self.assertNotIn("grok", called)
 
     def test_missing_config_without_upstream_uses_claude_when_credentials_exist(self) -> None:
-        """Matrix row 4: no config, no upstream, Claude credentials enable native Claude only."""
+        """Matrix row 4: no config, no upstream, Claude credentials enable auto-config Claude."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             env = self._synthetic_env(root, with_claude_credentials=True)
             env["KODEXBAR_QUOTAS_FIXTURE_429"] = "1"
-            # Native Claude path with fixture returns a rate-limit provider error (not exit 127).
+            # Auto-config detects Claude credentials and enables only Claude.
             result = subprocess.run(
                 [os.sys.executable, str(ENGINE), "usage", "--format", "json", "--json-only", "--provider", "all"],
                 env=env,
@@ -1053,24 +1145,209 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(entries[0]["provider"], "antigravity")
 
     def test_native_errors_never_include_secrets_in_messages(self) -> None:
+        """Adversarial non-leak coverage for stdout-equivalent blobs (H1/H2/H4/H5/H8)."""
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             self._write_codex_auth(home, token=TEST_CODEX_TOKEN)
             self._write_grok_auth(home, key=TEST_GROK_KEY)
 
-            def boom(method, url, headers=None, body=None, timeout=None):
+            def boom_500(method, url, headers=None, body=None, timeout=None):
                 return 500, {}, b"fail"
 
-            with patch.object(quotas, "http_request", side_effect=boom), patch.object(
+            def boom_trailer_auth(method, url, headers=None, body=None, timeout=None):
+                data = build_minimal_grok_billing_frame(12.0, 1784733973)
+                trailer = build_grpc_web_trailer_frame(16, f"token={TEST_GROK_KEY}")
+                return 200, {"content-type": "application/grpc-web+proto"}, data + trailer
+
+            def boom_protobuf_garbage(method, url, headers=None, body=None, timeout=None):
+                # Valid percent then truncated varint (must not succeed or leak).
+                percent = _protobuf_key(1, 5) + struct.pack("<f", 57.0)
+                nested = percent + b"\x80"  # truncated varint tag
+                message = _protobuf_key(1, 2) + _encode_varint(len(nested)) + nested
+                frame = b"\x00" + len(message).to_bytes(4, "big") + message
+                return 200, {}, frame
+
+            def boom_deep_payload(method, url, headers=None, body=None, timeout=None):
+                # Deeply nested empty length-delimited fields to exercise depth limits.
+                blob = b""
+                for _ in range(quotas.PROTOBUF_MAX_DEPTH + 8):
+                    blob = _protobuf_key(1, 2) + _encode_varint(len(blob)) + blob
+                frame = b"\x00" + len(blob).to_bytes(4, "big") + blob
+                return 200, {}, frame
+
+            def boom_zero_percent(method, url, headers=None, body=None, timeout=None):
+                frame = build_minimal_grok_billing_frame(0.0, 1784733973)
+                return 200, {}, frame
+
+            def fake_urlopen_invalid_header(request, timeout=None):
+                # Real seam path: urllib-style ValueError that embeds the secret.
+                raise ValueError(f"Invalid header value b'Bearer {TEST_CODEX_TOKEN}\\n'")
+
+            blobs: list[str] = []
+
+            with patch.object(quotas, "upstream_path", return_value=None):
+                with patch.object(quotas, "http_request", side_effect=boom_500):
+                    blobs.append(json.dumps(quotas.fetch_provider("codex", None, home)))
+                    blobs.append(json.dumps(quotas.fetch_provider("grok", None, home)))
+
+                # H1: exercise real http_request (do not mock the seam away).
+                with patch.object(quotas, "urlopen", side_effect=fake_urlopen_invalid_header):
+                    blobs.append(json.dumps(quotas.fetch_provider("codex", None, home)))
+
+                with patch.object(quotas, "http_request", side_effect=boom_trailer_auth):
+                    blobs.append(json.dumps(quotas.fetch_provider("grok", None, home)))
+
+                with patch.object(quotas, "http_request", side_effect=boom_protobuf_garbage):
+                    blobs.append(json.dumps(quotas.fetch_provider("grok", None, home)))
+
+                with patch.object(quotas, "http_request", side_effect=boom_deep_payload):
+                    blobs.append(json.dumps(quotas.fetch_provider("grok", None, home)))
+
+                with patch.object(quotas, "http_request", side_effect=boom_zero_percent):
+                    zero_entries = quotas.fetch_provider("grok", None, home)
+                    blobs.append(json.dumps(zero_entries))
+                    self.assertAlmostEqual(zero_entries[0]["usage"]["primary"]["usedPercent"], 0.0)
+
+            combined = "\n".join(blobs)
+            self.assertNotIn(TEST_CODEX_TOKEN, combined)
+            self.assertNotIn(TEST_GROK_KEY, combined)
+            self.assertNotIn("refresh-not-used", combined)
+
+    def test_http_request_swallows_header_value_exceptions(self) -> None:
+        """H1: ValueError embedding Bearer token must become a fixed sanitized error."""
+        secret = TEST_CODEX_TOKEN + "\n"
+
+        def fake_urlopen(request, timeout=None):
+            raise ValueError(f"Invalid header value b'Bearer {secret}'")
+
+        with patch.object(quotas, "urlopen", side_effect=fake_urlopen):
+            with self.assertRaises(quotas.FetchFallback) as raised:
+                quotas.http_request(
+                    "GET",
+                    "https://example.test/usage",
+                    {"Authorization": f"Bearer {TEST_CODEX_TOKEN}"},
+                )
+        err = raised.exception
+        self.assertEqual(str(err), quotas.HTTP_REQUEST_FAILED)
+        self.assertNotIn(TEST_CODEX_TOKEN, str(err))
+        self.assertIsNone(err.__cause__)
+
+    def test_malformed_codex_token_is_auth_without_leak(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            bad = TEST_CODEX_TOKEN + "\nextra"
+            self._write_codex_auth(home, token=bad)
+            entry = quotas.fetch_codex(home)
+        self.assertEqual(entry["error"]["category"], "authentication")
+        self.assertIn("malformed", entry["error"]["message"].lower())
+        self.assertNotIn(TEST_CODEX_TOKEN, json.dumps(entry))
+        self.assertNotIn("extra", entry["error"]["message"])
+
+    def test_codex_corrupt_json_is_permanent_not_auth(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            path = home / ".codex" / "auth.json"
+            path.parent.mkdir(parents=True)
+            path.write_text("{not-json", encoding="utf-8")
+            with self.assertRaises(quotas.FetchFallback) as raised:
+                quotas.codex_access_credentials(home)
+        self.assertEqual(raised.exception.category, "permanent")
+        self.assertIn("invalid JSON", str(raised.exception))
+
+    def test_codex_missing_auth_is_authentication(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            with self.assertRaises(quotas.FetchFallback) as raised:
+                quotas.codex_access_credentials(home)
+        self.assertEqual(raised.exception.category, "authentication")
+        self.assertEqual(str(raised.exception), quotas.CODEX_AUTH_NOT_FOUND)
+
+    def test_invalid_toml_fails_closed_without_default_host(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            config = home / ".codex" / "config.toml"
+            config.parent.mkdir(parents=True)
+            # Inline comment would fool a naive regex into dropping the real URL.
+            config.write_text(
+                'chatgpt_base_url = "https://custom.example/backend-api" # note\n'
+                "this is not valid toml {{{{\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(quotas.FetchFallback) as raised:
+                quotas.read_chatgpt_base_url(home)
+        self.assertEqual(raised.exception.category, "permanent")
+        self.assertIn("config.toml", str(raised.exception).lower())
+
+    def test_valid_toml_reads_chatgpt_base_url(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            config = home / ".codex" / "config.toml"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                'chatgpt_base_url = "https://custom.example/backend-api"\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                quotas.read_chatgpt_base_url(home),
+                "https://custom.example/backend-api",
+            )
+
+    def test_grok_trailer_status_16_is_auth_even_with_data(self) -> None:
+        data = build_minimal_grok_billing_frame(57.0, 1784733973)
+        trailer = build_grpc_web_trailer_frame(16, "unauthenticated")
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_grok_auth(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {}, data + trailer
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
                 quotas, "upstream_path", return_value=None
             ):
-                codex_entries = quotas.fetch_provider("codex", None, home)
-                grok_entries = quotas.fetch_provider("grok", None, home)
+                entries = quotas.fetch_provider("grok", None, home)
+        self.assertEqual(entries[0]["error"]["category"], "authentication")
+        self.assertNotIn(TEST_GROK_KEY, json.dumps(entries))
 
-        blob = json.dumps(codex_entries) + json.dumps(grok_entries)
-        self.assertNotIn(TEST_CODEX_TOKEN, blob)
-        self.assertNotIn(TEST_GROK_KEY, blob)
-        self.assertNotIn("refresh-not-used", blob)
+    def test_grok_trailer_status_7_without_credential_evidence_is_permanent(self) -> None:
+        trailer = build_grpc_web_trailer_frame(7, "resource exhausted region")
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_grok_auth(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {}, trailer
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value=None
+            ):
+                entries = quotas.fetch_provider("grok", None, home)
+        self.assertEqual(entries[0]["error"]["category"], "permanent")
+
+    def test_grok_percent_ignores_alien_path_and_rejects_truncated(self) -> None:
+        # Alien fixed32 99.0 at path [2] must not beat real 57.0 at [1,1].
+        alien = _protobuf_key(2, 5) + struct.pack("<f", 99.0)
+        real = build_minimal_grok_billing_message(57.0, 1784733973)
+        used, resets = quotas.scan_grok_billing_protobuf(alien + real)
+        self.assertAlmostEqual(used, 57.0, places=3)
+        self.assertIsNotNone(resets)
+
+        # Truncated varint after a valid percent must fail closed.
+        percent_only = _protobuf_key(1, 5) + struct.pack("<f", 57.0)
+        nested = percent_only + b"\x80"
+        truncated = _protobuf_key(1, 2) + _encode_varint(len(nested)) + nested
+        with self.assertRaises(quotas.FetchFallback):
+            quotas.scan_grok_billing_protobuf(truncated)
+
+    def test_http_body_limit_rejects_oversized_payload(self) -> None:
+        class HugeStream:
+            def read(self, n: int = -1) -> bytes:
+                return b"x" * n
+
+        with self.assertRaises(quotas.FetchFallback) as raised:
+            quotas.read_http_body_limited(HugeStream(), max_bytes=64)
+        self.assertEqual(raised.exception.category, "invalid_response")
+        self.assertIn("size limit", str(raised.exception).lower())
 
 
 if __name__ == "__main__":
