@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.9.0
+
+- Fetch Codex and Grok quotas natively in `kodexbar-quotas` (stdlib HTTP) without requiring the companion `codexbar` binary for those providers.
+- Keep Antigravity on the upstream `codexbar` path. Use that CLI as optional fallback for Codex/Grok only on retryable network or infrastructure failures.
+- On Codex or Grok authentication failure (missing credentials, 401/403, expired token), surface a re-login message and do not refresh OAuth tokens automatically.
+- Move AUR dependency `codexbar-cli-bin` from hard `depends` to `optdepends` for Antigravity and Codex/Grok fallback.
+
 ## 0.8.1
 
 - Default `ai recover` help text to English unless an explicit Spanish locale is set (`LANG`/`LC_*` starting with `es`).

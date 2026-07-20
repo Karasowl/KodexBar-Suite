@@ -53,8 +53,8 @@ Qué instala el paquete bajo `/usr`:
 
 Cómo funcionan las cuotas después de instalar:
 
-- **Claude** se activa en la detección cuando hay credenciales de Claude Code o la CLI `claude`. La ruta nativa exige credenciales OAuth válidas. Sin ellas, las consultas caen al upstream.
-- **Codex, Grok y Antigravity** se habilitan cuando se detectan sus CLI (o rutas locales de autenticación). Para obtener los números de cuota de esos tres se usa la CLI compañera [`codexbar` de steipete](https://github.com/steipete/CodexBar). El paquete AUR la trae como dependencia `codexbar-cli-bin` (no es el paquete AUR homónimo de otro proyecto).
+- **Claude, Codex y Grok** obtienen sus cuotas de forma nativa con `kodexbar-quotas` (Python stdlib). Claude necesita credenciales OAuth de Claude Code. Codex lee `~/.codex/auth.json`. Grok lee `~/.grok/auth.json`. Si las credenciales faltan o caducaron, se muestra un mensaje de re-login (sin refresco automático de OAuth).
+- **Antigravity** sigue necesitando la CLI compañera [`codexbar` de steipete](https://github.com/steipete/CodexBar). Esa misma CLI es un respaldo opcional para Codex y Grok cuando la ruta nativa falla por red o infraestructura reintentable. En Arch/CachyOS instálala como `codexbar-cli-bin` (no es el paquete AUR homónimo de otro proyecto).
 - Una configuración de CodexBar que ya exista no se sobrescribe. El widget **no** inventa números de cuota.
 
 ### KDE Store (solo el widget)
@@ -71,7 +71,7 @@ cd KodexBar-Suite
 ./install.sh
 ```
 
-En una instalación manual (no Arch), para las cuotas de Codex, Grok y Antigravity también hay que instalar la CLI oficial de CodexBar y tener `codexbar` en el `PATH`. Consulta la [documentación de la CLI de CodexBar](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
+En una instalación manual (no Arch), para las cuotas de Antigravity (y el respaldo opcional de Codex/Grok) también hay que instalar la CLI oficial de CodexBar y tener `codexbar` en el `PATH`. Consulta la [documentación de la CLI de CodexBar](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
 
 ### Migrar desde una instalación manual en `~/.local` al paquete
 

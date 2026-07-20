@@ -53,8 +53,8 @@ What the package installs under `/usr`:
 
 How quotas work after install:
 
-- **Claude** is enabled in detection when Claude Code credentials or the `claude` CLI are present. The native path requires valid OAuth credentials. Without them, queries fall back to upstream.
-- **Codex, Grok, and Antigravity** are enabled when their CLIs (or local auth paths) are detected. Fetching their quota numbers uses the companion CLI [`codexbar` by steipete](https://github.com/steipete/CodexBar). The AUR package pulls that CLI in as `codexbar-cli-bin` (not the unrelated AUR package also named `codexbar`).
+- **Claude, Codex, and Grok** quotas are fetched natively by `kodexbar-quotas` (Python stdlib). Claude needs Claude Code OAuth credentials. Codex reads `~/.codex/auth.json`. Grok reads `~/.grok/auth.json`. Expired or missing credentials show a re-login message (no automatic OAuth refresh).
+- **Antigravity** still needs the companion CLI [`codexbar` by steipete](https://github.com/steipete/CodexBar). The same CLI is an optional fallback for Codex and Grok when the native path hits a retryable network or infrastructure failure. On Arch/CachyOS install it as `codexbar-cli-bin` (not the unrelated AUR package also named `codexbar`).
 - An existing CodexBar config is never overwritten. The widget does **not** invent placeholder quota numbers.
 
 ### KDE Store (widget only)
@@ -71,7 +71,7 @@ cd KodexBar-Suite
 ./install.sh
 ```
 
-For Codex, Grok, and Antigravity quota numbers on a non-Arch install, also install the official CodexBar CLI and keep `codexbar` on your `PATH`. See [CodexBar CLI docs](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
+For Antigravity quotas (and optional Codex/Grok fallback) on a non-Arch install, also install the official CodexBar CLI and keep `codexbar` on your `PATH`. See [CodexBar CLI docs](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
 
 ### Migrating from a manual `~/.local` install to the package
 
