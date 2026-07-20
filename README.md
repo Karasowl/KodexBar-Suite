@@ -11,6 +11,8 @@ The packages are maintained in one repository and can be installed together from
 
 ## Install the suite
 
+**New to this? Follow the [step-by-step install guide](INSTALL.md).**
+
 On CachyOS, Arch Linux, or another Linux system with KDE Plasma 6:
 
 ```bash

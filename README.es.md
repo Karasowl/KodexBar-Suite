@@ -11,6 +11,8 @@ Los paquetes se mantienen en un solo repositorio y pueden instalarse juntos desd
 
 ## Instalar el conjunto
 
+**¿Nuevo en esto? Sigue la [guía de instalación paso a paso](INSTALL.es.md).**
+
 En CachyOS, Arch Linux u otro sistema Linux con KDE Plasma 6:
 
 ```bash
