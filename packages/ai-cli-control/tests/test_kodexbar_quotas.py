@@ -1668,6 +1668,51 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(entries[0]["error"]["message"], quotas.CODEX_PERMANENT)
         self._assert_human_user_message(entries[0]["error"]["message"])
 
+    def test_native_and_companion_both_fail_uses_dual_failure_message(self) -> None:
+        """H3: when companion was tried and also failed, do not advise installing it."""
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_codex_auth(home)
+            self._write_grok_auth(home)
+
+            def fake_codex_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {"Content-Type": "application/json"}, b'{"unexpected": true}'
+
+            def boom_upstream(provider, source):
+                raise quotas.FetchFallback(
+                    "upstream codexbar returned secret-should-not-leak TOKEN=abc",
+                    "timeout",
+                    True,
+                )
+
+            with patch.object(quotas, "http_request", side_effect=fake_codex_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(quotas, "upstream_entries", side_effect=boom_upstream):
+                codex_entries = quotas.fetch_provider("codex", None, home)
+
+            trailer = build_grpc_web_trailer_frame(14, "unavailable")
+            with patch.object(
+                quotas, "http_request", side_effect=lambda *a, **k: (200, {}, trailer)
+            ), patch.object(quotas, "upstream_path", return_value="/fake/codexbar"), patch.object(
+                quotas, "upstream_entries", side_effect=boom_upstream
+            ):
+                grok_entries = quotas.fetch_provider("grok", None, home)
+
+        codex_err = codex_entries[0]["error"]
+        self.assertEqual(codex_err["message"], quotas.CODEX_BOTH_FAILED)
+        self.assertEqual(codex_err["category"], "invalid_response")
+        self.assertNotIn("Install the codexbar-cli-bin", codex_err["message"])
+        self.assertNotIn("secret-should-not-leak", codex_err["message"])
+        self.assertNotIn("TOKEN=abc", codex_err["message"])
+        self._assert_human_user_message(codex_err["message"])
+
+        grok_err = grok_entries[0]["error"]
+        self.assertEqual(grok_err["message"], quotas.GROK_BOTH_FAILED)
+        self.assertEqual(grok_err["category"], "network")
+        self.assertNotIn("Install the codexbar-cli-bin", grok_err["message"])
+        self.assertNotIn("secret-should-not-leak", grok_err["message"])
+        self._assert_human_user_message(grok_err["message"])
+
     def test_user_visible_native_errors_have_no_technical_jargon(self) -> None:
         messages = [
             quotas.CODEX_AUTH_RELOGIN,

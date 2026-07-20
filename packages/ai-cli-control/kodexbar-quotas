@@ -75,6 +75,10 @@ CODEX_INVALID_RESPONSE = (
     "Could not read Codex quotas. Install the codexbar-cli-bin package as a fallback, "
     "or update KodexBar."
 )
+CODEX_BOTH_FAILED = (
+    "Could not read Codex quotas from the native reader or the codexbar fallback. "
+    "Update KodexBar, or reinstall codexbar-cli-bin."
+)
 CODEX_PERMANENT = (
     "Could not read Codex quotas. Try signing in again (run: codex), or update KodexBar."
 )
@@ -93,6 +97,10 @@ GROK_TIMEOUT = "Grok timed out. Check your connection and retry."
 GROK_INVALID_RESPONSE = (
     "Could not read Grok quotas. Install the codexbar-cli-bin package as a fallback, "
     "or update KodexBar."
+)
+GROK_BOTH_FAILED = (
+    "Could not read Grok quotas from the native reader or the codexbar fallback. "
+    "Update KodexBar, or reinstall codexbar-cli-bin."
 )
 GROK_PERMANENT = (
     "Could not read Grok quotas. Try signing in again (run: grok login), or update KodexBar."
@@ -135,6 +143,7 @@ def human_native_error_message(provider: str, category: str, original: str | Non
         CODEX_NETWORK,
         CODEX_TIMEOUT,
         CODEX_INVALID_RESPONSE,
+        CODEX_BOTH_FAILED,
         CODEX_PERMANENT,
         GROK_AUTH_RELOGIN,
         GROK_AUTH_UNREADABLE,
@@ -143,6 +152,7 @@ def human_native_error_message(provider: str, category: str, original: str | Non
         GROK_NETWORK,
         GROK_TIMEOUT,
         GROK_INVALID_RESPONSE,
+        GROK_BOTH_FAILED,
         GROK_PERMANENT,
         GROK_PERMISSION_DENIED,
     }
@@ -1442,11 +1452,11 @@ def fallback_entry(
         failure = native_failure or upstream_failure
         if native_failure is None:
             message = str(upstream_failure)
-        elif provider.lower() in ("codex", "grok"):
-            # Native path already chose a human message; keep it when companion also fails.
-            message = human_native_error_message(
-                provider, native_failure.category, str(native_failure)
-            )
+        elif provider.lower() == "codex":
+            # Companion was present and also failed: do not advise installing it.
+            message = CODEX_BOTH_FAILED
+        elif provider.lower() == "grok":
+            message = GROK_BOTH_FAILED
         else:
             message = f"{native_failure}. Fallback failed: {upstream_failure}"
         return [provider_error(provider, source or "auto", message, failure.category, failure.retryable)]
