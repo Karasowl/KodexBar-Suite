@@ -52,7 +52,7 @@ What the package installs under `/usr`:
 How quotas work after install:
 
 - **Claude** is enabled in detection when Claude Code credentials or the `claude` CLI are present. The native path requires valid OAuth credentials. Without them, queries fall back to upstream.
-- **Codex, Grok, and Antigravity** are enabled when their CLIs (or local auth paths) are detected. Fetching their quota numbers still uses the companion CLI [`codexbar` by steipete](https://github.com/steipete/codexbar) when that tool is on `PATH`. That CLI is **not** part of this package and is **not** the unrelated AUR package also named `codexbar`.
+- **Codex, Grok, and Antigravity** are enabled when their CLIs (or local auth paths) are detected. Fetching their quota numbers uses the companion CLI [`codexbar` by steipete](https://github.com/steipete/CodexBar). The AUR package pulls that CLI in as `codexbar-cli-bin` (not the unrelated AUR package also named `codexbar`).
 - An existing CodexBar config is never overwritten. The widget does **not** invent placeholder quota numbers.
 
 ### KDE Store (widget only)
