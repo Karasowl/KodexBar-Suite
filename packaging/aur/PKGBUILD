@@ -24,6 +24,7 @@ optdepends=(
   'xclip: X11 clipboard support for ai recover --copy'
   'xsel: alternate X11 clipboard support for ai recover --copy'
 )
+install=kodexbar-suite.install
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Karasowl/KodexBar-Suite/archive/refs/tags/v${pkgver}.tar.gz")
 sha256sums=('1db69f8a69384866371652db6ccac6adc15cdc75edd20c83d0916bc2b0c904b4')
 
