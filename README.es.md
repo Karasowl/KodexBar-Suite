@@ -51,7 +51,7 @@ Qué instala el paquete bajo `/usr`:
 
 Cómo funcionan las cuotas después de instalar:
 
-- **Claude** se sirve de forma nativa cuando hay credenciales de Claude Code o la CLI `claude`.
+- **Claude** se activa en la detección cuando hay credenciales de Claude Code o la CLI `claude`. La ruta nativa exige credenciales OAuth válidas. Sin ellas, las consultas caen al upstream.
 - **Codex, Grok y Antigravity** se habilitan cuando se detectan sus CLI (o rutas locales de autenticación). Para obtener los números de cuota de esos tres sigue haciendo falta la CLI compañera [`codexbar` de steipete](https://github.com/steipete/codexbar) en el `PATH`. Esa CLI **no** forma parte de este paquete y **no** es el paquete AUR homónimo de otro proyecto.
 - Una configuración de CodexBar que ya exista no se sobrescribe. El widget **no** inventa números de cuota.
 
