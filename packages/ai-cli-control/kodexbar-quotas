@@ -1272,7 +1272,14 @@ def _grpc_message_suggests_invalid_credentials(message: str | None) -> bool:
 
 
 def classify_grok_grpc_status(status: int, message: str | None) -> dict[str, Any]:
-    """Map gRPC status to a provider error entry. Status 7 is auth only with credential evidence."""
+    """Map gRPC status to a provider error entry, or raise FetchFallback for transient codes.
+
+    - 16 UNAUTHENTICATED → authentication (no companion fallback)
+    - 7 PERMISSION_DENIED → authentication only with credential evidence, else permanent
+    - 4 DEADLINE_EXCEEDED → timeout (companion may fall back)
+    - 14 UNAVAILABLE / 13 INTERNAL → network (companion may fall back)
+    - other non-zero → permanent (no companion fallback)
+    """
     if status == 16:
         return provider_error("grok", "grok-web", GROK_AUTH_RELOGIN, "authentication", False)
     if status == 7:
@@ -1285,6 +1292,10 @@ def classify_grok_grpc_status(status: int, message: str | None) -> dict[str, Any
             "permanent",
             False,
         )
+    if status == 4:
+        raise FetchFallback(GROK_TIMEOUT, "timeout", True)
+    if status in (13, 14):
+        raise FetchFallback(GROK_NETWORK, "network", True)
     return provider_error("grok", "grok-web", GROK_PERMANENT, "permanent", False)
 
 

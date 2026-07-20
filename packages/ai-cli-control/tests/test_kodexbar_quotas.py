@@ -1327,6 +1327,66 @@ class QuotasEngineTests(unittest.TestCase):
                 entries = quotas.fetch_provider("grok", None, home)
         self.assertEqual(entries[0]["error"]["category"], "permanent")
 
+    def test_grok_transient_grpc_statuses_delegate_to_upstream_stub(self) -> None:
+        """H2: DEADLINE_EXCEEDED(4), UNAVAILABLE(14), INTERNAL(13) fall back when companion present."""
+        cases = (
+            (4, "timeout"),
+            (14, "network"),
+            (13, "network"),
+        )
+        for status, expected_category in cases:
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                self._write_grok_auth(home)
+                trailer = build_grpc_web_trailer_frame(status, f"grpc-status-{status}")
+                upstream_calls: list[str] = []
+
+                def fake_http(method, url, headers=None, body=None, timeout=None):
+                    return 200, {}, trailer
+
+                def fake_upstream(provider, source):
+                    upstream_calls.append(provider)
+                    return [{"provider": "grok", "source": "upstream", "usage": {"primary": None}}]
+
+                with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                    quotas, "upstream_path", return_value="/fake/codexbar"
+                ), patch.object(quotas, "upstream_entries", side_effect=fake_upstream):
+                    entries = quotas.fetch_provider("grok", None, home)
+
+                self.assertEqual(upstream_calls, ["grok"])
+                self.assertEqual(entries[0]["source"], "upstream")
+                self.assertNotIn("error", entries[0])
+
+    def test_grok_transient_grpc_statuses_without_upstream_are_network_or_timeout(self) -> None:
+        """H2: without companion, 4/14/13 are human network/timeout, never re-login."""
+        cases = (
+            (4, "timeout", quotas.GROK_TIMEOUT),
+            (14, "network", quotas.GROK_NETWORK),
+            (13, "network", quotas.GROK_NETWORK),
+        )
+        for status, category, message in cases:
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                self._write_grok_auth(home)
+                trailer = build_grpc_web_trailer_frame(status, f"grpc-status-{status}")
+
+                def fake_http(method, url, headers=None, body=None, timeout=None):
+                    return 200, {}, trailer
+
+                with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                    quotas, "upstream_path", return_value=None
+                ), patch.object(
+                    quotas, "upstream_entries", side_effect=AssertionError("must not call without stub")
+                ):
+                    entries = quotas.fetch_provider("grok", None, home)
+
+                err = entries[0]["error"]
+                self.assertEqual(err["category"], category)
+                self.assertEqual(err["message"], message)
+                self.assertNotEqual(err["category"], "authentication")
+                self.assertNotIn("Sign in", err["message"])
+                self._assert_human_user_message(err["message"])
+
     def test_grok_percent_ignores_alien_path_and_rejects_truncated(self) -> None:
         # Alien fixed32 99.0 at path [2] must not beat real 57.0 at [1,1].
         alien = _protobuf_key(2, 5) + struct.pack("<f", 99.0)
