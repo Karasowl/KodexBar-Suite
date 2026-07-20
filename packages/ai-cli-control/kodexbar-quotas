@@ -1273,6 +1273,12 @@ def _grpc_status_from_headers(headers: dict[str, str]) -> int | None:
 
 
 def _grpc_message_suggests_invalid_credentials(message: str | None) -> bool:
+    """Strong credential evidence only. Generic gRPC status-7 text is not enough.
+
+    Status 7's stock phrase is "permission denied". That alone does not prove an
+    invalid token. Require explicit auth/credential signals before treating 7 as
+    authentication (re-login). Without them, 7 stays permanent (identity/plan).
+    """
     if not message:
         return False
     lowered = message.lower()
@@ -1284,8 +1290,10 @@ def _grpc_message_suggests_invalid_credentials(message: str | None) -> bool:
         "token",
         "unauthorized",
         "expired",
+        "revoked",
+        "sign in",
+        "log in",
         "login",
-        "permission denied",
     )
     return any(needle in lowered for needle in needles)
 

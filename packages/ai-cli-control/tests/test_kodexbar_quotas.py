@@ -1362,6 +1362,50 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(err["message"], quotas.GROK_AUTH_RELOGIN)
         self._assert_human_user_message(err["message"])
 
+    def test_grok_status_7_permission_denied_alone_is_permanent(self) -> None:
+        """F2: stock gRPC status-7 text is not credential evidence → permanent."""
+        trailer = build_grpc_web_trailer_frame(7, "permission denied")
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_grok_auth(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {}, trailer
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(
+                quotas,
+                "upstream_entries",
+                side_effect=AssertionError("status 7 permanent must not fall back"),
+            ):
+                entries = quotas.fetch_provider("grok", None, home)
+        err = entries[0]["error"]
+        self.assertEqual(err["category"], "permanent")
+        self.assertEqual(err["message"], quotas.GROK_PERMISSION_DENIED)
+        self.assertFalse(quotas._grpc_message_suggests_invalid_credentials("permission denied"))
+
+    def test_grok_status_7_invalid_token_is_authentication(self) -> None:
+        """F2: strong credential signal on status 7 → authentication / re-login."""
+        trailer = build_grpc_web_trailer_frame(7, "invalid token")
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_grok_auth(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {}, trailer
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("status 7 auth must not fall back")
+            ):
+                entries = quotas.fetch_provider("grok", None, home)
+        err = entries[0]["error"]
+        self.assertEqual(err["category"], "authentication")
+        self.assertEqual(err["message"], quotas.GROK_AUTH_RELOGIN)
+        self.assertTrue(quotas._grpc_message_suggests_invalid_credentials("invalid token"))
+
     def test_grok_trailer_status_8_resource_exhausted_is_permanent_no_fallback(self) -> None:
         """Status 8 RESOURCE_EXHAUSTED: permanent rate-limit, never companion fallback."""
         trailer = build_grpc_web_trailer_frame(8, "resource exhausted")
