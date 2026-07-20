@@ -47,14 +47,14 @@ The same package also appears in graphical AUR helpers on CachyOS such as Shelly
 What the package installs under `/usr`:
 
 - Plasma widget, `ai`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray`, and tray icons.
-- **Native Claude quotas** inside `kodexbar-quotas` (no extra daemon).
-- For **Codex, Grok, and Antigravity**, `kodexbar-quotas` delegates to the upstream CLI [`codexbar` by steipete](https://github.com/steipete/codexbar). That CLI is **not** part of this package and is **not** the unrelated AUR package also named `codexbar`. Install steipete's `codexbar` yourself if you need those providers.
+- **Native Claude quotas** inside `kodexbar-quotas`, once CodexBar's provider configuration exists at `~/.config/codexbar/config.json` and Claude OAuth credentials are available at `~/.claude/.credentials.json`.
+- For **Codex, Grok, and Antigravity**, `kodexbar-quotas` also requires the upstream CLI [`codexbar` by steipete](https://github.com/steipete/codexbar). That CLI is **not** part of this package and is **not** the unrelated AUR package also named `codexbar`. Install steipete's `codexbar` yourself if you need those providers.
 
-Without the upstream `codexbar` CLI, the widget still runs. Claude can show real data when credentials allow it. Codex, Grok, and Antigravity show a clear per-provider error in the UI (for example that upstream `codexbar` is missing). They do **not** invent placeholder quota numbers.
+On a clean installation without `~/.config/codexbar/config.json`, `kodexbar-quotas` delegates the complete quota request, including Claude, to steipete's upstream `codexbar`. Without that upstream CLI, the widget shows a clear per-provider error instead of quota data. With the provider configuration and Claude OAuth credentials, Claude uses the native integration. Codex, Grok, and Antigravity still require the upstream CLI. The widget does **not** invent placeholder quota numbers.
 
 ### KDE Store (widget only)
 
-The Plasma widget alone can be published to [store.kde.org](https://store.kde.org) as a `.plasmoid` built by `packaging/kde-store/build-plasmoid.sh`. That channel delivers the applet UI. The data engine (`kodexbar-quotas` and related tools) still comes from the AUR package or from the repository `install.sh` below. The same quota honesty applies: Claude is native in the engine, and Codex, Grok, and Antigravity still need steipete's upstream `codexbar` on `PATH`.
+The Plasma widget alone can be published to [store.kde.org](https://store.kde.org) as a `.plasmoid` built by `packaging/kde-store/build-plasmoid.sh`. That channel delivers the applet UI. The data engine (`kodexbar-quotas` and related tools) still comes from the AUR package or from the repository `install.sh` below. Claude needs `~/.config/codexbar/config.json` and Claude OAuth credentials for its native integration. Codex, Grok, and Antigravity need steipete's upstream `codexbar` on `PATH`. Without the provider configuration, all providers, including Claude, are delegated to that upstream CLI.
 
 ### Manual install from this repository
 
