@@ -47,14 +47,17 @@ El mismo paquete también aparece en gestores gráficos de AUR en CachyOS como S
 Qué instala el paquete bajo `/usr`:
 
 - Widget de Plasma, `ai`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray` e iconos del tray.
-- **Cuotas nativas de Claude** dentro de `kodexbar-quotas` cuando hay credenciales OAuth de Claude en `~/.claude/.credentials.json` (por ejemplo tras iniciar sesión en Claude Code). La configuración de proveedores de CodexBar en `~/.config/codexbar/config.json` elige qué proveedores están habilitados cuando ese archivo existe.
-- Para **Codex, Grok y Antigravity**, `kodexbar-quotas` también requiere la CLI upstream [`codexbar` de steipete](https://github.com/steipete/codexbar). Esa CLI **no** forma parte de este paquete y **no** es el paquete AUR homónimo de otro proyecto. Si necesitas esos proveedores, instala el `codexbar` de steipete por tu cuenta.
+- Primer uso sin configuración manual: si no existe `~/.config/codexbar/config.json`, la suite detecta qué CLI de IA ya tienes e habilita sus cuotas sola. No hace falta editar archivos ni leer documentación de proveedores.
 
-En una instalación limpia sin `~/.config/codexbar/config.json`, las cuotas de Claude funcionan de inmediato si ya hay una sesión de Claude Code iniciada (ruta nativa, sin configuración extra). Codex, Grok y Antigravity siempre necesitan el `codexbar` upstream de steipete en el `PATH` para sus datos de cuota. El archivo de configuración de CodexBar solo elige qué proveedores están habilitados. No sustituye la CLI upstream para esos tres. Si la CLI upstream está presente y no hay archivo de configuración, la solicitud completa se sigue delegando a esa CLI. Sin configuración, sin upstream y sin credenciales de Claude, el widget muestra un error de guía de configuración para Claude en vez de un fallo silencioso. El widget **no** inventa números de cuota.
+Cómo funcionan las cuotas después de instalar:
+
+- **Claude** se sirve de forma nativa cuando hay credenciales de Claude Code o la CLI `claude`.
+- **Codex, Grok y Antigravity** se habilitan cuando se detectan sus CLI (o rutas locales de autenticación). Para obtener los números de cuota de esos tres sigue haciendo falta la CLI compañera [`codexbar` de steipete](https://github.com/steipete/codexbar) en el `PATH`. Esa CLI **no** forma parte de este paquete y **no** es el paquete AUR homónimo de otro proyecto.
+- Una configuración de CodexBar que ya exista no se sobrescribe. El widget **no** inventa números de cuota.
 
 ### KDE Store (solo el widget)
 
-El widget de Plasma se puede publicar en [store.kde.org](https://store.kde.org) como un `.plasmoid` generado por `packaging/kde-store/build-plasmoid.sh`. Ese canal entrega solo la interfaz del applet. El motor de datos (`kodexbar-quotas` y herramientas relacionadas) sigue viniendo del paquete AUR o del `install.sh` del repositorio que se describe abajo. Con sesión de Claude Code iniciada, las cuotas de Claude funcionan sin archivo de configuración de CodexBar. Codex, Grok y Antigravity siempre necesitan el `codexbar` upstream de steipete en el `PATH` para sus datos de cuota. La configuración de CodexBar solo elige proveedores habilitados y no sustituye esa CLI. Cuando esa CLI upstream está presente y falta la configuración, la solicitud completa se delega a ella.
+El widget de Plasma se puede publicar en [store.kde.org](https://store.kde.org) como un `.plasmoid` generado por `packaging/kde-store/build-plasmoid.sh`. Ese canal entrega solo la interfaz del applet. El motor de datos (`kodexbar-quotas` y herramientas relacionadas) sigue viniendo del paquete AUR o del `install.sh` del repositorio que se describe abajo. Si el widget se instala sin el motor, el popup muestra una tarjeta de guía con `paru -S kodexbar-suite` y el enlace al repositorio. Cuando la suite ya está instalada, el siguiente refresco detecta tus CLI y muestra sus cuotas sin configurar proveedores a mano.
 
 ### Instalación manual desde este repositorio
 
