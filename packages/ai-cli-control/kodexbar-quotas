@@ -6,19 +6,36 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+try:
+    import tomllib
+except ImportError:  # pragma: no cover - Python < 3.11
+    tomllib = None  # type: ignore[assignment]
 
 
 VERSION = "0.8.0"
 TIMEOUT_SECONDS = 15
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+CODEX_DEFAULT_BASE = "https://chatgpt.com/backend-api"
+CODEX_USAGE_PATH_WHAM = "/wham/usage"
+CODEX_USAGE_PATH_ALT = "/api/codex/usage"
+CODEX_TIMEOUT_SECONDS = 30
+GROK_CREDITS_URL = "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig"
+GROK_TIMEOUT_SECONDS = 15
+GROK_EMPTY_FRAME = b"\x00\x00\x00\x00\x00"
+# Unix timestamps roughly year 2023–2036 for Grok reset heuristics.
+GROK_TS_MIN = 1_700_000_000
+GROK_TS_MAX = 2_100_000_000
 SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok"}
 # Stable order for auto-generated CodexBar config (upstream Codable expects version + providers).
 AUTO_CONFIG_PROVIDER_IDS = ("claude", "codex", "grok", "antigravity")
@@ -29,6 +46,12 @@ FIRST_RUN_CLAUDE_GUIDANCE = (
     "Sign in with Claude Code to create ~/.claude/.credentials.json, "
     "or create ~/.config/codexbar/config.json with an enabled providers list."
 )
+CODEX_AUTH_NOT_FOUND = "Codex auth.json not found. Run codex to log in."
+CODEX_AUTH_MISSING_TOKENS = "Codex auth.json exists but contains no tokens. Run codex to log in."
+CODEX_AUTH_EXPIRED = "Codex OAuth token expired or invalid. Run codex to log in."
+GROK_AUTH_RELOGIN = "Grok credentials missing or expired. Run grok login."
+GROK_AUTH_NOT_FOUND = "Grok auth.json not found. Run grok login."
+GROK_AUTH_MISSING_KEY = "Grok auth.json has no usable key. Run grok login."
 
 
 class FetchFallback(Exception):
@@ -211,22 +234,64 @@ def first_run_claude_guidance_entry() -> dict[str, Any]:
     )
 
 
+def http_request(
+    method: str,
+    url: str,
+    headers: dict[str, str] | None = None,
+    body: bytes | None = None,
+    timeout: float = TIMEOUT_SECONDS,
+) -> tuple[int, dict[str, str], bytes]:
+    """Injectable HTTP seam (stdlib urllib only). Never logs Authorization or bodies."""
+    request_headers = dict(headers or {})
+    request = Request(url, data=body, headers=request_headers, method=method.upper())
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            resp_headers = {str(k): str(v) for k, v in response.headers.items()}
+            return int(response.status), resp_headers, response.read()
+    except HTTPError as error:
+        resp_headers = {str(k): str(v) for k, v in (error.headers or {}).items()}
+        try:
+            payload = error.read()
+        except Exception:
+            payload = b""
+        return int(error.code), resp_headers, payload
+    except (URLError, OSError, TimeoutError) as error:
+        category = (
+            "timeout"
+            if isinstance(error, TimeoutError) or "timed out" in str(error).lower()
+            else "network"
+        )
+        # Do not include request headers/body (may contain secrets).
+        raise FetchFallback(f"HTTP {category} failure for {method.upper()}", category, True) from error
+
+
 def http_get(url: str, headers: dict[str, str]) -> tuple[int, bytes]:
+    """Claude-compat wrapper around http_request (keeps legacy tests and fixture)."""
     if os.environ.get("KODEXBAR_QUOTAS_FIXTURE_429") == "1":
         return 429, b"{}"
-    request = Request(url, headers=headers, method="GET")
     try:
-        with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
-            return response.status, response.read()
-    except HTTPError as error:
-        return error.code, error.read()
-    except (URLError, OSError, TimeoutError) as error:
-        category = "timeout" if isinstance(error, TimeoutError) or "timed out" in str(error).lower() else "network"
-        raise FetchFallback(f"Claude OAuth {category} failure: {error}", category, True) from error
+        status, _resp_headers, body = http_request("GET", url, headers, None, TIMEOUT_SECONDS)
+    except FetchFallback as error:
+        # Preserve Claude-specific wording expected by existing tests and users.
+        raise FetchFallback(
+            f"Claude OAuth {error.category} failure: {error}",
+            error.category,
+            error.retryable,
+        ) from error
+    return status, body
 
 
 def iso_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def unix_seconds_to_iso(seconds: int | float) -> str:
+    return (
+        datetime.fromtimestamp(int(seconds), tz=timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def usage_window(value: Any, minutes: int) -> dict[str, Any] | None:
@@ -330,6 +395,551 @@ def fetch_claude(home: Path | None = None) -> dict[str, Any]:
         raise FetchFallback("Claude OAuth returned invalid JSON", "invalid_response", True) from error
 
 
+# --- Codex native (OAuth HTTP, no token refresh) ---
+
+
+def codex_auth_path(home: Path | None = None) -> Path:
+    root = home or home_directory()
+    codex_home = os.environ.get("CODEX_HOME")
+    if codex_home:
+        return Path(codex_home).expanduser() / "auth.json"
+    return root / ".codex" / "auth.json"
+
+
+def codex_access_credentials(home: Path | None = None) -> tuple[str, str | None]:
+    """Return (access_token, account_id). Never returns secrets in exceptions."""
+    path = codex_auth_path(home)
+    try:
+        payload = read_json(path)
+    except FileNotFoundError as error:
+        raise FetchFallback(CODEX_AUTH_NOT_FOUND, "authentication") from error
+    except (OSError, json.JSONDecodeError) as error:
+        raise FetchFallback(CODEX_AUTH_NOT_FOUND, "authentication") from error
+    if not isinstance(payload, dict):
+        raise FetchFallback(CODEX_AUTH_MISSING_TOKENS, "authentication")
+
+    api_key = payload.get("OPENAI_API_KEY")
+    if isinstance(api_key, str) and api_key.strip():
+        return api_key.strip(), None
+
+    tokens = payload.get("tokens")
+    if not isinstance(tokens, dict):
+        raise FetchFallback(CODEX_AUTH_MISSING_TOKENS, "authentication")
+
+    access = tokens.get("access_token")
+    if not isinstance(access, str) or not access.strip():
+        access = tokens.get("accessToken")
+    if not isinstance(access, str) or not access.strip():
+        raise FetchFallback(CODEX_AUTH_MISSING_TOKENS, "authentication")
+
+    account_id = tokens.get("account_id")
+    if not isinstance(account_id, str) or not account_id.strip():
+        account_id = tokens.get("accountId")
+    account = account_id.strip() if isinstance(account_id, str) and account_id.strip() else None
+    return access.strip(), account
+
+
+def read_chatgpt_base_url(home: Path | None = None) -> str | None:
+    """Read chatgpt_base_url from ~/.codex/config.toml (stdlib, minimal parse)."""
+    root = home or home_directory()
+    config_path = root / ".codex" / "config.toml"
+    if not config_path.is_file():
+        return None
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    if tomllib is not None:
+        try:
+            data = tomllib.loads(text)
+        except Exception:
+            data = None
+        if isinstance(data, dict):
+            value = data.get("chatgpt_base_url")
+            if isinstance(value, str) and value.strip():
+                return value.strip().rstrip("/")
+    match = re.search(
+        r'(?m)^\s*chatgpt_base_url\s*=\s*["\']([^"\']+)["\']\s*$',
+        text,
+    )
+    if match:
+        return match.group(1).strip().rstrip("/")
+    return None
+
+
+def codex_usage_url(home: Path | None = None) -> str:
+    base = read_chatgpt_base_url(home)
+    if base and "/backend-api" not in base:
+        return f"{base}{CODEX_USAGE_PATH_ALT}"
+    if base:
+        return f"{base}{CODEX_USAGE_PATH_WHAM}"
+    return f"{CODEX_DEFAULT_BASE}{CODEX_USAGE_PATH_WHAM}"
+
+
+def map_codex_window(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    used = value.get("used_percent")
+    if used is None:
+        used = value.get("usedPercent")
+    if not isinstance(used, (int, float)):
+        return None
+    window: dict[str, Any] = {"usedPercent": used}
+    reset_at = value.get("reset_at")
+    if reset_at is None:
+        reset_at = value.get("resetsAt")
+    if isinstance(reset_at, (int, float)):
+        window["resetsAt"] = unix_seconds_to_iso(reset_at)
+    elif isinstance(reset_at, str) and reset_at:
+        window["resetsAt"] = reset_at
+    limit_seconds = value.get("limit_window_seconds")
+    if isinstance(limit_seconds, (int, float)):
+        window["windowMinutes"] = int(limit_seconds) // 60
+    else:
+        minutes = value.get("windowMinutes")
+        if isinstance(minutes, (int, float)):
+            window["windowMinutes"] = int(minutes)
+    return window
+
+
+def normalize_codex_primary_secondary(
+    primary: dict[str, Any] | None,
+    secondary: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Assign session (300) to primary and weekly (10080) to secondary. Other durations stay unknown."""
+    candidates = [w for w in (primary, secondary) if isinstance(w, dict)]
+    session = next((w for w in candidates if w.get("windowMinutes") == 300), None)
+    weekly = next((w for w in candidates if w.get("windowMinutes") == 10080), None)
+    if session is not None or weekly is not None:
+        return session, weekly
+    # Unknown durations: keep API order but only when minutes match the widget normalizer set.
+    return primary, secondary
+
+
+def map_codex_additional_limits(items: Any) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    extras: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        limit_id = item.get("limit_id") or item.get("limitId") or item.get("id")
+        metered = item.get("metered_feature") or item.get("meteredFeature") or item.get("limit_name") or item.get("limitName")
+        if isinstance(limit_id, str) and limit_id in ("codex-spark", "codex-spark-weekly"):
+            window_id = limit_id
+            title = "Codex Spark" if limit_id == "codex-spark" else "Codex Spark Weekly"
+        else:
+            slug_source = limit_id if isinstance(limit_id, str) and limit_id else metered
+            if not isinstance(slug_source, str) or not slug_source:
+                continue
+            slug = re.sub(r"[^a-z0-9]+", "-", slug_source.lower()).strip("-")
+            window_id = slug if slug.startswith("codex-") else f"codex-{slug}"
+            title = str(metered or limit_id or window_id)
+        raw_window = item.get("rate_limit") or item.get("window") or item
+        if isinstance(raw_window, dict) and "primary_window" in raw_window:
+            mapped = map_codex_window(raw_window.get("primary_window"))
+        else:
+            mapped = map_codex_window(raw_window)
+        if mapped is None:
+            continue
+        extras.append({"id": window_id, "title": title, "window": mapped})
+    return extras
+
+
+def map_codex_usage(payload: Any, updated_at: str | None = None) -> dict[str, Any]:
+    """Map CodexUsageResponse (wham/usage) to the widget envelope."""
+    if not isinstance(payload, dict):
+        raise FetchFallback("Invalid response from Codex usage API.", "invalid_response", False)
+
+    rate_limit = payload.get("rate_limit") if isinstance(payload.get("rate_limit"), dict) else {}
+    primary_raw = map_codex_window(rate_limit.get("primary_window"))
+    secondary_raw = map_codex_window(rate_limit.get("secondary_window"))
+    primary, secondary = normalize_codex_primary_secondary(primary_raw, secondary_raw)
+    extras = map_codex_additional_limits(payload.get("additional_rate_limits"))
+
+    if primary is None and secondary is None and not extras:
+        raise FetchFallback("Codex usage response has no rate limit windows", "invalid_response", False)
+
+    plan_type = payload.get("plan_type")
+    identity: dict[str, Any] = {"providerID": "codex"}
+    if isinstance(plan_type, str) and plan_type:
+        identity["loginMethod"] = plan_type
+
+    usage: dict[str, Any] = {
+        "identity": identity,
+        "primary": primary,
+        "secondary": secondary,
+        "tertiary": None,
+        "updatedAt": updated_at or iso_now(),
+    }
+    if extras:
+        usage["extraRateWindows"] = extras
+    return {
+        "provider": "codex",
+        "source": "oauth",
+        "usage": usage,
+        "engine": "kodexbar",
+    }
+
+
+def fetch_codex(home: Path | None = None) -> dict[str, Any]:
+    """Native Codex OAuth usage. Auth errors return provider entries (no refresh)."""
+    try:
+        token, account_id = codex_access_credentials(home)
+    except FetchFallback as error:
+        if error.category == "authentication":
+            return provider_error("codex", "oauth", str(error), "authentication", False)
+        raise
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "User-Agent": "CodexBar",
+        "Accept": "application/json",
+    }
+    if account_id:
+        headers["ChatGPT-Account-Id"] = account_id
+
+    url = codex_usage_url(home)
+    try:
+        status, _resp_headers, body = http_request(
+            "GET", url, headers, None, CODEX_TIMEOUT_SECONDS
+        )
+    except FetchFallback as error:
+        raise FetchFallback(
+            f"Codex usage {error.category} failure",
+            error.category,
+            error.retryable,
+        ) from error
+
+    if status in (401, 403):
+        return provider_error("codex", "oauth", CODEX_AUTH_EXPIRED, "authentication", False)
+    if status != 200:
+        retryable = status in (408, 425) or status >= 500
+        if retryable:
+            category = "timeout" if status == 408 else "network"
+            raise FetchFallback(f"Codex usage request failed with HTTP {status}", category, True)
+        raise FetchFallback(f"Codex API error {status}", "permanent", False)
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise FetchFallback("Invalid response from Codex usage API.", "invalid_response", False) from error
+    return map_codex_usage(payload)
+
+
+# --- Grok native (cookie-free gRPC-web billing) ---
+#
+# WARNING: The protobuf scan below is heuristic and fragile. There is no public
+# schema for GetGrokCreditsConfig. Field paths and wire layout may change.
+
+
+def grok_auth_path(home: Path | None = None) -> Path:
+    root = home or home_directory()
+    grok_home = os.environ.get("GROK_HOME")
+    if grok_home:
+        return Path(grok_home).expanduser() / "auth.json"
+    return root / ".grok" / "auth.json"
+
+
+def _grok_scope_preference(scope: str) -> tuple[int, str]:
+    if scope.startswith("https://auth.x.ai::"):
+        return (0, scope)
+    if scope == "https://accounts.x.ai/sign-in" or "/sign-in" in scope:
+        return (1, scope)
+    return (2, scope)
+
+
+def _parse_iso_expiry(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def grok_access_credentials(home: Path | None = None) -> tuple[str, dict[str, Any]]:
+    """Return (bearer key, selected auth entry). No refresh of OAuth tokens."""
+    path = grok_auth_path(home)
+    try:
+        payload = read_json(path)
+    except FileNotFoundError as error:
+        raise FetchFallback(GROK_AUTH_NOT_FOUND, "authentication") from error
+    except (OSError, json.JSONDecodeError) as error:
+        raise FetchFallback(GROK_AUTH_NOT_FOUND, "authentication") from error
+    if not isinstance(payload, dict) or not payload:
+        raise FetchFallback(GROK_AUTH_MISSING_KEY, "authentication")
+
+    candidates: list[tuple[tuple[int, str], dict[str, Any]]] = []
+    for scope, entry in payload.items():
+        if not isinstance(scope, str) or not isinstance(entry, dict):
+            continue
+        candidates.append((_grok_scope_preference(scope), entry))
+    if not candidates:
+        raise FetchFallback(GROK_AUTH_MISSING_KEY, "authentication")
+    candidates.sort(key=lambda item: item[0])
+    entry = candidates[0][1]
+
+    key = entry.get("key")
+    if not isinstance(key, str) or not key.strip():
+        raise FetchFallback(GROK_AUTH_MISSING_KEY, "authentication")
+
+    expires = _parse_iso_expiry(entry.get("expires_at") or entry.get("expiresAt"))
+    if expires is not None and expires <= datetime.now(timezone.utc):
+        raise FetchFallback(GROK_AUTH_RELOGIN, "authentication")
+
+    return key.strip(), entry
+
+
+def _read_protobuf_varint(data: bytes, index: int) -> tuple[int, int]:
+    result = 0
+    shift = 0
+    while index < len(data):
+        byte = data[index]
+        index += 1
+        result |= (byte & 0x7F) << shift
+        if (byte & 0x80) == 0:
+            return result, index
+        shift += 7
+        if shift > 63:
+            raise ValueError("varint too long")
+    raise ValueError("truncated varint")
+
+
+def iter_protobuf_fields(data: bytes, path: tuple[int, ...] = ()) -> Any:
+    """Yield (path, wire_type, value) walking length-delimited payloads as submessages.
+
+    Fragility warning: assumes standard protobuf wire types only. Nested length-delimited
+    fields that are not submessages are still attempted as submessages and ignored on error.
+    """
+    index = 0
+    length = len(data)
+    while index < length:
+        try:
+            tag, index = _read_protobuf_varint(data, index)
+        except ValueError:
+            return
+        field_number = tag >> 3
+        wire_type = tag & 0x07
+        if field_number == 0:
+            return
+        field_path = path + (field_number,)
+        if wire_type == 0:
+            try:
+                value, index = _read_protobuf_varint(data, index)
+            except ValueError:
+                return
+            yield field_path, 0, value
+        elif wire_type == 1:
+            if index + 8 > length:
+                return
+            chunk = data[index : index + 8]
+            index += 8
+            yield field_path, 1, chunk
+        elif wire_type == 2:
+            try:
+                size, index = _read_protobuf_varint(data, index)
+            except ValueError:
+                return
+            if size < 0 or index + size > length:
+                return
+            chunk = data[index : index + size]
+            index += size
+            yield field_path, 2, chunk
+            try:
+                yield from iter_protobuf_fields(chunk, field_path)
+            except Exception:
+                pass
+        elif wire_type == 5:
+            if index + 4 > length:
+                return
+            value = struct.unpack_from("<f", data, index)[0]
+            index += 4
+            yield field_path, 5, value
+        else:
+            return
+
+
+def unwrap_grpc_web_frame(body: bytes) -> bytes:
+    if len(body) < 5:
+        raise FetchFallback("Grok billing response is too short", "invalid_response", False)
+    # flags (1) + length big-endian (4) + message
+    message_length = int.from_bytes(body[1:5], "big")
+    start = 5
+    end = start + message_length
+    if end > len(body):
+        raise FetchFallback("Grok billing gRPC-web frame is truncated", "invalid_response", False)
+    return body[start:end]
+
+
+def scan_grok_billing_protobuf(message: bytes) -> tuple[float, str | None]:
+    """Heuristic scan: fixed32 float in [0,100] => usedPercent, varint unix => resetsAt."""
+    percent_candidates: list[tuple[int, tuple[int, ...], float]] = []
+    timestamp_candidates: list[tuple[tuple[int, ...], int]] = []
+
+    for field_path, wire_type, value in iter_protobuf_fields(message):
+        if wire_type == 5 and isinstance(value, float) and 0.0 <= value <= 100.0:
+            percent_candidates.append((len(field_path), field_path, value))
+        elif wire_type == 0 and isinstance(value, int) and GROK_TS_MIN <= value <= GROK_TS_MAX:
+            timestamp_candidates.append((field_path, value))
+
+    used_percent: float | None = None
+    if percent_candidates:
+        percent_candidates.sort(key=lambda item: (item[0], item[1]))
+        used_percent = percent_candidates[0][2]
+
+    resets_at: str | None = None
+    preferred = next((item for item in timestamp_candidates if list(item[0]) == [1, 5, 1]), None)
+    if preferred is not None:
+        resets_at = unix_seconds_to_iso(preferred[1])
+    elif timestamp_candidates:
+        resets_at = unix_seconds_to_iso(timestamp_candidates[0][1])
+
+    if used_percent is None:
+        # Period with future reset but no percent => treat as 0% used.
+        if resets_at is not None:
+            try:
+                reset_dt = datetime.fromisoformat(resets_at.replace("Z", "+00:00"))
+            except ValueError:
+                reset_dt = None
+            if reset_dt is not None and reset_dt > datetime.now(timezone.utc):
+                used_percent = 0.0
+        if used_percent is None:
+            raise FetchFallback("Failed to parse Grok billing protobuf", "invalid_response", False)
+
+    return used_percent, resets_at
+
+
+def map_grok_usage(
+    used_percent: float,
+    resets_at: str | None,
+    auth_entry: dict[str, Any] | None = None,
+    updated_at: str | None = None,
+) -> dict[str, Any]:
+    primary: dict[str, Any] = {"usedPercent": used_percent}
+    if resets_at:
+        primary["resetsAt"] = resets_at
+    # Web path does not compute windowMinutes.
+    identity: dict[str, Any] = {"providerID": "grok"}
+    if isinstance(auth_entry, dict):
+        auth_mode = auth_entry.get("auth_mode")
+        if auth_mode == "oidc":
+            identity["loginMethod"] = "SuperGrok"
+        elif isinstance(auth_mode, str) and auth_mode:
+            identity["loginMethod"] = auth_mode
+        email = auth_entry.get("email")
+        if isinstance(email, str) and email:
+            identity["accountEmail"] = email
+        team_id = auth_entry.get("team_id")
+        if isinstance(team_id, str) and team_id:
+            identity["accountOrganization"] = team_id
+    return {
+        "provider": "grok",
+        "source": "grok-web",
+        "usage": {
+            "identity": identity,
+            "primary": primary,
+            "secondary": None,
+            "tertiary": None,
+            "updatedAt": updated_at or iso_now(),
+        },
+        "engine": "kodexbar",
+    }
+
+
+def _grpc_status_from_headers(headers: dict[str, str]) -> int | None:
+    for key, value in headers.items():
+        if key.lower() in ("grpc-status", "grpc_status"):
+            try:
+                return int(value.strip())
+            except ValueError:
+                return None
+    return None
+
+
+def fetch_grok(home: Path | None = None) -> dict[str, Any]:
+    """Native Grok billing via gRPC-web. No OAuth refresh: expired key => re-login."""
+    try:
+        key, auth_entry = grok_access_credentials(home)
+    except FetchFallback as error:
+        if error.category == "authentication":
+            return provider_error("grok", "grok-web", str(error), "authentication", False)
+        raise
+
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Origin": "https://grok.com",
+        "Referer": "https://grok.com/?_s=usage",
+        "Accept": "*/*",
+        "Content-Type": "application/grpc-web+proto",
+        "x-grpc-web": "1",
+        "x-user-agent": "connect-es/2.1.1",
+        "User-Agent": "CodexBar",
+    }
+
+    last_error: FetchFallback | None = None
+    status = 0
+    resp_headers: dict[str, str] = {}
+    body = b""
+    for attempt in range(2):
+        try:
+            status, resp_headers, body = http_request(
+                "POST",
+                GROK_CREDITS_URL,
+                headers,
+                GROK_EMPTY_FRAME,
+                GROK_TIMEOUT_SECONDS,
+            )
+        except FetchFallback as error:
+            last_error = error
+            if error.retryable and attempt == 0:
+                continue
+            raise FetchFallback(
+                f"Grok billing {error.category} failure",
+                error.category,
+                error.retryable,
+            ) from error
+
+        if status in (408, 502, 503, 504) and attempt == 0:
+            last_error = FetchFallback(
+                f"Grok billing request failed with HTTP {status}",
+                "timeout" if status == 408 else "network",
+                True,
+            )
+            continue
+        break
+    else:
+        if last_error is not None:
+            raise last_error
+
+    if status in (401, 403):
+        return provider_error("grok", "grok-web", GROK_AUTH_RELOGIN, "authentication", False)
+    if status != 200:
+        retryable = status in (408, 425) or status >= 500
+        if retryable:
+            category = "timeout" if status == 408 else "network"
+            raise FetchFallback(f"Grok billing request failed with HTTP {status}", category, True)
+        raise FetchFallback(f"Grok billing HTTP {status}", "permanent", False)
+
+    grpc_status = _grpc_status_from_headers(resp_headers)
+    if grpc_status in (7, 16):
+        # 16 unauthenticated, 7 permission denied (often bad credentials)
+        return provider_error("grok", "grok-web", GROK_AUTH_RELOGIN, "authentication", False)
+
+    try:
+        message = unwrap_grpc_web_frame(body)
+        used_percent, resets_at = scan_grok_billing_protobuf(message)
+    except FetchFallback:
+        raise
+    except Exception as error:
+        raise FetchFallback("Failed to parse Grok billing response", "invalid_response", False) from error
+    return map_grok_usage(used_percent, resets_at, auth_entry)
+
+
 def upstream_path() -> str | None:
     candidate = shutil.which("codexbar")
     if candidate and os.path.realpath(candidate) != os.path.realpath(__file__):
@@ -380,6 +990,48 @@ def fallback_entry(
         return [provider_error(provider, source or "auto", message, failure.category, failure.retryable)]
 
 
+def _native_provider_result(
+    provider: str,
+    source: str | None,
+    home: Path | None,
+    fetch_fn: Callable[[Path | None], dict[str, Any]],
+    default_source: str,
+) -> list[Any]:
+    """Run a native fetch. Auth errors never fall back. Retryable/infra may use upstream."""
+    try:
+        entry = fetch_fn(home)
+    except FetchFallback as error:
+        if error.category == "authentication":
+            return [
+                provider_error(
+                    provider,
+                    source or default_source,
+                    str(error),
+                    "authentication",
+                    False,
+                )
+            ]
+        if error.retryable and upstream_path() is not None:
+            return fallback_entry(provider, source, error)
+        return [
+            provider_error(
+                provider,
+                source or default_source,
+                str(error),
+                error.category,
+                error.retryable,
+            )
+        ]
+    # Auth/permanent errors returned as structured entries must not be re-routed to upstream.
+    if isinstance(entry, dict) and "error" in entry:
+        category = (entry.get("error") or {}).get("category")
+        if category == "authentication":
+            return [entry]
+        # Other structured native errors (e.g. rate_limit style) stay as-is.
+        return [entry]
+    return [entry]
+
+
 def fetch_provider(provider: str, source: str | None, home: Path | None = None) -> list[Any]:
     normalized = provider.lower()
     if normalized == "claude" and source in (None, "auto", "oauth"):
@@ -387,6 +1039,10 @@ def fetch_provider(provider: str, source: str | None, home: Path | None = None) 
             return [fetch_claude(home)]
         except FetchFallback as error:
             return fallback_entry(normalized, source, error)
+    if normalized == "codex" and source in (None, "auto", "oauth"):
+        return _native_provider_result(normalized, source, home, fetch_codex, "oauth")
+    if normalized == "grok" and source in (None, "auto", "web", "grok-web"):
+        return _native_provider_result(normalized, source, home, fetch_grok, "grok-web")
     return fallback_entry(normalized, source)
 
 
