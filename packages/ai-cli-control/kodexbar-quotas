@@ -112,7 +112,7 @@ GROK_PERMISSION_DENIED = (
 )
 
 CLAUDE_CREDENTIAL_MALFORMED = "credential looks malformed, run claude to log in"
-HTTP_REQUEST_FAILED = "HTTP request failed"
+HTTP_REQUEST_FAILED = "Could not complete the request. Check your connection and retry."
 # Categories where native Codex/Grok may fall back to installed upstream codexbar.
 # Decided by category, not by the retryable flag alone (schema drift is often non-retryable).
 NATIVE_UPSTREAM_FALLBACK_CATEGORIES = frozenset({"network", "timeout", "invalid_response"})

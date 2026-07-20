@@ -1725,7 +1725,7 @@ class QuotasEngineTests(unittest.TestCase):
             self._write_grok_auth(home)
 
             def boom_network(method, url, headers=None, body=None, timeout=None):
-                raise quotas.FetchFallback("HTTP request failed", "network", True)
+                raise quotas.FetchFallback(quotas.HTTP_REQUEST_FAILED, "network", True)
 
             def boom_timeout(method, url, headers=None, body=None, timeout=None):
                 raise quotas.FetchFallback("HTTP timeout failure for POST", "timeout", True)
@@ -1762,7 +1762,7 @@ class QuotasEngineTests(unittest.TestCase):
             self._write_grok_auth(home)
 
             def boom(method, url, headers=None, body=None, timeout=None):
-                raise quotas.FetchFallback("HTTP request failed", "network", True)
+                raise quotas.FetchFallback(quotas.HTTP_REQUEST_FAILED, "network", True)
 
             with patch.object(quotas, "http_request", side_effect=boom), patch.object(
                 quotas, "upstream_path", return_value=None
@@ -2087,6 +2087,7 @@ class QuotasEngineTests(unittest.TestCase):
         "_INVALID_RESPONSE",
         "_PERMANENT",
         "_BOTH_FAILED",
+        "_FAILED",
         "_MALFORMED",
         "_UNREADABLE",
         "_INVALID_JSON",
@@ -2095,6 +2096,7 @@ class QuotasEngineTests(unittest.TestCase):
         "_GUIDANCE",
         "_PERMISSION_DENIED",
         "_AUTH_EXPIRED",
+        "_EXPIRED",
     )
     _VISIBLE_MISSING_NAME = re.compile(r"_MISSING_[A-Z0-9_]+$")
 
@@ -2128,6 +2130,8 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertIn("GROK_PERMISSION_DENIED", names)
         self.assertIn("CODEX_AUTH_MISSING_TOKENS", names)
         self.assertIn("GROK_AUTH_MISSING_KEY", names)
+        self.assertIn("HTTP_REQUEST_FAILED", names)
+        self.assertIn("CODEX_AUTH_EXPIRED", names)
 
         for name, message in named:
             with self.subTest(constant=name):
