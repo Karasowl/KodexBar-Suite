@@ -1382,8 +1382,8 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertFalse(quotas._grok_segments_match_weekly(built, 87.0))
 
     def test_map_grok_usage_keeps_float32_representation_composition(self) -> None:
-        # float32 wire values whose float64 sum differs from 100 by ~1e-6 still publish.
-        raw = (12.345, 34.567, 53.088)
+        # float32 of 0.1+0.2+99.7 sums to ~99.99999695 (below 100) and still matches weekly.
+        raw = (0.1, 0.2, 99.7)
         surfaces = [
             (2, struct.unpack("<f", struct.pack("<f", raw[0]))[0]),
             (1, struct.unpack("<f", struct.pack("<f", raw[1]))[0]),
@@ -1391,6 +1391,7 @@ class QuotasEngineTests(unittest.TestCase):
         ]
         weekly = struct.unpack("<f", struct.pack("<f", 100.0))[0]
         segment_sum = sum(item[1] for item in surfaces)
+        self.assertLessEqual(segment_sum, 100.0)
         self.assertGreater(abs(segment_sum - weekly), 0.0)
         self.assertLess(abs(segment_sum - weekly), quotas.GROK_SEGMENTS_FLOAT_ABS_TOL)
         entry = quotas.map_grok_usage(weekly, "2026-07-22T15:26:13Z", surfaces=surfaces)
@@ -1402,10 +1403,31 @@ class QuotasEngineTests(unittest.TestCase):
             [item["title"] for item in segments],
             ["Imagine", "API", "Grok Build"],
         )
+        published_sum = sum(item["points"] for item in segments)
+        self.assertLessEqual(published_sum, 100.0)
         self.assertTrue(
-            abs(sum(item["points"] for item in segments) - weekly)
-            <= quotas.GROK_SEGMENTS_FLOAT_ABS_TOL
+            abs(published_sum - weekly) <= quotas.GROK_SEGMENTS_FLOAT_ABS_TOL
         )
+
+    def test_map_grok_usage_omits_segments_when_float32_sum_barely_above_100(self) -> None:
+        # float32 of 12.345+34.567+53.088 ≈ 100.000002861: barely above 100, must omit.
+        raw = (12.345, 34.567, 53.088)
+        surfaces = [
+            (2, struct.unpack("<f", struct.pack("<f", raw[0]))[0]),
+            (1, struct.unpack("<f", struct.pack("<f", raw[1]))[0]),
+            (5, struct.unpack("<f", struct.pack("<f", raw[2]))[0]),
+        ]
+        weekly = struct.unpack("<f", struct.pack("<f", 100.0))[0]
+        segment_sum = sum(item[1] for item in surfaces)
+        self.assertGreater(segment_sum, 100.0)
+        self.assertLess(segment_sum - 100.0, quotas.GROK_SEGMENTS_FLOAT_ABS_TOL)
+        entry = quotas.map_grok_usage(weekly, "2026-07-22T15:26:13Z", surfaces=surfaces)
+        secondary = entry["usage"]["secondary"]
+        self.assertAlmostEqual(secondary["usedPercent"], weekly, places=5)
+        self.assertEqual(secondary["resetsAt"], "2026-07-22T15:26:13Z")
+        self.assertNotIn("segments", secondary)
+        built = quotas.map_grok_segments(surfaces)
+        self.assertFalse(quotas._grok_segments_match_weekly(built, weekly))
 
     def test_grok_invalid_surface_component_omits_segments_protobuf_path(self) -> None:
         # Invalid second component must not collapse into a partial 80% composition.

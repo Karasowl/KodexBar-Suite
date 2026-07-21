@@ -53,11 +53,12 @@ GROK_SURFACE_NAMES: dict[int, str] = {
     5: "Imagine",
 }
 # Weekly composition must reconstruct secondary.usedPercent. Only float32 wire
-# accumulation and representation noise is tolerated — not product-level slack.
-# float32 machine epsilon is ~1.19e-7; a few percentage-point adds stay well under
-# 1e-3 absolute. Differences of tenths of a point are rejected. Published
-# compositions must never sum above 100 except for that float noise; on failure
-# the engine omits segments and keeps the simple weekly bar.
+# accumulation and representation noise is tolerated when comparing sum(points)
+# to usedPercent within [0, 100] — not product-level slack. float32 machine
+# epsilon is ~1.19e-7; a few percentage-point adds stay well under 1e-3 absolute.
+# Differences of tenths of a point are rejected. Any sum strictly above 100.0 is
+# rejected with no upward slack. On failure the engine omits segments and
+# keeps the simple weekly bar.
 GROK_SEGMENTS_FLOAT_ABS_TOL = 1e-3
 PROTOBUF_MAX_DEPTH = 32
 PROTOBUF_MAX_FIELDS = 4096
@@ -1487,11 +1488,11 @@ def _grok_segments_match_weekly(
 ) -> bool:
     """True when segment points form a valid composition of the weekly usedPercent.
 
-    Requires every points value finite and in [0, 100], sum(points) not above 100
-    except float32 representation noise (``GROK_SEGMENTS_FLOAT_ABS_TOL``), and
-    sum matching usedPercent within that same absolute tolerance via
-    ``math.isclose``. No product-level slack: a 0.8pp gap is rejected. On False,
-    map_grok_usage omits segments.
+    Requires every points value finite and in [0, 100], sum(points) strictly not
+    greater than 100.0 (no upward slack), and sum matching usedPercent within
+    ``GROK_SEGMENTS_FLOAT_ABS_TOL`` via ``math.isclose`` only when the total is
+    already in [0, 100]. No product-level slack: a 0.8pp gap is rejected. On
+    False, map_grok_usage omits segments.
     """
     if not segments:
         return False
@@ -1511,10 +1512,8 @@ def _grok_segments_match_weekly(
         total += points
     if not math.isfinite(total):
         return False
-    # No upward-rounding slack: sums meaningfully above 100 never publish.
-    if total > 100.0 and not math.isclose(
-        total, 100.0, rel_tol=0.0, abs_tol=GROK_SEGMENTS_FLOAT_ABS_TOL
-    ):
+    # Strict ceiling: any total > 100.0 is rejected (no float noise slack above 100).
+    if total > 100.0:
         return False
     if not math.isclose(
         total, used_percent, rel_tol=0.0, abs_tol=GROK_SEGMENTS_FLOAT_ABS_TOL
