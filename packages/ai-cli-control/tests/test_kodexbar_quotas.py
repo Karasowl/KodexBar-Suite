@@ -1294,22 +1294,36 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertNotIn("windowMinutes", entry["usage"]["secondary"])
         self.assertNotIn(TEST_GROK_KEY, json.dumps(entry))
 
-    def test_grok_surfaces_map_to_extra_rate_windows(self) -> None:
-        surfaces = [(2, 79.0), (1, 5.0), (5, 1.0)]
-        message = build_minimal_grok_billing_message(85.0, 1784733973, surfaces=surfaces)
+    def test_grok_surfaces_map_to_weekly_segments(self) -> None:
+        # Composition of one weekly pool: points sum to usedPercent, not independent budgets.
+        surfaces = [(2, 81.0), (1, 5.0), (5, 1.0), (4, 0.0)]
+        message = build_minimal_grok_billing_message(87.0, 1784733973, surfaces=surfaces)
         used, resets, scanned = quotas.scan_grok_billing_protobuf(message)
-        self.assertAlmostEqual(used, 85.0, places=3)
+        self.assertAlmostEqual(used, 87.0, places=3)
         self.assertIsNotNone(resets)
-        self.assertEqual(len(scanned), 3)
+        # Scanner still sees the zero-points surface; mapper drops points <= 0.
+        self.assertEqual(len(scanned), 4)
         entry = quotas.map_grok_usage(used, resets, surfaces=scanned)
         self.assertIsNone(entry["usage"]["primary"])
-        self.assertAlmostEqual(entry["usage"]["secondary"]["usedPercent"], 85.0, places=3)
-        titles = [item["title"] for item in entry["usage"]["extraRateWindows"]]
-        self.assertEqual(titles, ["Grok Build", "API", "Imagine"])
-        percents = [item["window"]["usedPercent"] for item in entry["usage"]["extraRateWindows"]]
-        self.assertEqual(percents, [79.0, 5.0, 1.0])
+        secondary = entry["usage"]["secondary"]
+        self.assertAlmostEqual(secondary["usedPercent"], 87.0, places=3)
+        segments = secondary["segments"]
+        self.assertEqual(
+            [(item["title"], item["points"]) for item in segments],
+            [("Grok Build", 81.0), ("API", 5.0), ("Imagine", 1.0)],
+        )
+        self.assertAlmostEqual(sum(item["points"] for item in segments), 87.0, places=3)
+        self.assertNotIn("extraRateWindows", entry["usage"])
         # Live protobuf has no balance field: fetch_grok never passes credits_remaining.
         self.assertNotIn("credits", entry)
+
+    def test_map_grok_segments_order_and_unknown_title(self) -> None:
+        # Order: points desc, surface_id asc as tiebreaker. Unknown id → generic title.
+        segments = quotas.map_grok_segments([(9, 10.0), (3, 10.0), (2, 50.0), (1, 0.0)])
+        self.assertEqual(
+            [(item["title"], item["points"]) for item in segments],
+            [("Grok Build", 50.0), ("Other surface", 10.0), ("Other surface", 10.0)],
+        )
 
     def test_map_grok_usage_credits_gate_is_unit_of_mapper_not_scanner(self) -> None:
         """Unit of map_grok_usage only: credits_remaining is not extracted from protobuf.

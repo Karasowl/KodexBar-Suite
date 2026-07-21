@@ -745,11 +745,23 @@ const grokPrimaryOnly = plain(context.composeCompactBlocks([grokWeeklyOnlyEntry]
     showUsed: true,
     showCredits: false
 }))
-// No product special-case: primary-only does not remount weekly as Session/W under primary.
-// Grok has no Session window, so it is not selected under primary-only.
-assert.equal(grokPrimaryOnly.hasSelection, false, "primary-only does not select weekly-only Grok")
+// Grok weekly is the canonical compact surface: primary-only still shows W (never S).
+assert.equal(grokPrimaryOnly.hasSelection, true, "primary-only still selects weekly-only Grok")
+assert.equal(grokPrimaryOnly.blocks.length, 1, "primary-only keeps a single Grok block")
+assert.equal(
+    grokPrimaryOnly.text,
+    "Gk W57%",
+    "primary-only shows Grok weekly once with badge W"
+)
 assert.doesNotMatch(grokPrimaryOnly.text, /\bS\d/, "primary-only never invents a Session percent for Grok")
-assert.doesNotMatch(grokPrimaryOnly.text, /\bW\d/, "primary-only does not select the weekly slot")
+assert.match(String(grokPrimaryOnly.blocks[0].quotaText || ""), /\bW57%/, "primary-only quota part is weekly W")
+assert.doesNotMatch(String(grokPrimaryOnly.blocks[0].quotaText || ""), /\bS\d/, "primary-only quota excludes Session")
+// Default primary,weekly must not double-count the same weekly percent.
+assert.equal(
+    (grokCompactDefault.text.match(/\d+%/g) || []).length,
+    1,
+    "default primary,weekly still emits one Grok percent"
+)
 
 const noFields = context.composeCompactText([fixture.composeEntries[0]], {
     providerOrder: "codex",
@@ -957,6 +969,91 @@ assert.match(
     mainQml,
     /compactPrimaryPercentLeft:\s*primaryLeft/,
     "compact primary is Session percent only"
+)
+// Segmented weekly bar (Grok composition): segments attach to weekly row, not extra windows.
+assert.match(
+    mainQml,
+    /windows\[i\]\.key === "weekly"[\s\S]*normalizeUsageSegments\(windows\[i\]\.data\.segments\)/,
+    "normalizeEntry attaches secondary.segments onto the weekly row"
+)
+assert.match(
+    mainQml,
+    /standardRow\.segmentLegend = formatSegmentLegend/,
+    "weekly segment legend is computed in normalizeEntry"
+)
+assert.match(
+    mainQml,
+    /i18n\("of %1%",/,
+    "segment legend of-used suffix is internationalized"
+)
+assert.match(
+    mainQml,
+    /i18n\("%1% left",/,
+    "segmented weekly header shows remaining percent"
+)
+assert.match(
+    mainQml,
+    /modelData\.segments && modelData\.segments\.length/,
+    "popup renders a segmented track when the row carries segments"
+)
+assert.match(
+    mainQml,
+    /segmentTrack\.width \* Math\.min\(100, Math\.max\(0, modelData\.points\)\) \/ 100/,
+    "each segment width is points/100 of the weekly track"
+)
+
+// Pure segment helpers: composition points, not independent usedPercent bars.
+const grokSegments = plain(context.normalizeUsageSegments([
+    { title: "Grok Build", points: 81 },
+    { title: "API", points: 5 },
+    { title: "Imagine", points: 1 },
+    { title: "Empty", points: 0 },
+    { title: "", points: 2 }
+]))
+assert.deepEqual(
+    grokSegments,
+    [
+        { title: "Grok Build", points: 81 },
+        { title: "API", points: 5 },
+        { title: "Imagine", points: 1 },
+        { title: "Other surface", points: 2 }
+    ],
+    "normalizeUsageSegments drops non-positive points and fills empty titles"
+)
+assert.deepEqual(
+    plain(context.formatSegmentLegendParts(grokSegments)),
+    ["Build 81", "API 5", "Imagine 1", "Other surface 2"],
+    "legend shortens Grok Build and lists points"
+)
+assert.equal(context.segmentBarColor("Grok Build", 0), "#6e5aff")
+assert.equal(context.segmentBarColor("API", 1), "#4a9eff")
+assert.equal(context.segmentBarColor("Imagine", 2), "#d48bff")
+assert.equal(
+    context.compactStandardWindowSelected("primary", grokWeeklyOnlyEntry, "weekly", false),
+    true,
+    "primary-only selection maps to Grok weekly"
+)
+assert.equal(
+    context.compactStandardWindowSelected("primary", grokWeeklyOnlyEntry, "primary", false),
+    true,
+    "primary key itself remains selected (no percent because compactPrimary is null)"
+)
+assert.equal(
+    context.compactStandardQuotaPart("primary", grokWeeklyOnlyEntry, "primary", "Primary", null, null, false),
+    "",
+    "Grok primary part stays empty so tray never shows S"
+)
+assert.equal(
+    context.compactStandardQuotaPart(
+        "primary", grokWeeklyOnlyEntry, "weekly", "Weekly", 43, "2026-07-22T15:26:13Z", false),
+    "W57%",
+    "primary-only emits weekly as W57%"
+)
+assert.equal(
+    context.compactStandardQuotaPart(
+        "primary,weekly", grokWeeklyOnlyEntry, "weekly", "Weekly", 43, null, false),
+    "W57%",
+    "default primary,weekly still emits weekly once as W"
 )
 
 // Pure classifyEngineResponse / applyEngineResponse from main.qml: execute them

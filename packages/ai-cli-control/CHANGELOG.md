@@ -7,7 +7,7 @@ All notable changes to this project are documented in this file.
 - Enrich native Codex usage mapping with top-level credits (only when balance > 0) and banked rate-limit reset credits (`codexResetCredits` only when available count > 0).
 - Rewrite Claude usage mapping to prefer self-describing `limits[]` (session, weekly_all, and per-model weekly_scoped windows such as Fable as `extraRateWindows`), with legacy five_hour/seven_day fallback, and always emit `extraUsage` status (no top-level Claude credits).
 - Map Claude `extraUsage.balance` as remaining dollars only (`monthly_limit - used_credits` or an explicit remaining field), never as raw `used_credits` consumption.
-- Map Grok weekly aggregate into the Weekly secondary window and surface Build/API/Imagine breakdown as `extraRateWindows`. Leave Grok dollar credits unwired: live billing protobuf at balance 0 exposes no observable balance field.
+- Map Grok weekly aggregate into the Weekly secondary window. Attach Build/API/Imagine as `secondary.segments` composition points of that single weekly pool (not independent `extraRateWindows`). Leave Grok dollar credits unwired: live billing protobuf at balance 0 exposes no observable balance field.
 - Gate credit and banked-reset display to positive values only (engine emit + widget).
 
 ## 0.9.0, 2026-07-20

@@ -216,7 +216,7 @@ PlasmoidItem {
         return Math.max(0, Math.min(100, 100 - percentLeft))
     }
 
-    function formatUsedPercent(percentLeft, usageKnown) {
+    function formatUsedPercent(percentLeft, usageKnown, showRemaining) {
         if (usageKnown === false) {
             return i18n("Reset only")
         }
@@ -224,7 +224,28 @@ PlasmoidItem {
         if (used === null) {
             return i18n("Unavailable")
         }
-        return i18n("%1% used", Math.round(used))
+        var usedText = i18n("%1% used", Math.round(used))
+        if (showRemaining === true) {
+            var left = Math.max(0, Math.min(100, Math.round(100 - used)))
+            return usedText + " · " + i18n("%1% left", left)
+        }
+        return usedText
+    }
+
+    function formatSegmentLegend(segments, usedPercentValue) {
+        var parts = ProviderLogic.formatSegmentLegendParts(segments)
+        if (!parts || parts.length === 0) {
+            return ""
+        }
+        var body = parts.join(" · ")
+        if (usedPercentValue === null || usedPercentValue === undefined || isNaN(usedPercentValue)) {
+            return body
+        }
+        return body + "  (" + i18n("of %1%", Math.round(usedPercentValue)) + ")"
+    }
+
+    function segmentColor(title, index) {
+        return ProviderLogic.segmentBarColor(title, index)
     }
 
     function formatResetTime(value) {
@@ -1109,6 +1130,16 @@ PlasmoidItem {
                 windows[i].key, windows[i].title, left, reset,
                 windowDetail(windows[i].data, left !== null))
             if (standardRow !== null) {
+                // Weekly composition segments (Grok): points sum to usedPercent of one pool.
+                if (windows[i].key === "weekly" && windows[i].data
+                        && Array.isArray(windows[i].data.segments)) {
+                    var segments = ProviderLogic.normalizeUsageSegments(windows[i].data.segments)
+                    if (segments.length > 0) {
+                        standardRow.segments = segments
+                        var usedForLegend = left !== null ? (100 - left) : null
+                        standardRow.segmentLegend = formatSegmentLegend(segments, usedForLegend)
+                    }
+                }
                 rows.push(standardRow)
             }
         }
@@ -2036,7 +2067,10 @@ PlasmoidItem {
                                         }
 
                                         PlasmaComponents.Label {
-                                            text: root.formatUsedPercent(modelData.percentLeft, modelData.usageKnown)
+                                            text: root.formatUsedPercent(
+                                                modelData.percentLeft,
+                                                modelData.usageKnown,
+                                                !!(modelData.segments && modelData.segments.length))
                                             color: root.metricAccent(modelData.percentLeft, modelData.usageKnown)
                                             font.family: root.designFont
                                             font.pixelSize: 13
@@ -2044,11 +2078,13 @@ PlasmoidItem {
                                         }
                                     }
 
+                                    // Solid fill when the row has no composition segments.
                                     Rectangle {
                                         readonly property real used: root.usedPercent(modelData.percentLeft) || 0
                                         visible: modelData.usageKnown !== false
                                             && modelData.percentLeft !== null
                                             && modelData.percentLeft !== undefined
+                                            && !(modelData.segments && modelData.segments.length)
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: 8
                                         radius: 4
@@ -2061,6 +2097,48 @@ PlasmoidItem {
                                             radius: 4
                                             color: root.metricAccent(modelData.percentLeft, modelData.usageKnown)
                                         }
+                                    }
+
+                                    // Segmented weekly composition bar (Grok): each surface's
+                                    // points are percentage points of the single weekly pool.
+                                    // Remaining track (100 - sum(points)) stays empty.
+                                    Rectangle {
+                                        id: segmentTrack
+                                        visible: modelData.usageKnown !== false
+                                            && !!(modelData.segments && modelData.segments.length)
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 8
+                                        radius: 4
+                                        color: "#20232d"
+                                        clip: true
+
+                                        Row {
+                                            anchors.fill: parent
+                                            spacing: 0
+
+                                            Repeater {
+                                                model: modelData.segments || []
+
+                                                delegate: Rectangle {
+                                                    width: Math.max(
+                                                        0,
+                                                        segmentTrack.width * Math.min(100, Math.max(0, modelData.points)) / 100)
+                                                    height: segmentTrack.height
+                                                    color: root.segmentColor(modelData.title, index)
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    PlasmaComponents.Label {
+                                        visible: !!(modelData.segmentLegend && modelData.segmentLegend.length > 0)
+                                        text: modelData.segmentLegend || ""
+                                        color: root.quietColor
+                                        font.family: root.designFont
+                                        font.pixelSize: 12
+                                        lineHeight: 1.4
+                                        wrapMode: Text.WordWrap
+                                        Layout.fillWidth: true
                                     }
 
                                     PlasmaComponents.Label {

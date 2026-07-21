@@ -363,6 +363,35 @@ function compactQuotaSelected(configuredSelection, provider, quotaKey, extra) {
     return false
 }
 
+function grokWeeklyIsCanonicalCompact(entry) {
+    // Grok has no Session/primary rate window. The weekly secondary pool is its
+    // only quota surface and the canonical compact representation (badge W).
+    if (providerId(entry && entry.provider) !== "grok") {
+        return false
+    }
+    if (standardWindowVisible(entry && entry.compactPrimaryPercentLeft, entry && entry.primaryResetsAt)) {
+        return false
+    }
+    return standardWindowVisible(entry && entry.secondaryPercentLeft, entry && entry.secondaryResetsAt)
+}
+
+function compactStandardWindowSelected(configuredSelection, entry, quotaKey, extra) {
+    var id = providerId(entry && entry.provider)
+    var key = compactQuotaKey(quotaKey)
+    if (compactQuotaSelected(configuredSelection, id, key, extra)) {
+        return true
+    }
+    // Product edge: primary-only selection still shows Grok weekly as W (never S),
+    // because weekly is Grok's sole rate window. Default primary,weekly stays
+    // single via the normal weekly match (no duplicate).
+    if (id === "grok" && key === "weekly" && extra !== true
+            && grokWeeklyIsCanonicalCompact(entry)
+            && compactQuotaSelected(configuredSelection, id, "primary", false)) {
+        return true
+    }
+    return false
+}
+
 function compactQuotaLabel(quotaKey, title) {
     var labels = {
         // Keep the internal quota key as `primary`, but label it as Session in
@@ -383,21 +412,79 @@ function compactQuotaPart(configuredSelection, provider, quotaKey, title, percen
     if (!compactQuotaSelected(configuredSelection, provider, key, extra)) {
         return ""
     }
-    var label = compactQuotaLabel(key, title)
-    if (percentLeft !== null && percentLeft !== undefined && !isNaN(percentLeft)) {
-        var used = Math.max(0, Math.min(100, 100 - Number(percentLeft)))
-        var separator = label.indexOf(" #") !== -1 ? " " : ""
-        return label + separator + Math.round(used) + "%"
-    }
-    if (resetsAt) {
-        return label + " reset"
-    }
-    return ""
+    return compactValuePart(compactQuotaLabel(key, title), percentLeft, resetsAt)
 }
 
 function compactExtraPart(configuredSelection, provider, title, percentLeft, resetsAt) {
     var key = compactQuotaKey(title)
     return compactQuotaPart(configuredSelection, provider, key, title, percentLeft, resetsAt, true)
+}
+
+function compactStandardQuotaPart(configuredSelection, entry, quotaKey, title, percentLeft, resetsAt, extra) {
+    var key = compactQuotaKey(quotaKey)
+    if (!compactStandardWindowSelected(configuredSelection, entry, key, extra)) {
+        return ""
+    }
+    return compactValuePart(compactQuotaLabel(key, title), percentLeft, resetsAt)
+}
+
+function normalizeUsageSegments(segments) {
+    var list = Array.isArray(segments) ? segments : []
+    var normalized = []
+    for (var i = 0; i < list.length; i++) {
+        var item = list[i]
+        if (!item || typeof item !== "object") {
+            continue
+        }
+        var points = Number(item.points)
+        if (!isFinite(points) || points <= 0) {
+            continue
+        }
+        var title = String(item.title || "").trim()
+        if (!title) {
+            title = "Other surface"
+        }
+        normalized.push({
+            title: title,
+            points: Math.max(0, Math.min(100, points))
+        })
+    }
+    return normalized
+}
+
+function segmentLegendLabel(title) {
+    return String(title || "")
+        .replace(/^Grok\s+/i, "")
+        .trim() || "Other"
+}
+
+function formatSegmentLegendParts(segments) {
+    // English source tokens for tests and non-i18n callers. Widget wraps "of %1%" via i18n.
+    var list = normalizeUsageSegments(segments)
+    var parts = []
+    for (var i = 0; i < list.length; i++) {
+        var points = list[i].points
+        var display = Math.abs(points - Math.round(points)) < 0.05
+            ? String(Math.round(points))
+            : String(Math.round(points * 10) / 10)
+        parts.push(segmentLegendLabel(list[i].title) + " " + display)
+    }
+    return parts
+}
+
+function segmentBarColor(title, index) {
+    var key = String(title || "").toLowerCase()
+    if (key.indexOf("build") !== -1) {
+        return "#6e5aff"
+    }
+    if (key.indexOf("api") !== -1) {
+        return "#4a9eff"
+    }
+    if (key.indexOf("imagine") !== -1) {
+        return "#d48bff"
+    }
+    var palette = ["#6e5aff", "#4a9eff", "#d48bff", "#45d483", "#f0b429"]
+    return palette[Math.abs(Number(index) || 0) % palette.length]
 }
 
 function standardWindowVisible(percentLeft, resetsAt) {
@@ -679,8 +766,8 @@ function composeCompactBlocks(entries, options) {
             ]
             for (var standardIndex = 0; standardIndex < standard.length; standardIndex++) {
                 var standardWindow = standard[standardIndex]
-                var standardPart = compactQuotaPart(
-                    settings.quotaSelection, id, standardWindow.key, standardWindow.title,
+                var standardPart = compactStandardQuotaPart(
+                    settings.quotaSelection, entry, standardWindow.key, standardWindow.title,
                     standardWindow.percentLeft, standardWindow.resetsAt, standardWindow.extra)
                 if (standardPart) {
                     block.push(standardPart)
@@ -883,7 +970,6 @@ function entryHasSelectedQuota(entry, configuredSelection) {
     if (normalizeQuotaSelection(configuredSelection).length === 0 || (entry && entry.errorMessage)) {
         return true
     }
-    var provider = entry && entry.provider
     var standard = [
         { key: "primary", percentLeft: entry && entry.compactPrimaryPercentLeft, resetsAt: entry && entry.primaryResetsAt, extra: false },
         { key: "weekly", percentLeft: entry && entry.secondaryPercentLeft, resetsAt: entry && entry.secondaryResetsAt, extra: false },
@@ -891,7 +977,7 @@ function entryHasSelectedQuota(entry, configuredSelection) {
     ]
     for (var i = 0; i < standard.length; i++) {
         if (standardWindowVisible(standard[i].percentLeft, standard[i].resetsAt)
-                && compactQuotaSelected(configuredSelection, provider, standard[i].key, standard[i].extra)) {
+                && compactStandardWindowSelected(configuredSelection, entry, standard[i].key, standard[i].extra)) {
             return true
         }
     }
@@ -900,7 +986,7 @@ function entryHasSelectedQuota(entry, configuredSelection) {
         var row = rows[j]
         if (row && row.compactExtra === true
                 && standardWindowVisible(row.percentLeft, row.resetsAt)
-                && compactQuotaSelected(configuredSelection, provider,
+                && compactQuotaSelected(configuredSelection, entry && entry.provider,
                     row.compactKey || compactQuotaKey(row.title), true)) {
             return true
         }

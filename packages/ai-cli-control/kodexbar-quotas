@@ -1413,31 +1413,32 @@ def unwrap_grpc_web_frame(body: bytes) -> bytes:
     return data
 
 
-def map_grok_surfaces(surfaces: list[tuple[int, float]]) -> list[dict[str, Any]]:
-    """Build extraRateWindows from (surface_id, used_percent) pairs present in the message."""
-    extras: list[dict[str, Any]] = []
+def map_grok_segments(surfaces: list[tuple[int, float]]) -> list[dict[str, Any]]:
+    """Build weekly composition segments from (surface_id, percent_points) pairs.
+
+    Surfaces are contributions to the single weekly pool (not independent budgets).
+    ``points`` are percentage points that sum (approximately) to secondary usedPercent.
+
+    Order: points descending, then surface_id ascending as a stable tiebreaker.
+    Only surfaces with points > 0 are included. Known titles come from
+    GROK_SURFACE_NAMES; unknown ids use a generic label without the raw id.
+    """
+    candidates: list[tuple[float, int, str]] = []
     for surface_id, percent in surfaces:
         if not isinstance(surface_id, int) or isinstance(surface_id, bool):
             continue
         if not isinstance(percent, (int, float)) or isinstance(percent, bool):
             continue
         try:
-            used = float(percent)
+            points = float(percent)
         except (OverflowError, ValueError, TypeError):
             continue
-        if not math.isfinite(used) or not _percent_in_range(used):
+        if not math.isfinite(points) or not _percent_in_range(points) or points <= 0:
             continue
-        title = GROK_SURFACE_NAMES.get(surface_id) or f"Surface {surface_id}"
-        extras.append(
-            {
-                "title": title,
-                "window": {
-                    "usedPercent": used,
-                    "usageKnown": True,
-                },
-            }
-        )
-    return extras
+        title = GROK_SURFACE_NAMES.get(surface_id) or "Other surface"
+        candidates.append((points, surface_id, title))
+    candidates.sort(key=lambda item: (-item[0], item[1]))
+    return [{"title": title, "points": points} for points, _surface_id, title in candidates]
 
 
 def scan_grok_billing_protobuf(
@@ -1508,6 +1509,10 @@ def map_grok_usage(
     labels the main window as Weekly (badge W). Compact tray must not copy secondary into
     the primary/Session slot.
 
+    Surface breakdown (Build/API/Imagine) is a *composition* of the single weekly pool,
+    not independent rate limits. It is attached as secondary.segments with percentage
+    points per surface. Grok never emits extraRateWindows.
+
     ``credits_remaining`` is intentionally dormant: the GetGrokCreditsConfig protobuf does
     not expose an observable dollar-balance field at live balance 0 (deep wire walk found
     only percents, timestamps, surface ids, and flags). Leave unwired until a paid account
@@ -1531,6 +1536,9 @@ def map_grok_usage(
         secondary: dict[str, Any] = {"usedPercent": percent}
         if resets_at:
             secondary["resetsAt"] = resets_at
+        segments = map_grok_segments(list(surfaces or []))
+        if segments:
+            secondary["segments"] = segments
         identity: dict[str, Any] = {"providerID": "grok"}
         if isinstance(auth_entry, dict):
             auth_mode = auth_entry.get("auth_mode")
@@ -1551,9 +1559,6 @@ def map_grok_usage(
             "tertiary": None,
             "updatedAt": updated_at or iso_now(),
         }
-        extras = map_grok_surfaces(list(surfaces or []))
-        if extras:
-            usage["extraRateWindows"] = extras
         entry: dict[str, Any] = {
             "provider": "grok",
             "source": "grok-web",
