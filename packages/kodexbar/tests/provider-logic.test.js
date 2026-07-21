@@ -978,13 +978,18 @@ assert.match(
 )
 assert.match(
     mainQml,
-    /standardRow\.segmentLegend = formatSegmentLegend/,
-    "weekly segment legend is computed in normalizeEntry"
+    /standardRow\.segmentLegendItems = ProviderLogic\.formatSegmentLegendParts/,
+    "weekly segment legend items are computed in normalizeEntry"
 )
-assert.match(
+assert.doesNotMatch(
     mainQml,
     /i18n\("of %1%",/,
-    "segment legend of-used suffix is internationalized"
+    "segment legend no longer appends an of-used total (header already shows used/left)"
+)
+assert.doesNotMatch(
+    mainQml,
+    /segmentLegend\s*=/,
+    "single string segmentLegend was replaced by segmentLegendItems"
 )
 assert.match(
     mainQml,
@@ -1000,6 +1005,37 @@ assert.match(
     mainQml,
     /segmentTrack\.width \* Math\.min\(100, Math\.max\(0, modelData\.points\)\) \/ 100/,
     "each segment width is points/100 of the weekly track"
+)
+// Accessible legend: circular color swatch + text, same color helper as the bar.
+assert.match(
+    mainQml,
+    /function segmentColor\(title, index\) \{\s*return ProviderLogic\.segmentBarColor\(title, index\)/,
+    "QML segmentColor delegates to ProviderLogic.segmentBarColor for bar and legend"
+)
+assert.match(
+    mainQml,
+    /root\.segmentColor\(modelData\.title, index\)/,
+    "bar and legend both call root.segmentColor"
+)
+assert.match(
+    mainQml,
+    /Flow \{[\s\S]*id: segmentLegendFlow[\s\S]*Repeater \{[\s\S]*model: segmentLegendFlow\.legendItems/,
+    "legend is a Flow of items that can wrap in a narrow popup"
+)
+assert.match(
+    mainQml,
+    /Rectangle \{\s*width: 8\s*height: 8\s*radius: 4\s*color: root\.segmentColor\(modelData\.title, index\)/,
+    "each legend item has an 8px circular color dot"
+)
+assert.match(
+    mainQml,
+    /visible: index > 0[\s\S]*width: 1[\s\S]*color: "#0b0c10"/,
+    "segment track draws a 1px dark divider on internal frontiers only"
+)
+assert.doesNotMatch(
+    mainQml,
+    /\(of %|of %1%|of \$\{/,
+    "legend surface does not contain an of-percent suffix"
 )
 
 // Pure segment helpers: composition points, not independent usedPercent bars.
@@ -1020,14 +1056,54 @@ assert.deepEqual(
     ],
     "normalizeUsageSegments drops non-positive points and fills empty titles"
 )
+const legendItems = plain(context.formatSegmentLegendParts(grokSegments))
 assert.deepEqual(
-    plain(context.formatSegmentLegendParts(grokSegments)),
-    ["Build 81", "API 5", "Imagine 1", "Other surface 2"],
-    "legend shortens Grok Build and lists points"
+    legendItems,
+    [
+        { title: "Grok Build", points: 81, text: "Build 81" },
+        { title: "API", points: 5, text: "API 5" },
+        { title: "Imagine", points: 1, text: "Imagine 1" },
+        { title: "Other surface", points: 2, text: "Other surface 2" }
+    ],
+    "legend items keep title for color mapping and accessible name+points text"
 )
-assert.equal(context.segmentBarColor("Grok Build", 0), "#6e5aff")
-assert.equal(context.segmentBarColor("API", 1), "#4a9eff")
-assert.equal(context.segmentBarColor("Imagine", 2), "#d48bff")
+// Example from QA capture: Build 88 · API 5 · Imagine 1 (weekly 94 used, 6 left).
+const qaLegend = plain(context.formatSegmentLegendParts([
+    { title: "Grok Build", points: 88 },
+    { title: "API", points: 5 },
+    { title: "Imagine", points: 1 }
+]))
+assert.deepEqual(
+    qaLegend.map(item => item.text),
+    ["Build 88", "API 5", "Imagine 1"],
+    "QA composition legend texts match approved labels without of-percent"
+)
+assert.equal(
+    qaLegend.map(item => item.text).join(" · "),
+    "Build 88 · API 5 · Imagine 1",
+    "joined legend matches approved copy"
+)
+assert.ok(
+    legendItems.every(item => !/\bof\b/i.test(item.text)),
+    "legend item text never contains of-percent total"
+)
+// Final palette: Build violet, API cyan, Imagine pink (clearly separable on dark).
+assert.equal(context.segmentBarColor("Grok Build", 0), "#7c5cff")
+assert.equal(context.segmentBarColor("API", 1), "#22c7e8")
+assert.equal(context.segmentBarColor("Imagine", 2), "#ff5ebe")
+assert.equal(
+    context.segmentBarColor("Other surface", 3),
+    "#45d483",
+    "unknown/other uses a distinct fallback palette entry"
+)
+// Legend color must be identical to bar color for the same title/index.
+for (let i = 0; i < legendItems.length; i++) {
+    assert.equal(
+        context.segmentBarColor(legendItems[i].title, i),
+        context.segmentBarColor(grokSegments[i].title, i),
+        `legend and bar share segmentBarColor for ${legendItems[i].title}`
+    )
+}
 assert.equal(
     context.compactStandardWindowSelected("primary", grokWeeklyOnlyEntry, "weekly", false),
     true,

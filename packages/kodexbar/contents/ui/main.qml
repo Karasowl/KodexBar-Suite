@@ -232,18 +232,7 @@ PlasmoidItem {
         return usedText
     }
 
-    function formatSegmentLegend(segments, usedPercentValue) {
-        var parts = ProviderLogic.formatSegmentLegendParts(segments)
-        if (!parts || parts.length === 0) {
-            return ""
-        }
-        var body = parts.join(" · ")
-        if (usedPercentValue === null || usedPercentValue === undefined || isNaN(usedPercentValue)) {
-            return body
-        }
-        return body + "  (" + i18n("of %1%", Math.round(usedPercentValue)) + ")"
-    }
-
+    // Shared color for bar segments and legend dots (single source in providerLogic).
     function segmentColor(title, index) {
         return ProviderLogic.segmentBarColor(title, index)
     }
@@ -1136,8 +1125,8 @@ PlasmoidItem {
                     var segments = ProviderLogic.normalizeUsageSegments(windows[i].data.segments)
                     if (segments.length > 0) {
                         standardRow.segments = segments
-                        var usedForLegend = left !== null ? (100 - left) : null
-                        standardRow.segmentLegend = formatSegmentLegend(segments, usedForLegend)
+                        // Accessible legend items (dot color + name + points). No duplicated total.
+                        standardRow.segmentLegendItems = ProviderLogic.formatSegmentLegendParts(segments)
                     }
                 }
                 rows.push(standardRow)
@@ -2102,6 +2091,7 @@ PlasmoidItem {
                                     // Segmented weekly composition bar (Grok): each surface's
                                     // points are percentage points of the single weekly pool.
                                     // Remaining track (100 - sum(points)) stays empty.
+                                    // Internal 1px dividers overlay boundaries and do not alter widths.
                                     Rectangle {
                                         id: segmentTrack
                                         visible: modelData.usageKnown !== false
@@ -2119,26 +2109,69 @@ PlasmoidItem {
                                             Repeater {
                                                 model: modelData.segments || []
 
-                                                delegate: Rectangle {
+                                                delegate: Item {
                                                     width: Math.max(
                                                         0,
                                                         segmentTrack.width * Math.min(100, Math.max(0, modelData.points)) / 100)
                                                     height: segmentTrack.height
-                                                    color: root.segmentColor(modelData.title, index)
+
+                                                    Rectangle {
+                                                        anchors.fill: parent
+                                                        color: root.segmentColor(modelData.title, index)
+                                                    }
+
+                                                    // Dark 1px divider on internal frontiers only.
+                                                    Rectangle {
+                                                        visible: index > 0
+                                                        width: 1
+                                                        height: parent.height
+                                                        anchors.left: parent.left
+                                                        z: 1
+                                                        color: "#0b0c10"
+                                                    }
                                                 }
                                             }
                                         }
                                     }
 
-                                    PlasmaComponents.Label {
-                                        visible: !!(modelData.segmentLegend && modelData.segmentLegend.length > 0)
-                                        text: modelData.segmentLegend || ""
-                                        color: root.quietColor
-                                        font.family: root.designFont
-                                        font.pixelSize: 12
-                                        lineHeight: 1.4
-                                        wrapMode: Text.WordWrap
+                                    // Color + text legend: interpretation must not rely on color alone.
+                                    // Flow wraps safely in a narrow popup without truncating items.
+                                    Flow {
+                                        id: segmentLegendFlow
+                                        visible: !!(modelData.segmentLegendItems
+                                            && modelData.segmentLegendItems.length > 0)
                                         Layout.fillWidth: true
+                                        spacing: 10
+                                        flow: Flow.LeftToRight
+
+                                        readonly property var legendItems: modelData.segmentLegendItems || []
+
+                                        Repeater {
+                                            model: segmentLegendFlow.legendItems
+
+                                            delegate: Row {
+                                                spacing: 6
+
+                                                Rectangle {
+                                                    width: 8
+                                                    height: 8
+                                                    radius: 4
+                                                    color: root.segmentColor(modelData.title, index)
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                }
+
+                                                PlasmaComponents.Label {
+                                                    text: (modelData.text || "")
+                                                        + (index < segmentLegendFlow.legendItems.length - 1
+                                                            ? " ·" : "")
+                                                    color: root.quietColor
+                                                    font.family: root.designFont
+                                                    font.pixelSize: 12
+                                                    lineHeight: 1.4
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                }
+                                            }
+                                        }
                                     }
 
                                     PlasmaComponents.Label {

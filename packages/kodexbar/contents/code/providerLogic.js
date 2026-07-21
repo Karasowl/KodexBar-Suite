@@ -458,16 +458,30 @@ function segmentLegendLabel(title) {
         .trim() || "Other"
 }
 
+function formatSegmentPointsDisplay(points) {
+    var value = Number(points)
+    if (!isFinite(value)) {
+        return "0"
+    }
+    return Math.abs(value - Math.round(value)) < 0.05
+        ? String(Math.round(value))
+        : String(Math.round(value * 10) / 10)
+}
+
+// Legend items for the segmented weekly bar. Each item keeps title for color
+// lookup (same segmentBarColor as the track) and a short accessible text label.
+// Header already shows used/left percent: do not append an "(of N%)" total here.
 function formatSegmentLegendParts(segments) {
-    // English source tokens for tests and non-i18n callers. Widget wraps "of %1%" via i18n.
     var list = normalizeUsageSegments(segments)
     var parts = []
     for (var i = 0; i < list.length; i++) {
-        var points = list[i].points
-        var display = Math.abs(points - Math.round(points)) < 0.05
-            ? String(Math.round(points))
-            : String(Math.round(points * 10) / 10)
-        parts.push(segmentLegendLabel(list[i].title) + " " + display)
+        var label = segmentLegendLabel(list[i].title)
+        var display = formatSegmentPointsDisplay(list[i].points)
+        parts.push({
+            title: list[i].title,
+            points: list[i].points,
+            text: label + " " + display
+        })
     }
     return parts
 }
@@ -475,15 +489,16 @@ function formatSegmentLegendParts(segments) {
 function segmentBarColor(title, index) {
     var key = String(title || "").toLowerCase()
     if (key.indexOf("build") !== -1) {
-        return "#6e5aff"
+        return "#7c5cff"
     }
     if (key.indexOf("api") !== -1) {
-        return "#4a9eff"
+        return "#22c7e8"
     }
     if (key.indexOf("imagine") !== -1) {
-        return "#d48bff"
+        return "#ff5ebe"
     }
-    var palette = ["#6e5aff", "#4a9eff", "#d48bff", "#45d483", "#f0b429"]
+    // Unknown/Other: distinct from Build/API/Imagine.
+    var palette = ["#7c5cff", "#22c7e8", "#ff5ebe", "#45d483", "#f0b429"]
     return palette[Math.abs(Number(index) || 0) % palette.length]
 }
 
