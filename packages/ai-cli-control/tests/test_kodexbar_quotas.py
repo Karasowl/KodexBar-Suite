@@ -1312,10 +1312,63 @@ class QuotasEngineTests(unittest.TestCase):
             [(item["title"], item["points"]) for item in segments],
             [("Grok Build", 81.0), ("API", 5.0), ("Imagine", 1.0)],
         )
-        self.assertAlmostEqual(sum(item["points"] for item in segments), 87.0, places=3)
+        segment_sum = sum(item["points"] for item in segments)
+        self.assertAlmostEqual(segment_sum, 87.0, places=3)
+        self.assertLessEqual(
+            abs(segment_sum - secondary["usedPercent"]),
+            quotas.GROK_SEGMENTS_VS_WEEKLY_TOLERANCE,
+        )
         self.assertNotIn("extraRateWindows", entry["usage"])
         # Live protobuf has no balance field: fetch_grok never passes credits_remaining.
         self.assertNotIn("credits", entry)
+
+    def test_map_grok_usage_omits_segments_when_sum_mismatches_weekly(self) -> None:
+        # 81+10+5=96 vs weekly 87 → outside GROK_SEGMENTS_VS_WEEKLY_TOLERANCE.
+        # Aggregate stays; composition is dropped so the widget keeps a simple bar.
+        entry = quotas.map_grok_usage(
+            87.0,
+            "2026-07-22T15:26:13Z",
+            surfaces=[(2, 81.0), (1, 10.0), (5, 5.0)],
+        )
+        secondary = entry["usage"]["secondary"]
+        self.assertAlmostEqual(secondary["usedPercent"], 87.0, places=3)
+        self.assertEqual(secondary["resetsAt"], "2026-07-22T15:26:13Z")
+        self.assertNotIn("segments", secondary)
+        # Built segments would sum to 96; invariant must reject them.
+        built = quotas.map_grok_segments([(2, 81.0), (1, 10.0), (5, 5.0)])
+        self.assertAlmostEqual(sum(item["points"] for item in built), 96.0, places=3)
+        self.assertFalse(quotas._grok_segments_match_weekly(built, 87.0))
+
+    def test_map_grok_usage_omits_segments_when_sum_exceeds_100(self) -> None:
+        # 60+50=110 > 100 (+ rounding tolerance). Weekly 100 stays, no composition.
+        entry = quotas.map_grok_usage(
+            100.0,
+            "2026-07-22T15:26:13Z",
+            surfaces=[(2, 60.0), (1, 50.0)],
+        )
+        secondary = entry["usage"]["secondary"]
+        self.assertAlmostEqual(secondary["usedPercent"], 100.0, places=3)
+        self.assertEqual(secondary["resetsAt"], "2026-07-22T15:26:13Z")
+        self.assertNotIn("segments", secondary)
+        built = quotas.map_grok_segments([(2, 60.0), (1, 50.0)])
+        self.assertAlmostEqual(sum(item["points"] for item in built), 110.0, places=3)
+        self.assertFalse(quotas._grok_segments_match_weekly(built, 100.0))
+
+    def test_map_grok_usage_keeps_segments_within_weekly_tolerance(self) -> None:
+        # Positive edge: sum 86.2 vs weekly 87.0 is within 1.0 → segments published.
+        entry = quotas.map_grok_usage(
+            87.0,
+            None,
+            surfaces=[(2, 80.0), (1, 5.0), (5, 1.2)],
+        )
+        secondary = entry["usage"]["secondary"]
+        self.assertAlmostEqual(secondary["usedPercent"], 87.0, places=3)
+        segments = secondary["segments"]
+        self.assertEqual(
+            [(item["title"], item["points"]) for item in segments],
+            [("Grok Build", 80.0), ("API", 5.0), ("Imagine", 1.2)],
+        )
+        self.assertAlmostEqual(sum(item["points"] for item in segments), 86.2, places=3)
 
     def test_map_grok_segments_order_and_unknown_title(self) -> None:
         # Order: points desc, surface_id asc as tiebreaker. Unknown id → generic title.
