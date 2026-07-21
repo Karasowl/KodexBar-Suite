@@ -200,8 +200,46 @@ class QuotasEngineTests(unittest.TestCase):
             },
         })
         self.assertEqual(enabled["usage"]["extraUsage"]["enabled"], True)
+        # balance is remaining = monthly_limit - used_credits, never raw consumption.
         self.assertAlmostEqual(enabled["usage"]["extraUsage"]["balance"], 64.5)
         self.assertEqual(enabled["usage"]["extraUsage"]["currency"], "USD")
+
+        # used_credits alone is consumption, not remaining balance.
+        used_only = quotas.map_claude_usage({
+            "five_hour": {"utilization": 1},
+            "extra_usage": {
+                "is_enabled": True,
+                "monthly_limit": None,
+                "used_credits": 12.0,
+                "currency": "USD",
+            },
+        })
+        self.assertEqual(used_only["usage"]["extraUsage"]["enabled"], True)
+        self.assertIsNone(used_only["usage"]["extraUsage"]["balance"])
+
+        # Explicit remaining/balance key from the API is preferred when present.
+        explicit = quotas.map_claude_usage({
+            "five_hour": {"utilization": 1},
+            "extra_usage": {
+                "is_enabled": True,
+                "remaining": 22.5,
+                "monthly_limit": 100,
+                "used_credits": 80,
+                "currency": "USD",
+            },
+        })
+        self.assertAlmostEqual(explicit["usage"]["extraUsage"]["balance"], 22.5)
+
+        # Over-limit used_credits yields no non-negative remaining.
+        over = quotas.map_claude_usage({
+            "five_hour": {"utilization": 1},
+            "extra_usage": {
+                "is_enabled": True,
+                "monthly_limit": 10,
+                "used_credits": 15,
+            },
+        })
+        self.assertIsNone(over["usage"]["extraUsage"]["balance"])
 
         # Balance must not surface as top-level credits (Claude rule).
         self.assertNotIn("credits", enabled)
@@ -1270,12 +1308,49 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(titles, ["Grok Build", "API", "Imagine"])
         percents = [item["window"]["usedPercent"] for item in entry["usage"]["extraRateWindows"]]
         self.assertEqual(percents, [79.0, 5.0, 1.0])
-        # Zero or missing credits must not emit top-level credits.
+        # Live protobuf has no balance field: fetch_grok never passes credits_remaining.
         self.assertNotIn("credits", entry)
-        with_credits = quotas.map_grok_usage(used, resets, surfaces=scanned, credits_remaining=3.5)
+
+    def test_map_grok_usage_credits_gate_is_unit_of_mapper_not_scanner(self) -> None:
+        """Unit of map_grok_usage only: credits_remaining is not extracted from protobuf.
+
+        The billing wire format at live balance 0 exposes no dollar-balance field, so
+        fetch_grok/scan_grok_billing_protobuf do not pass credits_remaining. This test
+        only checks that the mapper emits top-level credits when a positive balance is
+        injected as an argument (dormant path), not end-to-end extraction.
+        """
+        surfaces = [(2, 79.0)]
+        message = build_minimal_grok_billing_message(85.0, 1784733973, surfaces=surfaces)
+        used, resets, scanned = quotas.scan_grok_billing_protobuf(message)
+        # Scanner returns three values only (no balance).
+        self.assertIsInstance(used, float)
+        self.assertIsInstance(scanned, list)
+
+        with_credits = quotas.map_grok_usage(
+            used, resets, surfaces=scanned, credits_remaining=3.5
+        )
         self.assertEqual(with_credits["credits"]["remaining"], 3.5)
-        no_credits = quotas.map_grok_usage(used, resets, surfaces=scanned, credits_remaining=0)
+        no_credits = quotas.map_grok_usage(
+            used, resets, surfaces=scanned, credits_remaining=0
+        )
         self.assertNotIn("credits", no_credits)
+        missing = quotas.map_grok_usage(used, resets, surfaces=scanned)
+        self.assertNotIn("credits", missing)
+
+        # fetch_grok path must not invent credits from the synthetic frame either.
+        frame = build_minimal_grok_billing_frame(85.0, 1784733973, surfaces=surfaces)
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_grok_auth(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {"content-type": "application/grpc-web+proto"}, frame
+
+            with patch.object(quotas, "http_request", side_effect=fake_http):
+                fetched = quotas.fetch_grok(home)
+        self.assertNotIn("credits", fetched)
+        self.assertIsNone(fetched["usage"]["primary"])
+        self.assertAlmostEqual(fetched["usage"]["secondary"]["usedPercent"], 85.0, places=3)
 
     def test_grok_missing_key_is_auth_relogin(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

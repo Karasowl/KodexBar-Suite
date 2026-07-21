@@ -6,7 +6,8 @@ All notable fork-specific changes are documented here.
 
 - Show Credits and banked resets only when the remaining balance or count is greater than zero.
 - Add an Extra usage row for Claude (On/Off, and balance when enabled and positive) driven by the native engine `extraUsage` field.
-- Keep the Grok tray badge on weekly usage when the engine emits the aggregate in the Weekly secondary slot.
+- Show Grok weekly usage once in the compact tray with badge `W` (secondary slot). Do not copy weekly into the Session/primary slot.
+- Treat a zero credit balance as absent for the empty-state check so "No usage reported" still appears.
 
 ## 0.6.0, 2026-07-16
 

@@ -510,19 +510,32 @@ def _coerce_finite_number(value: Any) -> float | None:
 
 
 def map_claude_extra_usage(extra_usage: Any) -> dict[str, Any]:
-    """Map Claude extra_usage block. Always emit enabled/balance/currency (balance may be None)."""
+    """Map Claude extra_usage block. Always emit enabled/balance/currency (balance may be None).
+
+    ``balance`` is remaining dollars only, never consumption (``used_credits``).
+    Prefer an explicit remaining/balance field from the API; otherwise
+    ``monthly_limit - used_credits`` when both are numeric and the result is >= 0.
+    """
     if not isinstance(extra_usage, dict):
         return {"enabled": False, "balance": None, "currency": None}
     enabled = bool(extra_usage.get("is_enabled"))
     monthly_n = _coerce_finite_number(extra_usage.get("monthly_limit"))
     used_n = _coerce_finite_number(extra_usage.get("used_credits"))
+    # Explicit remaining/balance keys (if Anthropic ships them) win over derivation.
+    explicit_remaining: float | None = None
+    for key in ("remaining", "balance", "remaining_credits", "credits_remaining"):
+        candidate = _coerce_finite_number(extra_usage.get(key))
+        if candidate is not None:
+            explicit_remaining = candidate
+            break
     balance: float | None = None
-    if monthly_n is not None and used_n is not None:
+    if explicit_remaining is not None and explicit_remaining >= 0:
+        balance = explicit_remaining
+    elif monthly_n is not None and used_n is not None:
         remaining = monthly_n - used_n
         if remaining >= 0:
             balance = remaining
-    elif used_n is not None:
-        balance = used_n
+    # used_credits alone is consumption, never remaining balance.
     currency = extra_usage.get("currency")
     if not isinstance(currency, str) or not currency:
         currency = None
@@ -1436,6 +1449,10 @@ def scan_grok_billing_protobuf(
     Preferred timestamp path is [1, 5, 1]. Surface breakdown lives in repeated field 7.
     Any truncation or invalid wire type invalidates the whole parse even if a percent
     candidate was already seen.
+
+    Does not extract a dollar balance: live captures at balance 0 have no observable
+    credits/remaining field on the wire (no fixed64 money, no out-of-percent fixed32
+    outside usage windows). Revisit when a balance > 0 account reveals the field.
     """
     state = _ProtobufScanState()
     _scan_protobuf_fields(memoryview(message), (), 0, state)
@@ -1488,8 +1505,13 @@ def map_grok_usage(
     """Map scanned Grok billing fields to the widget envelope.
 
     Weekly aggregate is emitted as secondary (Weekly). primary stays null so the popup
-    labels the main window as Weekly. The widget compact badge falls back to secondary
-    for Grok when primary is absent.
+    labels the main window as Weekly (badge W). Compact tray must not copy secondary into
+    the primary/Session slot.
+
+    ``credits_remaining`` is intentionally dormant: the GetGrokCreditsConfig protobuf does
+    not expose an observable dollar-balance field at live balance 0 (deep wire walk found
+    only percents, timestamps, surface ids, and flags). Leave unwired until a paid account
+    with balance > 0 reveals the field; do not invent a dead extraction path.
 
     Any unexpected mapping failure becomes invalid_response so the native path
     can fall back to the companion instead of crashing the process.
@@ -1538,7 +1560,8 @@ def map_grok_usage(
             "usage": usage,
             "engine": "kodexbar",
         }
-        # Credits only when a positive balance is discovered (not verified at $0 live).
+        # Dormant credits gate: only emits when a positive balance is *passed in*.
+        # fetch_grok does not pass credits_remaining (protobuf has no known balance field).
         credit_n = _coerce_finite_number(credits_remaining)
         if credit_n is not None and credit_n > 0:
             entry["credits"] = {"remaining": credit_n}
@@ -1711,6 +1734,8 @@ def fetch_grok(home: Path | None = None) -> dict[str, Any]:
         raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
 
     try:
+        # No credits_remaining: live GetGrokCreditsConfig at balance 0 exposes no dollar
+        # balance field (only used%, resets, surfaces, flags). Do not invent extraction.
         used_percent, resets_at, surfaces = scan_grok_billing_protobuf(data_message)
     except FetchFallback:
         raise

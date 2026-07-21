@@ -316,8 +316,13 @@ PlasmoidItem {
         if (!entry || !entry.provider || entry.errorMessage) {
             return false
         }
+        // Credits count as present only when numeric and > 0 (same gate as the Credits block).
+        // A zero balance must not suppress the "No usage reported" empty state.
+        var hasPositiveCredits = typeof entry.creditsRemaining === "number"
+            && !isNaN(entry.creditsRemaining)
+            && entry.creditsRemaining > 0
         return (!entry.rows || entry.rows.length === 0)
-            && (entry.creditsRemaining === null || entry.creditsRemaining === undefined)
+            && !hasPositiveCredits
             && (!entry.bankedResetCount || entry.bankedResetCount <= 0)
             && (!entry.costSummary)
             && (!entry.dashboardSummary || entry.dashboardSummary.length === 0)
@@ -1138,11 +1143,8 @@ PlasmoidItem {
         }
         var primaryLeft = knownPercentLeft(primary)
         var secondaryLeft = knownPercentLeft(secondary)
-        // Tray badge reads compactPrimaryPercentLeft. Grok weekly lives in secondary, so fall back.
-        var compactPrimary = primaryLeft
-        if (compactPrimary === null && String(entry.provider || "").toLowerCase() === "grok") {
-            compactPrimary = secondaryLeft
-        }
+        // Compact primary is Session only. Never copy Grok weekly into primary (that
+        // duplicated W as S under default primary,weekly). Grok weekly stays in secondary.
         var rawExtraUsage = usage.extraUsage && typeof usage.extraUsage === "object" ? usage.extraUsage : null
         var extraUsage = null
         if (rawExtraUsage) {
@@ -1164,7 +1166,7 @@ PlasmoidItem {
             account: entry.account || usage.accountEmail || identity.accountEmail || "",
             plan: usage.loginMethod || identity.loginMethod || dashboard.accountPlan || "",
             primaryPercentLeft: displayPercentLeft(entry.provider, primary, secondary),
-            compactPrimaryPercentLeft: compactPrimary,
+            compactPrimaryPercentLeft: primaryLeft,
             primaryResetsAt: resetAt(primary),
             secondaryPercentLeft: secondaryLeft,
             secondaryResetsAt: resetAt(secondary),

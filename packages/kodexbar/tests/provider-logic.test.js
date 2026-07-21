@@ -695,6 +695,62 @@ assert.equal(
 )
 assert.doesNotMatch(zeroCreditsHidden.text, /Cr 0/, "zero credit balances never appear in compact text")
 
+// Grok native: weekly aggregate lives only in secondary. compactPrimary must stay null so
+// default primary,weekly does not emit a Session (S) copy of the same weekly percent.
+const grokWeeklyOnlyEntry = {
+    provider: "grok",
+    name: "Grok",
+    compactPrimaryPercentLeft: null,
+    primaryResetsAt: null,
+    secondaryPercentLeft: 43,
+    secondaryResetsAt: "2026-07-22T15:26:13Z",
+    rows: [
+        {
+            title: "Weekly",
+            percentLeft: 43,
+            usageKnown: true,
+            compactKey: "weekly",
+            compactExtra: false,
+            windowBadge: "W"
+        }
+    ]
+}
+const grokCompactDefault = plain(context.composeCompactBlocks([grokWeeklyOnlyEntry], {
+    providerOrder: "grok",
+    quotaSelection: "primary,weekly",
+    showProvider: true,
+    showUsed: true,
+    showCredits: false
+}))
+assert.equal(grokCompactDefault.blocks.length, 1, "Grok remains a single compact block")
+assert.equal(
+    grokCompactDefault.text,
+    "Gk W57%",
+    "default primary,weekly shows Grok weekly once with badge W (used = 100 - 43)"
+)
+assert.doesNotMatch(grokCompactDefault.text, /\bS\d/, "Grok compact never labels weekly usage as Session")
+assert.equal(
+    (grokCompactDefault.text.match(/\d+%/g) || []).length,
+    1,
+    "Grok compact has exactly one usage percentage part"
+)
+const grokQuotaParts = grokCompactDefault.blocks[0].quotaText || grokCompactDefault.blocks[0].fullText
+assert.match(String(grokQuotaParts), /\bW57%/, "Grok quota part uses weekly badge W")
+assert.doesNotMatch(String(grokQuotaParts), /\bS\d/, "Grok quota parts exclude Session badge")
+
+const grokPrimaryOnly = plain(context.composeCompactBlocks([grokWeeklyOnlyEntry], {
+    providerOrder: "grok",
+    quotaSelection: "primary",
+    showProvider: true,
+    showUsed: true,
+    showCredits: false
+}))
+// No product special-case: primary-only does not remount weekly as Session/W under primary.
+// Grok has no Session window, so it is not selected under primary-only.
+assert.equal(grokPrimaryOnly.hasSelection, false, "primary-only does not select weekly-only Grok")
+assert.doesNotMatch(grokPrimaryOnly.text, /\bS\d/, "primary-only never invents a Session percent for Grok")
+assert.doesNotMatch(grokPrimaryOnly.text, /\bW\d/, "primary-only does not select the weekly slot")
+
 const noFields = context.composeCompactText([fixture.composeEntries[0]], {
     providerOrder: "codex",
     quotaSelection: "primary",
@@ -878,6 +934,29 @@ assert.match(
     mainQml,
     /i18n\("Data engine not installed"\)/,
     "missing-engine title is internationalized"
+)
+
+// activeIsEmpty: zero credits must not hide the empty state (gate is remaining > 0).
+assert.match(
+    mainQml,
+    /var hasPositiveCredits = typeof entry\.creditsRemaining === "number"\s*&& !isNaN\(entry\.creditsRemaining\)\s*&& entry\.creditsRemaining > 0/,
+    "activeIsEmpty treats credits as present only when numeric and > 0"
+)
+assert.match(
+    mainQml,
+    /&& !hasPositiveCredits/,
+    "activeIsEmpty does not treat creditsRemaining 0 as non-empty"
+)
+// compactPrimary must not fall back to secondary for Grok (avoids S+W duplicate of weekly).
+assert.doesNotMatch(
+    mainQml,
+    /compactPrimary = secondaryLeft/,
+    "main.qml must not copy Grok weekly into compact primary/Session"
+)
+assert.match(
+    mainQml,
+    /compactPrimaryPercentLeft:\s*primaryLeft/,
+    "compact primary is Session percent only"
 )
 
 // Pure classifyEngineResponse / applyEngineResponse from main.qml: execute them
