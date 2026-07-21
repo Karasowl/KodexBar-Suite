@@ -52,11 +52,13 @@ GROK_SURFACE_NAMES: dict[int, str] = {
     2: "Grok Build",
     5: "Imagine",
 }
-# Weekly composition segments must reconstruct secondary.usedPercent. Beyond these
-# tolerances the engine omits segments and keeps the simple weekly bar (never a
-# misleading or overflowing breakdown). Rounding slack allows sum slightly over 100.
-GROK_SEGMENTS_SUM_ROUNDING_TOLERANCE = 0.5
-GROK_SEGMENTS_VS_WEEKLY_TOLERANCE = 1.0
+# Weekly composition must reconstruct secondary.usedPercent. Only float32 wire
+# accumulation and representation noise is tolerated — not product-level slack.
+# float32 machine epsilon is ~1.19e-7; a few percentage-point adds stay well under
+# 1e-3 absolute. Differences of tenths of a point are rejected. Published
+# compositions must never sum above 100 except for that float noise; on failure
+# the engine omits segments and keeps the simple weekly bar.
+GROK_SEGMENTS_FLOAT_ABS_TOL = 1e-3
 PROTOBUF_MAX_DEPTH = 32
 PROTOBUF_MAX_FIELDS = 4096
 SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok"}
@@ -1254,7 +1256,10 @@ def _parse_grok_surface_submessage(view: memoryview) -> tuple[int | None, float 
                 return surface_id, percent
             value = struct.unpack_from("<f", view, index)[0]
             index += 4
-            if field_number == 2 and 0.0 <= value <= 100.0:
+            # Capture field 2 as-is (including NaN/Inf/out-of-range). Filtering
+            # invalid percents here would drop the bad entry and let a partial
+            # surface set look like a complete weekly composition downstream.
+            if field_number == 2:
                 percent = float(value)
         else:
             return surface_id, percent
@@ -1425,9 +1430,14 @@ def map_grok_segments(surfaces: list[tuple[int, float]]) -> list[dict[str, Any]]
     ``points`` are percentage points that sum (approximately) to secondary usedPercent.
 
     Order: points descending, then surface_id ascending as a stable tiebreaker.
-    Only surfaces with points > 0 are included. Known titles come from
-    GROK_SURFACE_NAMES; unknown ids use a generic label without the raw id.
-    Callers must still validate the weekly composition invariant before publishing.
+    Only surfaces with points > 0 are included (zero is a valid component but is
+    omitted from the legend). Known titles come from GROK_SURFACE_NAMES; unknown
+    ids use a generic label without the raw id.
+
+    This builder skips invalid rows for legend construction only. Callers that
+    publish segments must first require every supplied component to be valid via
+    ``_grok_surface_components_valid`` so one bad entry never becomes a partial
+    composition, then check ``_grok_segments_match_weekly``.
     """
     candidates: list[tuple[float, int, str]] = []
     for surface_id, percent in surfaces:
@@ -1447,14 +1457,41 @@ def map_grok_segments(surfaces: list[tuple[int, float]]) -> list[dict[str, Any]]
     return [{"title": title, "points": points} for points, _surface_id, title in candidates]
 
 
+def _grok_surface_components_valid(surfaces: list[tuple[int, float]]) -> bool:
+    """True when every supplied surface is a usable weekly composition component.
+
+    Remote Build/API/Imagine values are one composition, not independent quotas.
+    A single non-finite or out-of-range percent (or a malformed row) invalidates
+    the whole composition: callers must omit segments and keep the solid weekly
+    bar. Zero is valid. Do not drop the bad row and accept the remainder.
+    """
+    for item in surfaces:
+        if not isinstance(item, (tuple, list)) or len(item) != 2:
+            return False
+        surface_id, percent = item[0], item[1]
+        if not isinstance(surface_id, int) or isinstance(surface_id, bool):
+            return False
+        if not isinstance(percent, (int, float)) or isinstance(percent, bool):
+            return False
+        try:
+            points = float(percent)
+        except (OverflowError, ValueError, TypeError):
+            return False
+        if not math.isfinite(points) or not _percent_in_range(points):
+            return False
+    return True
+
+
 def _grok_segments_match_weekly(
     segments: list[dict[str, Any]], used_percent: float
 ) -> bool:
     """True when segment points form a valid composition of the weekly usedPercent.
 
-    Requires every points value finite and in [0, 100], sum(points) <= 100 plus
-    GROK_SEGMENTS_SUM_ROUNDING_TOLERANCE, and abs(sum - usedPercent) within
-    GROK_SEGMENTS_VS_WEEKLY_TOLERANCE. On False, map_grok_usage omits segments.
+    Requires every points value finite and in [0, 100], sum(points) not above 100
+    except float32 representation noise (``GROK_SEGMENTS_FLOAT_ABS_TOL``), and
+    sum matching usedPercent within that same absolute tolerance via
+    ``math.isclose``. No product-level slack: a 0.8pp gap is rejected. On False,
+    map_grok_usage omits segments.
     """
     if not segments:
         return False
@@ -1474,9 +1511,14 @@ def _grok_segments_match_weekly(
         total += points
     if not math.isfinite(total):
         return False
-    if total > 100.0 + GROK_SEGMENTS_SUM_ROUNDING_TOLERANCE:
+    # No upward-rounding slack: sums meaningfully above 100 never publish.
+    if total > 100.0 and not math.isclose(
+        total, 100.0, rel_tol=0.0, abs_tol=GROK_SEGMENTS_FLOAT_ABS_TOL
+    ):
         return False
-    if abs(total - used_percent) > GROK_SEGMENTS_VS_WEEKLY_TOLERANCE:
+    if not math.isclose(
+        total, used_percent, rel_tol=0.0, abs_tol=GROK_SEGMENTS_FLOAT_ABS_TOL
+    ):
         return False
     return True
 
@@ -1576,11 +1618,15 @@ def map_grok_usage(
         secondary: dict[str, Any] = {"usedPercent": percent}
         if resets_at:
             secondary["resetsAt"] = resets_at
-        # Publish composition only when segments reconstruct the weekly aggregate.
-        # Otherwise keep the simple weekly bar (usedPercent/resetsAt without segments).
-        segments = map_grok_segments(list(surfaces or []))
-        if segments and _grok_segments_match_weekly(segments, percent):
-            secondary["segments"] = segments
+        # Publish composition only when every remote component is valid and the
+        # segments reconstruct the weekly aggregate. One invalid component omits
+        # segments entirely (never a silent partial composition). Otherwise keep
+        # the simple weekly bar (usedPercent/resetsAt without segments).
+        surface_list = list(surfaces or [])
+        if surface_list and _grok_surface_components_valid(surface_list):
+            segments = map_grok_segments(surface_list)
+            if segments and _grok_segments_match_weekly(segments, percent):
+                secondary["segments"] = segments
         identity: dict[str, Any] = {"providerID": "grok"}
         if isinstance(auth_entry, dict):
             auth_mode = auth_entry.get("auth_mode")

@@ -1301,8 +1301,9 @@ class QuotasEngineTests(unittest.TestCase):
         used, resets, scanned = quotas.scan_grok_billing_protobuf(message)
         self.assertAlmostEqual(used, 87.0, places=3)
         self.assertIsNotNone(resets)
-        # Scanner still sees the zero-points surface; mapper drops points <= 0.
+        # Scanner still sees the zero-points surface; mapper drops points <= 0 from legend.
         self.assertEqual(len(scanned), 4)
+        self.assertTrue(quotas._grok_surface_components_valid(scanned))
         entry = quotas.map_grok_usage(used, resets, surfaces=scanned)
         self.assertIsNone(entry["usage"]["primary"])
         secondary = entry["usage"]["secondary"]
@@ -1314,16 +1315,15 @@ class QuotasEngineTests(unittest.TestCase):
         )
         segment_sum = sum(item["points"] for item in segments)
         self.assertAlmostEqual(segment_sum, 87.0, places=3)
-        self.assertLessEqual(
-            abs(segment_sum - secondary["usedPercent"]),
-            quotas.GROK_SEGMENTS_VS_WEEKLY_TOLERANCE,
+        self.assertTrue(
+            abs(segment_sum - secondary["usedPercent"]) <= quotas.GROK_SEGMENTS_FLOAT_ABS_TOL
         )
         self.assertNotIn("extraRateWindows", entry["usage"])
         # Live protobuf has no balance field: fetch_grok never passes credits_remaining.
         self.assertNotIn("credits", entry)
 
     def test_map_grok_usage_omits_segments_when_sum_mismatches_weekly(self) -> None:
-        # 81+10+5=96 vs weekly 87 → outside GROK_SEGMENTS_VS_WEEKLY_TOLERANCE.
+        # 81+10+5=96 vs weekly 87 → outside GROK_SEGMENTS_FLOAT_ABS_TOL.
         # Aggregate stays; composition is dropped so the widget keeps a simple bar.
         entry = quotas.map_grok_usage(
             87.0,
@@ -1340,7 +1340,7 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertFalse(quotas._grok_segments_match_weekly(built, 87.0))
 
     def test_map_grok_usage_omits_segments_when_sum_exceeds_100(self) -> None:
-        # 60+50=110 > 100 (+ rounding tolerance). Weekly 100 stays, no composition.
+        # 60+50=110 > 100. Weekly 100 stays, no composition. No upward-rounding slack.
         entry = quotas.map_grok_usage(
             100.0,
             "2026-07-22T15:26:13Z",
@@ -1353,22 +1353,103 @@ class QuotasEngineTests(unittest.TestCase):
         built = quotas.map_grok_segments([(2, 60.0), (1, 50.0)])
         self.assertAlmostEqual(sum(item["points"] for item in built), 110.0, places=3)
         self.assertFalse(quotas._grok_segments_match_weekly(built, 100.0))
+        # Former 0.5 upward slack: 50+50.25=100.25 vs weekly 100 must still reject.
+        entry_slack = quotas.map_grok_usage(
+            100.0,
+            "2026-07-22T15:26:13Z",
+            surfaces=[(2, 50.0), (1, 50.25)],
+        )
+        self.assertAlmostEqual(entry_slack["usage"]["secondary"]["usedPercent"], 100.0, places=3)
+        self.assertEqual(entry_slack["usage"]["secondary"]["resetsAt"], "2026-07-22T15:26:13Z")
+        self.assertNotIn("segments", entry_slack["usage"]["secondary"])
+        built_slack = quotas.map_grok_segments([(2, 50.0), (1, 50.25)])
+        self.assertAlmostEqual(sum(item["points"] for item in built_slack), 100.25, places=3)
+        self.assertFalse(quotas._grok_segments_match_weekly(built_slack, 100.0))
 
-    def test_map_grok_usage_keeps_segments_within_weekly_tolerance(self) -> None:
-        # Positive edge: sum 86.2 vs weekly 87.0 is within 1.0 → segments published.
+    def test_map_grok_usage_omits_segments_on_visible_weekly_gap(self) -> None:
+        # 0.8pp gap is product-visible, not float32 noise — omit composition.
         entry = quotas.map_grok_usage(
             87.0,
-            None,
+            "2026-07-22T15:26:13Z",
             surfaces=[(2, 80.0), (1, 5.0), (5, 1.2)],
         )
         secondary = entry["usage"]["secondary"]
         self.assertAlmostEqual(secondary["usedPercent"], 87.0, places=3)
+        self.assertEqual(secondary["resetsAt"], "2026-07-22T15:26:13Z")
+        self.assertNotIn("segments", secondary)
+        built = quotas.map_grok_segments([(2, 80.0), (1, 5.0), (5, 1.2)])
+        self.assertAlmostEqual(sum(item["points"] for item in built), 86.2, places=3)
+        self.assertFalse(quotas._grok_segments_match_weekly(built, 87.0))
+
+    def test_map_grok_usage_keeps_float32_representation_composition(self) -> None:
+        # float32 wire values whose float64 sum differs from 100 by ~1e-6 still publish.
+        raw = (12.345, 34.567, 53.088)
+        surfaces = [
+            (2, struct.unpack("<f", struct.pack("<f", raw[0]))[0]),
+            (1, struct.unpack("<f", struct.pack("<f", raw[1]))[0]),
+            (5, struct.unpack("<f", struct.pack("<f", raw[2]))[0]),
+        ]
+        weekly = struct.unpack("<f", struct.pack("<f", 100.0))[0]
+        segment_sum = sum(item[1] for item in surfaces)
+        self.assertGreater(abs(segment_sum - weekly), 0.0)
+        self.assertLess(abs(segment_sum - weekly), quotas.GROK_SEGMENTS_FLOAT_ABS_TOL)
+        entry = quotas.map_grok_usage(weekly, "2026-07-22T15:26:13Z", surfaces=surfaces)
+        secondary = entry["usage"]["secondary"]
+        self.assertAlmostEqual(secondary["usedPercent"], weekly, places=5)
+        self.assertEqual(secondary["resetsAt"], "2026-07-22T15:26:13Z")
         segments = secondary["segments"]
         self.assertEqual(
-            [(item["title"], item["points"]) for item in segments],
-            [("Grok Build", 80.0), ("API", 5.0), ("Imagine", 1.2)],
+            [item["title"] for item in segments],
+            ["Imagine", "API", "Grok Build"],
         )
-        self.assertAlmostEqual(sum(item["points"] for item in segments), 86.2, places=3)
+        self.assertTrue(
+            abs(sum(item["points"] for item in segments) - weekly)
+            <= quotas.GROK_SEGMENTS_FLOAT_ABS_TOL
+        )
+
+    def test_grok_invalid_surface_component_omits_segments_protobuf_path(self) -> None:
+        # Invalid second component must not collapse into a partial 80% composition.
+        resets_iso = "2026-07-22T15:26:13Z"
+        for label, bad_percent in (
+            ("neg", -1.0),
+            ("nan", float("nan")),
+            ("inf", float("inf")),
+            ("over", 101.0),
+        ):
+            with self.subTest(label=label):
+                surfaces = [(2, 80.0), (1, bad_percent)]
+                message = build_minimal_grok_billing_message(
+                    80.0, 1784733973, surfaces=surfaces
+                )
+                used, resets, scanned = quotas.scan_grok_billing_protobuf(message)
+                self.assertAlmostEqual(used, 80.0, places=3)
+                self.assertEqual(resets, resets_iso)
+                self.assertEqual(len(scanned), 2)
+                self.assertFalse(quotas._grok_surface_components_valid(scanned))
+                entry = quotas.map_grok_usage(used, resets, surfaces=scanned)
+                secondary = entry["usage"]["secondary"]
+                self.assertAlmostEqual(secondary["usedPercent"], 80.0, places=3)
+                self.assertEqual(secondary["resetsAt"], resets_iso)
+                self.assertNotIn("segments", secondary)
+                self.assertNotIn("extraRateWindows", entry["usage"])
+                self.assertNotIn("credits", entry)
+
+    def test_map_grok_usage_omits_segments_when_any_direct_component_invalid(self) -> None:
+        # Direct path: do not filter the bad row and accept the rest.
+        resets_iso = "2026-07-22T15:26:13Z"
+        for label, surfaces in (
+            ("neg", [(2, 80.0), (1, -1.0)]),
+            ("nan", [(2, 80.0), (1, float("nan"))]),
+            ("inf", [(2, 80.0), (1, float("inf"))]),
+            ("over", [(2, 80.0), (1, 101.0)]),
+            ("bad_id", [(2, 80.0), ("x", 5.0)]),  # type: ignore[list-item]
+        ):
+            with self.subTest(label=label):
+                entry = quotas.map_grok_usage(80.0, resets_iso, surfaces=surfaces)
+                secondary = entry["usage"]["secondary"]
+                self.assertAlmostEqual(secondary["usedPercent"], 80.0, places=3)
+                self.assertEqual(secondary["resetsAt"], resets_iso)
+                self.assertNotIn("segments", secondary)
 
     def test_map_grok_segments_order_and_unknown_title(self) -> None:
         # Order: points desc, surface_id asc as tiebreaker. Unknown id → generic title.
