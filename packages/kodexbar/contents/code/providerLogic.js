@@ -719,7 +719,8 @@ function composeCompactBlocks(entries, options) {
             }
         }
         if (settings.showCredits !== false && entry.creditsRemaining !== null
-                && entry.creditsRemaining !== undefined && !isNaN(entry.creditsRemaining)) {
+                && entry.creditsRemaining !== undefined && !isNaN(entry.creditsRemaining)
+                && entry.creditsRemaining > 0) {
             var creditPart = "Cr " + compactNumber(entry.creditsRemaining)
             block.push(creditPart)
             quotaParts.push(creditPart)

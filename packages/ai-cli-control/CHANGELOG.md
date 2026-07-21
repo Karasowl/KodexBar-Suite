@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.9.1, 2026-07-21
+
+- Enrich native Codex usage mapping with top-level credits (only when balance > 0) and banked rate-limit reset credits (`codexResetCredits` only when available count > 0).
+- Rewrite Claude usage mapping to prefer self-describing `limits[]` (session, weekly_all, and per-model weekly_scoped windows such as Fable as `extraRateWindows`), with legacy five_hour/seven_day fallback, and always emit `extraUsage` status (no top-level Claude credits).
+- Map Grok weekly aggregate into the Weekly secondary window, surface Build/API/Imagine breakdown as `extraRateWindows`, and keep the compact tray badge on the weekly percent when primary is empty.
+- Gate credit and banked-reset display to positive values only (engine emit + widget).
+
 ## 0.9.0, 2026-07-20
 
 - Fetch Codex and Grok quotas natively in `kodexbar-quotas` (stdlib HTTP) without requiring the companion `codexbar` binary for those providers.

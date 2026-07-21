@@ -44,7 +44,19 @@ def _protobuf_key(field: int, wire_type: int) -> bytes:
     return _encode_varint((field << 3) | wire_type)
 
 
-def build_minimal_grok_billing_message(used_percent: float, reset_unix: int) -> bytes:
+def build_grok_surface_entry(surface_id: int, used_percent: float | None = None) -> bytes:
+    """One repeated field-7 surface: id (field 1 varint) + optional percent (field 2 fixed32)."""
+    body = _protobuf_key(1, 0) + _encode_varint(surface_id)
+    if used_percent is not None:
+        body += _protobuf_key(2, 5) + struct.pack("<f", used_percent)
+    return body
+
+
+def build_minimal_grok_billing_message(
+    used_percent: float,
+    reset_unix: int,
+    surfaces: list[tuple[int, float]] | None = None,
+) -> bytes:
     """Protobuf body with percent at path [1,1] and timestamp at preferred [1,5,1]."""
     # field 1 fixed32 percent (path ends with field 1 — normative candidate)
     percent_field = _protobuf_key(1, 5) + struct.pack("<f", used_percent)
@@ -52,12 +64,19 @@ def build_minimal_grok_billing_message(used_percent: float, reset_unix: int) -> 
     ts_inner = _protobuf_key(1, 0) + _encode_varint(reset_unix)
     field5 = _protobuf_key(5, 2) + _encode_varint(len(ts_inner)) + ts_inner
     nested = percent_field + field5
+    for surface_id, surface_percent in surfaces or []:
+        surface = build_grok_surface_entry(surface_id, surface_percent)
+        nested += _protobuf_key(7, 2) + _encode_varint(len(surface)) + surface
     return _protobuf_key(1, 2) + _encode_varint(len(nested)) + nested
 
 
-def build_minimal_grok_billing_frame(used_percent: float, reset_unix: int) -> bytes:
+def build_minimal_grok_billing_frame(
+    used_percent: float,
+    reset_unix: int,
+    surfaces: list[tuple[int, float]] | None = None,
+) -> bytes:
     """Build a gRPC-web data frame with normative percent and timestamp paths."""
-    message = build_minimal_grok_billing_message(used_percent, reset_unix)
+    message = build_minimal_grok_billing_message(used_percent, reset_unix, surfaces=surfaces)
     return b"\x00" + len(message).to_bytes(4, "big") + message
 
 
@@ -106,11 +125,98 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(entry["usage"]["primary"], expected["usage"]["primary"])
         self.assertEqual(entry["usage"]["secondary"], expected["usage"]["secondary"])
         self.assertEqual(entry["usage"]["tertiary"]["usedPercent"], 8)
+        self.assertIn("extraUsage", entry["usage"])
+        self.assertEqual(entry["usage"]["extraUsage"]["enabled"], False)
+        self.assertNotIn("credits", entry)
 
     def test_uses_weekly_window_when_claude_has_no_session(self) -> None:
         entry = quotas.map_claude_usage({"seven_day": {"utilization": 4}})
         self.assertEqual(entry["usage"]["primary"], {"usedPercent": 4, "windowMinutes": 10080})
         self.assertEqual(entry["usage"]["secondary"], {"usedPercent": 4, "windowMinutes": 10080})
+
+    def test_claude_limits_array_maps_session_weekly_and_scoped_fable(self) -> None:
+        payload = {
+            "limits": [
+                {
+                    "kind": "session",
+                    "group": "session",
+                    "percent": 12.5,
+                    "resets_at": "2026-07-22T01:00:00Z",
+                    "is_active": True,
+                    "scope": None,
+                },
+                {
+                    "kind": "weekly_all",
+                    "group": "weekly",
+                    "percent": 40,
+                    "resets_at": "2026-07-28T07:00:00Z",
+                    "is_active": False,
+                    "scope": None,
+                },
+                {
+                    "kind": "weekly_scoped",
+                    "group": "weekly",
+                    "percent": 3,
+                    "resets_at": "2026-07-28T07:00:00Z",
+                    "is_active": False,
+                    "scope": {"model": {"id": "fable", "display_name": "Fable"}},
+                },
+            ],
+            "extra_usage": {"is_enabled": False},
+            # Legacy keys present but must not override limits[].
+            "five_hour": {"utilization": 99, "resets_at": "2099-01-01T00:00:00Z"},
+        }
+        entry = quotas.map_claude_usage(payload, updated_at="2026-07-21T12:00:00Z")
+        self.assertEqual(entry["usage"]["primary"]["usedPercent"], 12.5)
+        self.assertEqual(entry["usage"]["primary"]["windowMinutes"], 300)
+        self.assertEqual(entry["usage"]["primary"]["resetsAt"], "2026-07-22T01:00:00Z")
+        self.assertEqual(entry["usage"]["secondary"]["usedPercent"], 40)
+        self.assertEqual(entry["usage"]["secondary"]["windowMinutes"], 10080)
+        self.assertIsNone(entry["usage"]["tertiary"])
+        extras = entry["usage"]["extraRateWindows"]
+        self.assertEqual(len(extras), 1)
+        self.assertEqual(extras[0]["title"], "Fable")
+        self.assertEqual(extras[0]["window"]["usedPercent"], 3)
+        self.assertTrue(extras[0]["window"]["usageKnown"])
+        self.assertNotIn("credits", entry)
+
+    def test_claude_extra_usage_enabled_balance_and_disabled(self) -> None:
+        disabled = quotas.map_claude_usage({
+            "five_hour": {"utilization": 1},
+            "extra_usage": {"is_enabled": False, "monthly_limit": None, "used_credits": None},
+        })
+        self.assertEqual(
+            disabled["usage"]["extraUsage"],
+            {"enabled": False, "balance": None, "currency": None},
+        )
+
+        enabled = quotas.map_claude_usage({
+            "five_hour": {"utilization": 1},
+            "extra_usage": {
+                "is_enabled": True,
+                "monthly_limit": 100,
+                "used_credits": 35.5,
+                "currency": "USD",
+            },
+        })
+        self.assertEqual(enabled["usage"]["extraUsage"]["enabled"], True)
+        self.assertAlmostEqual(enabled["usage"]["extraUsage"]["balance"], 64.5)
+        self.assertEqual(enabled["usage"]["extraUsage"]["currency"], "USD")
+
+        # Balance must not surface as top-level credits (Claude rule).
+        self.assertNotIn("credits", enabled)
+
+    def test_claude_legacy_shape_without_limits_still_works(self) -> None:
+        entry = quotas.map_claude_usage({
+            "five_hour": {"utilization": 10, "resets_at": "2026-07-22T00:00:00Z"},
+            "seven_day": {"utilization": 20, "resets_at": "2026-07-28T00:00:00Z"},
+            "seven_day_sonnet": {"utilization": 5, "resets_at": "2026-07-28T00:00:00Z"},
+        })
+        self.assertEqual(entry["usage"]["primary"]["usedPercent"], 10)
+        self.assertEqual(entry["usage"]["secondary"]["usedPercent"], 20)
+        self.assertEqual(entry["usage"]["tertiary"]["usedPercent"], 5)
+        self.assertNotIn("extraRateWindows", entry["usage"])
+        self.assertIn("extraUsage", entry["usage"])
 
     def test_invalid_shape_requests_upstream_fallback(self) -> None:
         with self.assertRaises(quotas.FetchFallback):
@@ -996,8 +1102,51 @@ class QuotasEngineTests(unittest.TestCase):
         extras = entry["usage"]["extraRateWindows"]
         self.assertEqual(extras[0]["id"], "codex-spark-weekly")
         self.assertEqual(extras[0]["window"]["usedPercent"], 0)
+        # sample payload has credits.balance > 0 → top-level credits
+        self.assertEqual(entry["credits"]["remaining"], 663.3)
         dumped = json.dumps(entry)
         self.assertNotIn(TEST_CODEX_TOKEN, dumped)
+
+    def test_codex_credits_and_reset_credits_gates(self) -> None:
+        base = sample_codex_usage_payload()
+        # balance > 0 (number)
+        positive = quotas.map_codex_usage({
+            **base,
+            "credits": {"has_credits": True, "balance": 12.5},
+            "rate_limit_reset_credits": {"available_count": 2, "credits": [
+                {"expires_at": "2026-08-01T00:00:00Z"},
+            ]},
+        })
+        self.assertEqual(positive["credits"]["remaining"], 12.5)
+        self.assertEqual(positive["usage"]["codexResetCredits"]["availableCount"], 2)
+        self.assertEqual(
+            positive["usage"]["codexResetCredits"]["credits"][0]["expires_at"],
+            "2026-08-01T00:00:00Z",
+        )
+
+        # string balance (live API) also coerced when > 0
+        as_string = quotas.map_codex_usage({
+            **base,
+            "credits": {"balance": "9.25"},
+            "rate_limit_reset_credits": {"available_count": 1},
+        })
+        self.assertEqual(as_string["credits"]["remaining"], 9.25)
+        self.assertEqual(as_string["usage"]["codexResetCredits"]["availableCount"], 1)
+        self.assertEqual(as_string["usage"]["codexResetCredits"]["credits"], [])
+
+        # balance <= 0 or absent → no credits
+        zero = quotas.map_codex_usage({**base, "credits": {"balance": 0}})
+        self.assertNotIn("credits", zero)
+        missing = quotas.map_codex_usage({
+            k: v for k, v in base.items() if k != "credits"
+        })
+        self.assertNotIn("credits", missing)
+        # available_count 0 → no codexResetCredits
+        no_resets = quotas.map_codex_usage({
+            **base,
+            "rate_limit_reset_credits": {"available_count": 0},
+        })
+        self.assertNotIn("codexResetCredits", no_resets["usage"])
 
     def test_codex_401_is_auth_relogin_without_upstream_delegation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1079,7 +1228,7 @@ class QuotasEngineTests(unittest.TestCase):
                 quotas.fetch_codex(home)
         self.assertEqual(seen, ["https://example.test/codex/api/codex/usage"])
 
-    def test_grok_native_grpc_web_maps_primary(self) -> None:
+    def test_grok_native_grpc_web_maps_weekly_secondary(self) -> None:
         frame = build_minimal_grok_billing_frame(57.0, 1784733973)
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -1100,10 +1249,33 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(entry["provider"], "grok")
         self.assertEqual(entry["source"], "grok-web")
         self.assertEqual(entry["engine"], "kodexbar")
-        self.assertAlmostEqual(entry["usage"]["primary"]["usedPercent"], 57.0, places=3)
-        self.assertEqual(entry["usage"]["primary"]["resetsAt"], "2026-07-22T15:26:13Z")
-        self.assertNotIn("windowMinutes", entry["usage"]["primary"])
+        # Weekly aggregate is secondary so the popup labels it Weekly, not Session.
+        self.assertIsNone(entry["usage"]["primary"])
+        self.assertAlmostEqual(entry["usage"]["secondary"]["usedPercent"], 57.0, places=3)
+        self.assertEqual(entry["usage"]["secondary"]["resetsAt"], "2026-07-22T15:26:13Z")
+        self.assertNotIn("windowMinutes", entry["usage"]["secondary"])
         self.assertNotIn(TEST_GROK_KEY, json.dumps(entry))
+
+    def test_grok_surfaces_map_to_extra_rate_windows(self) -> None:
+        surfaces = [(2, 79.0), (1, 5.0), (5, 1.0)]
+        message = build_minimal_grok_billing_message(85.0, 1784733973, surfaces=surfaces)
+        used, resets, scanned = quotas.scan_grok_billing_protobuf(message)
+        self.assertAlmostEqual(used, 85.0, places=3)
+        self.assertIsNotNone(resets)
+        self.assertEqual(len(scanned), 3)
+        entry = quotas.map_grok_usage(used, resets, surfaces=scanned)
+        self.assertIsNone(entry["usage"]["primary"])
+        self.assertAlmostEqual(entry["usage"]["secondary"]["usedPercent"], 85.0, places=3)
+        titles = [item["title"] for item in entry["usage"]["extraRateWindows"]]
+        self.assertEqual(titles, ["Grok Build", "API", "Imagine"])
+        percents = [item["window"]["usedPercent"] for item in entry["usage"]["extraRateWindows"]]
+        self.assertEqual(percents, [79.0, 5.0, 1.0])
+        # Zero or missing credits must not emit top-level credits.
+        self.assertNotIn("credits", entry)
+        with_credits = quotas.map_grok_usage(used, resets, surfaces=scanned, credits_remaining=3.5)
+        self.assertEqual(with_credits["credits"]["remaining"], 3.5)
+        no_credits = quotas.map_grok_usage(used, resets, surfaces=scanned, credits_remaining=0)
+        self.assertNotIn("credits", no_credits)
 
     def test_grok_missing_key_is_auth_relogin(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1212,7 +1384,7 @@ class QuotasEngineTests(unittest.TestCase):
                 with patch.object(quotas, "http_request", side_effect=boom_zero_percent):
                     zero_entries = quotas.fetch_provider("grok", None, home)
                     blobs.append(json.dumps(zero_entries))
-                    self.assertAlmostEqual(zero_entries[0]["usage"]["primary"]["usedPercent"], 0.0)
+                    self.assertAlmostEqual(zero_entries[0]["usage"]["secondary"]["usedPercent"], 0.0)
 
             combined = "\n".join(blobs)
             self.assertNotIn(TEST_CODEX_TOKEN, combined)
@@ -1497,9 +1669,10 @@ class QuotasEngineTests(unittest.TestCase):
         # Alien fixed32 99.0 at path [2] must not beat real 57.0 at [1,1].
         alien = _protobuf_key(2, 5) + struct.pack("<f", 99.0)
         real = build_minimal_grok_billing_message(57.0, 1784733973)
-        used, resets = quotas.scan_grok_billing_protobuf(alien + real)
+        used, resets, surfaces = quotas.scan_grok_billing_protobuf(alien + real)
         self.assertAlmostEqual(used, 57.0, places=3)
         self.assertIsNotNone(resets)
+        self.assertEqual(surfaces, [])
 
         # Truncated varint after a valid percent must fail closed.
         percent_only = _protobuf_key(1, 5) + struct.pack("<f", 57.0)

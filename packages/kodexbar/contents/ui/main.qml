@@ -986,7 +986,9 @@ PlasmoidItem {
 
     function displayPercentLeft(provider, primary, secondary) {
         var primaryLeft = knownPercentLeft(primary)
-        if (String(provider || "").toLowerCase() !== "codex") {
+        var id = String(provider || "").toLowerCase()
+        // Codex and Grok may emit weekly-only usage in secondary (Session slot empty).
+        if (id !== "codex" && id !== "grok") {
             return primaryLeft
         }
 
@@ -1134,6 +1136,26 @@ PlasmoidItem {
         if (costRow !== null) {
             rows.push(costRow)
         }
+        var primaryLeft = knownPercentLeft(primary)
+        var secondaryLeft = knownPercentLeft(secondary)
+        // Tray badge reads compactPrimaryPercentLeft. Grok weekly lives in secondary, so fall back.
+        var compactPrimary = primaryLeft
+        if (compactPrimary === null && String(entry.provider || "").toLowerCase() === "grok") {
+            compactPrimary = secondaryLeft
+        }
+        var rawExtraUsage = usage.extraUsage && typeof usage.extraUsage === "object" ? usage.extraUsage : null
+        var extraUsage = null
+        if (rawExtraUsage) {
+            extraUsage = {
+                enabled: rawExtraUsage.enabled === true,
+                balance: typeof rawExtraUsage.balance === "number" && !isNaN(rawExtraUsage.balance)
+                    ? rawExtraUsage.balance
+                    : null,
+                currency: typeof rawExtraUsage.currency === "string" && rawExtraUsage.currency
+                    ? rawExtraUsage.currency
+                    : null
+            }
+        }
         return {
             provider: entry.provider,
             name: providerName(entry.provider),
@@ -1142,15 +1164,16 @@ PlasmoidItem {
             account: entry.account || usage.accountEmail || identity.accountEmail || "",
             plan: usage.loginMethod || identity.loginMethod || dashboard.accountPlan || "",
             primaryPercentLeft: displayPercentLeft(entry.provider, primary, secondary),
-            compactPrimaryPercentLeft: knownPercentLeft(primary),
+            compactPrimaryPercentLeft: compactPrimary,
             primaryResetsAt: resetAt(primary),
-            secondaryPercentLeft: knownPercentLeft(secondary),
+            secondaryPercentLeft: secondaryLeft,
             secondaryResetsAt: resetAt(secondary),
             tertiaryPercentLeft: knownPercentLeft(tertiary),
             tertiaryResetsAt: resetAt(tertiary),
             creditsRemaining: credits ? credits.remaining : (typeof dashboard.creditsRemaining === "number" ? dashboard.creditsRemaining : null),
             bankedResetCount: bankedResets.availableCount,
             bankedResetExpiresAt: bankedResets.expiresAt,
+            extraUsage: extraUsage,
             codeReviewRemainingPercent: typeof dashboard.codeReviewRemainingPercent === "number" ? dashboard.codeReviewRemainingPercent : null,
             dashboardSummary: dashboardSummary(dashboard),
             rows: rows,
@@ -1165,6 +1188,23 @@ PlasmoidItem {
             errorRetryable: error && typeof error.retryable === "boolean" ? error.retryable : undefined,
             signedOut: false
         }
+    }
+
+    function formatExtraUsageValue(extra) {
+        if (!extra || typeof extra !== "object") {
+            return ""
+        }
+        if (!extra.enabled) {
+            return i18n("Off")
+        }
+        if (extra.balance !== null && extra.balance !== undefined && !isNaN(extra.balance) && extra.balance > 0) {
+            var amount = formatCredits(extra.balance)
+            if (extra.currency) {
+                return i18n("On") + " · " + amount + " " + extra.currency
+            }
+            return i18n("On") + " · " + amount
+        }
+        return i18n("On")
     }
 
     function barColor(value) {
@@ -2039,6 +2079,7 @@ PlasmoidItem {
                                     && !root.activeEntry.errorMessage
                                     && root.activeEntry.creditsRemaining !== null
                                     && root.activeEntry.creditsRemaining !== undefined
+                                    && root.activeEntry.creditsRemaining > 0
                                 Layout.fillWidth: true
                                 spacing: 14
 
@@ -2077,6 +2118,42 @@ PlasmoidItem {
                                     font.pixelSize: 11
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
+                                }
+                            }
+
+                            ColumnLayout {
+                                visible: root.popupState.hasEntry
+                                    && !root.activeEntry.errorMessage
+                                    && root.activeEntry.extraUsage !== null
+                                    && root.activeEntry.extraUsage !== undefined
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 1
+                                    color: "#22252f"
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+
+                                    PlasmaComponents.Label {
+                                        text: i18n("Extra usage")
+                                        color: root.textColor
+                                        font.family: root.designFont
+                                        font.pixelSize: 14
+                                        font.weight: Font.DemiBold
+                                        Layout.fillWidth: true
+                                    }
+
+                                    PlasmaComponents.Label {
+                                        text: root.formatExtraUsageValue(root.activeEntry.extraUsage)
+                                        color: root.textColor
+                                        font.family: root.designFont
+                                        font.pixelSize: 14
+                                        font.weight: Font.DemiBold
+                                    }
                                 }
                             }
 

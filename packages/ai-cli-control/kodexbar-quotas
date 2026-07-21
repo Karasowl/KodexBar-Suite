@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover - Python < 3.11
     tomllib = None  # type: ignore[assignment]
 
 
-VERSION = "0.9.0"
+VERSION = "0.9.1"
 TIMEOUT_SECONDS = 15
 HTTP_MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MiB: enough for quota JSON / gRPC-web billing
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -45,6 +45,13 @@ CODEX_TS_MAX = 4_102_444_800
 CODEX_WINDOW_SECONDS_MAX = 366 * 24 * 3600
 # Preferred Grok billing field paths (dossier). Percent candidates must end with field 1.
 GROK_PREFERRED_TS_PATH = (1, 5, 1)
+# Surface enum ids inside repeated field 7 of GetGrokCreditsConfig (verified live).
+# Names are stable product labels; percentages are never hard-coded.
+GROK_SURFACE_NAMES: dict[int, str] = {
+    1: "API",
+    2: "Grok Build",
+    5: "Imagine",
+}
 PROTOBUF_MAX_DEPTH = 32
 PROTOBUF_MAX_FIELDS = 4096
 SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok"}
@@ -480,33 +487,163 @@ def usage_window(value: Any, minutes: int) -> dict[str, Any] | None:
     return window
 
 
+def _coerce_finite_number(value: Any) -> float | None:
+    """Finite float from int/float/numeric string. Bools and non-numeric values are None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            number = float(value)
+        except (OverflowError, ValueError, TypeError):
+            return None
+        return number if math.isfinite(number) else None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            number = float(text)
+        except (OverflowError, ValueError, TypeError):
+            return None
+        return number if math.isfinite(number) else None
+    return None
+
+
+def map_claude_extra_usage(extra_usage: Any) -> dict[str, Any]:
+    """Map Claude extra_usage block. Always emit enabled/balance/currency (balance may be None)."""
+    if not isinstance(extra_usage, dict):
+        return {"enabled": False, "balance": None, "currency": None}
+    enabled = bool(extra_usage.get("is_enabled"))
+    monthly_n = _coerce_finite_number(extra_usage.get("monthly_limit"))
+    used_n = _coerce_finite_number(extra_usage.get("used_credits"))
+    balance: float | None = None
+    if monthly_n is not None and used_n is not None:
+        remaining = monthly_n - used_n
+        if remaining >= 0:
+            balance = remaining
+    elif used_n is not None:
+        balance = used_n
+    currency = extra_usage.get("currency")
+    if not isinstance(currency, str) or not currency:
+        currency = None
+    return {"enabled": enabled, "balance": balance, "currency": currency}
+
+
+def _claude_limit_window(item: dict[str, Any], minutes: int) -> dict[str, Any] | None:
+    percent = item.get("percent")
+    if not isinstance(percent, (int, float)) or isinstance(percent, bool):
+        return None
+    try:
+        used = float(percent)
+    except (OverflowError, ValueError, TypeError):
+        return None
+    if not math.isfinite(used):
+        return None
+    window: dict[str, Any] = {"usedPercent": used, "windowMinutes": minutes}
+    resets_at = item.get("resets_at")
+    if isinstance(resets_at, str) and resets_at:
+        window["resetsAt"] = resets_at
+    return window
+
+
+def map_claude_usage_from_limits(limits: list[Any]) -> dict[str, Any] | None:
+    """Map self-describing limits[] (session / weekly_all / weekly_scoped). None → use legacy keys."""
+    primary: dict[str, Any] | None = None
+    secondary: dict[str, Any] | None = None
+    extras: list[dict[str, Any]] = []
+    for item in limits:
+        if not isinstance(item, dict):
+            continue
+        kind = item.get("kind")
+        if kind == "session":
+            mapped = _claude_limit_window(item, 300)
+            if mapped is not None:
+                primary = mapped
+        elif kind == "weekly_all":
+            mapped = _claude_limit_window(item, 10080)
+            if mapped is not None:
+                secondary = mapped
+        elif kind == "weekly_scoped":
+            mapped = _claude_limit_window(item, 10080)
+            if mapped is None:
+                continue
+            scope = item.get("scope") if isinstance(item.get("scope"), dict) else {}
+            model = scope.get("model") if isinstance(scope.get("model"), dict) else {}
+            title = model.get("display_name")
+            if not isinstance(title, str) or not title:
+                continue
+            window = {
+                "usedPercent": mapped["usedPercent"],
+                "usageKnown": True,
+            }
+            if "resetsAt" in mapped:
+                window["resetsAt"] = mapped["resetsAt"]
+            extras.append({"title": title, "window": window})
+    if primary is None and secondary is None and not extras:
+        return None
+    return {
+        "primary": primary,
+        "secondary": secondary,
+        "tertiary": None,
+        "extraRateWindows": extras,
+    }
+
+
 def map_claude_usage(payload: Any, updated_at: str | None = None) -> dict[str, Any]:
-    """Map Anthropic OAuth fields to the CodexBar CLI JSON envelope."""
+    """Map Anthropic OAuth fields to the CodexBar CLI JSON envelope.
+
+    Prefer self-describing ``limits[]`` (session, weekly_all, weekly_scoped models such as Fable).
+    Fall back to legacy five_hour / seven_day / seven_day_sonnet keys for older payloads.
+    Always emit ``extraUsage``. Never emit top-level ``credits`` (extra usage is the balance line).
+    """
     if not isinstance(payload, dict):
         raise FetchFallback("Claude OAuth returned an invalid response", "invalid_response", True)
-    primary = usage_window(payload.get("five_hour"), 300)
-    fallback_keys = ("seven_day", "seven_day_oauth_apps", "seven_day_sonnet", "seven_day_opus")
-    if primary is None:
-        for key in fallback_keys:
-            primary = usage_window(payload.get(key), 10080)
-            if primary is not None:
-                break
-    if primary is None:
-        raise FetchFallback("Claude OAuth response has no usage window", "invalid_response", True)
-    secondary = usage_window(payload.get("seven_day"), 10080)
-    tertiary = usage_window(payload.get("seven_day_sonnet"), 10080)
-    if tertiary is None:
-        tertiary = usage_window(payload.get("seven_day_opus"), 10080)
+
+    primary: dict[str, Any] | None = None
+    secondary: dict[str, Any] | None = None
+    tertiary: dict[str, Any] | None = None
+    extras: list[dict[str, Any]] = []
+
+    limits = payload.get("limits")
+    mapped_limits = (
+        map_claude_usage_from_limits(limits) if isinstance(limits, list) and limits else None
+    )
+    if mapped_limits is not None:
+        primary = mapped_limits["primary"]
+        secondary = mapped_limits["secondary"]
+        tertiary = mapped_limits["tertiary"]
+        extras = list(mapped_limits.get("extraRateWindows") or [])
+        if primary is None and secondary is None and not extras:
+            raise FetchFallback("Claude OAuth response has no usage window", "invalid_response", True)
+    else:
+        primary = usage_window(payload.get("five_hour"), 300)
+        fallback_keys = ("seven_day", "seven_day_oauth_apps", "seven_day_sonnet", "seven_day_opus")
+        if primary is None:
+            for key in fallback_keys:
+                primary = usage_window(payload.get(key), 10080)
+                if primary is not None:
+                    break
+        if primary is None:
+            raise FetchFallback("Claude OAuth response has no usage window", "invalid_response", True)
+        secondary = usage_window(payload.get("seven_day"), 10080)
+        tertiary = usage_window(payload.get("seven_day_sonnet"), 10080)
+        if tertiary is None:
+            tertiary = usage_window(payload.get("seven_day_opus"), 10080)
+
+    usage: dict[str, Any] = {
+        "identity": {"providerID": "claude"},
+        "primary": primary,
+        "secondary": secondary,
+        "tertiary": tertiary,
+        "extraUsage": map_claude_extra_usage(payload.get("extra_usage")),
+        "updatedAt": updated_at or iso_now(),
+    }
+    if extras:
+        usage["extraRateWindows"] = extras
     return {
         "provider": "claude",
         "source": "claude",
-        "usage": {
-            "identity": {"providerID": "claude"},
-            "primary": primary,
-            "secondary": secondary,
-            "tertiary": tertiary,
-            "updatedAt": updated_at or iso_now(),
-        },
+        "usage": usage,
         "engine": "kodexbar",
     }
 
@@ -822,6 +959,41 @@ def map_codex_additional_limits(items: Any) -> list[dict[str, Any]]:
     return extras
 
 
+def map_codex_reset_credits(raw: Any) -> dict[str, Any] | None:
+    """Map rate_limit_reset_credits. Only when available_count > 0."""
+    if not isinstance(raw, dict):
+        return None
+    count_raw = raw.get("available_count")
+    if count_raw is None:
+        count_raw = raw.get("applicable_available_count")
+    count_n = _coerce_finite_number(count_raw)
+    if count_n is None or count_n <= 0:
+        return None
+    credits_out: list[dict[str, str]] = []
+    for key in ("credits", "reset_credits", "items"):
+        items = raw.get(key)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            expires = item.get("expires_at") or item.get("expiresAt")
+            if isinstance(expires, str) and expires:
+                credits_out.append({"expires_at": expires})
+        break
+    return {"availableCount": int(count_n), "credits": credits_out}
+
+
+def map_codex_credits(raw: Any) -> dict[str, Any] | None:
+    """Top-level credits only when balance is a number > 0 (string balances coerced)."""
+    if not isinstance(raw, dict):
+        return None
+    balance = _coerce_finite_number(raw.get("balance"))
+    if balance is None or balance <= 0:
+        return None
+    return {"remaining": balance}
+
+
 def map_codex_usage(payload: Any, updated_at: str | None = None) -> dict[str, Any]:
     """Map CodexUsageResponse (wham/usage) to the widget envelope.
 
@@ -855,12 +1027,20 @@ def map_codex_usage(payload: Any, updated_at: str | None = None) -> dict[str, An
         }
         if extras:
             usage["extraRateWindows"] = extras
-        return {
+        reset_credits = map_codex_reset_credits(payload.get("rate_limit_reset_credits"))
+        if reset_credits is not None:
+            usage["codexResetCredits"] = reset_credits
+
+        entry: dict[str, Any] = {
             "provider": "codex",
             "source": "oauth",
             "usage": usage,
             "engine": "kodexbar",
         }
+        credits = map_codex_credits(payload.get("credits"))
+        if credits is not None:
+            entry["credits"] = credits
+        return entry
     except FetchFallback:
         raise
     except Exception:
@@ -1006,13 +1186,61 @@ def _read_protobuf_varint(view: memoryview, index: int) -> tuple[int, int]:
 
 
 class _ProtobufScanState:
-    __slots__ = ("valid", "field_count", "percents", "timestamps")
+    __slots__ = ("valid", "field_count", "percents", "timestamps", "surfaces")
 
     def __init__(self) -> None:
         self.valid = True
         self.field_count = 0
         self.percents: list[tuple[tuple[int, ...], float]] = []
         self.timestamps: list[tuple[tuple[int, ...], int]] = []
+        # Surface breakdown entries: (surface_id, used_percent) from dossier field 7.
+        self.surfaces: list[tuple[int, float]] = []
+
+
+def _parse_grok_surface_submessage(view: memoryview) -> tuple[int | None, float | None]:
+    """Parse one repeated field-7 surface entry: id (field 1 varint) + percent (field 2 fixed32)."""
+    surface_id: int | None = None
+    percent: float | None = None
+    index = 0
+    length = len(view)
+    while index < length:
+        try:
+            tag, index = _read_protobuf_varint(view, index)
+        except ValueError:
+            return surface_id, percent
+        field_number = tag >> 3
+        wire_type = tag & 0x07
+        if field_number == 0:
+            return surface_id, percent
+        if wire_type == 0:
+            try:
+                value, index = _read_protobuf_varint(view, index)
+            except ValueError:
+                return surface_id, percent
+            if field_number == 1:
+                surface_id = int(value)
+        elif wire_type == 1:
+            if index + 8 > length:
+                return surface_id, percent
+            index += 8
+        elif wire_type == 2:
+            try:
+                size, index = _read_protobuf_varint(view, index)
+            except ValueError:
+                return surface_id, percent
+            if size < 0 or index + size > length:
+                return surface_id, percent
+            index += size
+        elif wire_type == 5:
+            if index + 4 > length:
+                return surface_id, percent
+            value = struct.unpack_from("<f", view, index)[0]
+            index += 4
+            if field_number == 2 and 0.0 <= value <= 100.0:
+                percent = float(value)
+        else:
+            return surface_id, percent
+    return surface_id, percent
 
 
 def _scan_protobuf_fields(
@@ -1072,6 +1300,11 @@ def _scan_protobuf_fields(
             # Length-delimited may be a submessage, string, or bytes. Try as submessage.
             # Opaque non-message payloads must not invalidate the parent walk.
             if size > 0:
+                # Dossier: repeated field 7 under root field 1 holds surface id + percent.
+                if field_path == (1, 7):
+                    surface_id, surface_percent = _parse_grok_surface_submessage(nested)
+                    if surface_id is not None and surface_percent is not None:
+                        state.surfaces.append((surface_id, surface_percent))
                 nested_state = _ProtobufScanState()
                 nested_state.field_count = state.field_count
                 _scan_protobuf_fields(nested, field_path, depth + 1, nested_state)
@@ -1079,6 +1312,7 @@ def _scan_protobuf_fields(
                 if nested_state.valid:
                     state.percents.extend(nested_state.percents)
                     state.timestamps.extend(nested_state.timestamps)
+                    state.surfaces.extend(nested_state.surfaces)
                 if state.field_count >= PROTOBUF_MAX_FIELDS:
                     state.valid = False
                     return
@@ -1166,12 +1400,42 @@ def unwrap_grpc_web_frame(body: bytes) -> bytes:
     return data
 
 
-def scan_grok_billing_protobuf(message: bytes) -> tuple[float, str | None]:
+def map_grok_surfaces(surfaces: list[tuple[int, float]]) -> list[dict[str, Any]]:
+    """Build extraRateWindows from (surface_id, used_percent) pairs present in the message."""
+    extras: list[dict[str, Any]] = []
+    for surface_id, percent in surfaces:
+        if not isinstance(surface_id, int) or isinstance(surface_id, bool):
+            continue
+        if not isinstance(percent, (int, float)) or isinstance(percent, bool):
+            continue
+        try:
+            used = float(percent)
+        except (OverflowError, ValueError, TypeError):
+            continue
+        if not math.isfinite(used) or not _percent_in_range(used):
+            continue
+        title = GROK_SURFACE_NAMES.get(surface_id) or f"Surface {surface_id}"
+        extras.append(
+            {
+                "title": title,
+                "window": {
+                    "usedPercent": used,
+                    "usageKnown": True,
+                },
+            }
+        )
+    return extras
+
+
+def scan_grok_billing_protobuf(
+    message: bytes,
+) -> tuple[float, str | None, list[tuple[int, float]]]:
     """Heuristic scan with normative path filters and strict validity.
 
     Percent candidates must end with field 1 (dossier). Prefer the shortest such path.
-    Preferred timestamp path is [1, 5, 1]. Any truncation or invalid wire type invalidates
-    the whole parse even if a percent candidate was already seen.
+    Preferred timestamp path is [1, 5, 1]. Surface breakdown lives in repeated field 7.
+    Any truncation or invalid wire type invalidates the whole parse even if a percent
+    candidate was already seen.
     """
     state = _ProtobufScanState()
     _scan_protobuf_fields(memoryview(message), (), 0, state)
@@ -1210,7 +1474,7 @@ def scan_grok_billing_protobuf(message: bytes) -> tuple[float, str | None]:
         if used_percent is None:
             raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
 
-    return used_percent, resets_at
+    return used_percent, resets_at, list(state.surfaces)
 
 
 def map_grok_usage(
@@ -1218,8 +1482,14 @@ def map_grok_usage(
     resets_at: str | None,
     auth_entry: dict[str, Any] | None = None,
     updated_at: str | None = None,
+    surfaces: list[tuple[int, float]] | None = None,
+    credits_remaining: float | None = None,
 ) -> dict[str, Any]:
     """Map scanned Grok billing fields to the widget envelope.
+
+    Weekly aggregate is emitted as secondary (Weekly). primary stays null so the popup
+    labels the main window as Weekly. The widget compact badge falls back to secondary
+    for Grok when primary is absent.
 
     Any unexpected mapping failure becomes invalid_response so the native path
     can fall back to the companion instead of crashing the process.
@@ -1235,10 +1505,10 @@ def map_grok_usage(
         # Same [0, 100] band as the protobuf percent filter and Codex usedPercent.
         if not math.isfinite(percent) or not _percent_in_range(percent):
             raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
-        primary: dict[str, Any] = {"usedPercent": percent}
+        # Aggregate is weekly usage (not session). Web path does not compute windowMinutes.
+        secondary: dict[str, Any] = {"usedPercent": percent}
         if resets_at:
-            primary["resetsAt"] = resets_at
-        # Web path does not compute windowMinutes.
+            secondary["resetsAt"] = resets_at
         identity: dict[str, Any] = {"providerID": "grok"}
         if isinstance(auth_entry, dict):
             auth_mode = auth_entry.get("auth_mode")
@@ -1252,18 +1522,27 @@ def map_grok_usage(
             team_id = auth_entry.get("team_id")
             if isinstance(team_id, str) and team_id:
                 identity["accountOrganization"] = team_id
-        return {
+        usage: dict[str, Any] = {
+            "identity": identity,
+            "primary": None,
+            "secondary": secondary,
+            "tertiary": None,
+            "updatedAt": updated_at or iso_now(),
+        }
+        extras = map_grok_surfaces(list(surfaces or []))
+        if extras:
+            usage["extraRateWindows"] = extras
+        entry: dict[str, Any] = {
             "provider": "grok",
             "source": "grok-web",
-            "usage": {
-                "identity": identity,
-                "primary": primary,
-                "secondary": None,
-                "tertiary": None,
-                "updatedAt": updated_at or iso_now(),
-            },
+            "usage": usage,
             "engine": "kodexbar",
         }
+        # Credits only when a positive balance is discovered (not verified at $0 live).
+        credit_n = _coerce_finite_number(credits_remaining)
+        if credit_n is not None and credit_n > 0:
+            entry["credits"] = {"remaining": credit_n}
+        return entry
     except FetchFallback:
         raise
     except Exception:
@@ -1432,13 +1711,13 @@ def fetch_grok(home: Path | None = None) -> dict[str, Any]:
         raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
 
     try:
-        used_percent, resets_at = scan_grok_billing_protobuf(data_message)
+        used_percent, resets_at, surfaces = scan_grok_billing_protobuf(data_message)
     except FetchFallback:
         raise
     except Exception:
         raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
     try:
-        return map_grok_usage(used_percent, resets_at, auth_entry)
+        return map_grok_usage(used_percent, resets_at, auth_entry, surfaces=surfaces)
     except FetchFallback:
         raise
     except Exception:

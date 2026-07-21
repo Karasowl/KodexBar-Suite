@@ -666,6 +666,35 @@ const creditsOnly = context.composeCompactText(fixture.composeEntries, {
 })
 assert.equal(creditsOnly.text, "#1 Cr 5 | #2 Cr 3 | ERR", "credit-only compact output honors toggles")
 
+const zeroCreditsHidden = context.composeCompactText([
+    {
+        provider: "codex",
+        account: "zero",
+        creditsRemaining: 0,
+        compactPrimaryPercentLeft: 50,
+        rows: []
+    },
+    {
+        provider: "codex",
+        account: "positive",
+        creditsRemaining: 4,
+        compactPrimaryPercentLeft: 50,
+        rows: []
+    }
+], {
+    providerOrder: "codex",
+    quotaSelection: "",
+    showProvider: false,
+    showUsed: false,
+    showCredits: true
+})
+assert.equal(
+    zeroCreditsHidden.text,
+    "#1 | #2 Cr 4",
+    "compact credits are gated to remaining > 0 (zero balance is hidden)"
+)
+assert.doesNotMatch(zeroCreditsHidden.text, /Cr 0/, "zero credit balances never appear in compact text")
+
 const noFields = context.composeCompactText([fixture.composeEntries[0]], {
     providerOrder: "codex",
     quotaSelection: "primary",
@@ -794,7 +823,7 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.9.0", "package metadata uses version 0.9.0")
+assert.equal(metadata.KPlugin.Version, "0.9.1", "package metadata uses version 0.9.1")
 assert.equal(metadata.KPlugin.Name, "KodexBar Suite", "package metadata uses the public product name")
 assert.equal(metadata.KPlugin.Id, "org.kde.plasma.kodexbar", "the technical plugin ID remains compatible")
 assert.doesNotMatch(
