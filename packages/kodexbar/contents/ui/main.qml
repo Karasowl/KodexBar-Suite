@@ -2164,9 +2164,10 @@ PlasmoidItem {
                                                     text: (modelData.text || "")
                                                         + (index < segmentLegendFlow.legendItems.length - 1
                                                             ? " ·" : "")
-                                                    color: root.quietColor
+                                                    color: root.textColor
                                                     font.family: root.designFont
-                                                    font.pixelSize: 12
+                                                    font.pixelSize: 13
+                                                    font.weight: Font.DemiBold
                                                     lineHeight: 1.4
                                                     anchors.verticalCenter: parent.verticalCenter
                                                 }

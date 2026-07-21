@@ -1029,6 +1029,44 @@ assert.match(
 )
 assert.match(
     mainQml,
+    /Flow \{[\s\S]*id: segmentLegendFlow[\s\S]*PlasmaComponents\.Label \{[\s\S]*color: root\.textColor[\s\S]*font\.pixelSize: 13[\s\S]*font\.weight:\s*Font\.DemiBold/,
+    "segment legend labels use textColor, 13px, DemiBold"
+)
+const segmentLegendLabelBlockMatch = mainQml.match(
+    /id: segmentLegendFlow[\s\S]*?PlasmaComponents\.Label \{[\s\S]*?anchors\.verticalCenter:\s*parent\.verticalCenter/
+)
+assert.ok(
+    !!segmentLegendLabelBlockMatch,
+    "segment legend label delegate is discoverable"
+)
+const segmentLegendLabelBlock = segmentLegendLabelBlockMatch
+    ? segmentLegendLabelBlockMatch[0]
+    : ""
+assert.match(
+    segmentLegendLabelBlock,
+    /color: root\.textColor/,
+    "segment legend label uses root.textColor"
+)
+assert.match(
+    segmentLegendLabelBlock,
+    /font\.pixelSize:\s*13/,
+    "segment legend label uses 13px"
+)
+assert.match(
+    segmentLegendLabelBlock,
+    /font\.weight:\s*Font\.DemiBold/,
+    "segment legend label uses DemiBold"
+)
+assert.ok(
+    !/font\.pixelSize:\s*12/.test(segmentLegendLabelBlock),
+    "segment legend label no longer uses 12px"
+)
+assert.ok(
+    !/color:\s*root\.quietColor/.test(segmentLegendLabelBlock),
+    "segment legend label no longer uses root.quietColor"
+)
+assert.match(
+    mainQml,
     /visible: index > 0[\s\S]*width: 1[\s\S]*color: "#0b0c10"/,
     "segment track draws a 1px dark divider on internal frontiers only"
 )
