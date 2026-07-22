@@ -90,6 +90,24 @@ def window(entry: dict[str, Any], key: str) -> tuple[int | None, str | None, flo
     return percent, str(reset) if isinstance(reset, str) and reset else None, severity_percent
 
 
+def antigravity_quota_group(item: dict[str, Any]) -> str:
+    """Classify an Antigravity window for compact surfaces (gemini by default)."""
+    group = item.get("group")
+    if isinstance(group, str) and group.strip():
+        return group.strip().lower()
+    key = str(item.get("key") or "").strip().lower()
+    if key.startswith("gemini"):
+        return "gemini"
+    if key.startswith("claude-gpt"):
+        return "claude-gpt"
+    return ""
+
+
+def antigravity_compact_quotas(quotas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Default compact block shows only the Gemini model group."""
+    return [quota for quota in quotas if antigravity_quota_group(quota) == "gemini"]
+
+
 def antigravity_quotas(entry: dict[str, Any]) -> list[dict[str, Any]]:
     usage = entry.get("usage")
     raw_items = usage.get("antigravityRateWindows") if isinstance(usage, dict) else None
@@ -107,8 +125,12 @@ def antigravity_quotas(entry: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         key = str(item.get("key") or "").strip().lower()
         percent, reset, raw = window({"usage": {"quota": item["window"]}}, "quota")
+        group = antigravity_quota_group(item) if key else ""
+        if not group and key:
+            group = antigravity_quota_group({"key": key})
         quotas.append({
             "key": key or "upstream",
+            "group": group,
             "label": labels.get(key, str(item.get("title") or "Quota")),
             "title": str(item.get("title") or "Upstream quota"),
             "percentage": percent,
@@ -136,7 +158,13 @@ def compact_provider(entry: Any) -> dict[str, Any] | None:
     quotas = antigravity_quotas(entry) if identifier == "antigravity" else []
     session, session_reset, session_raw = window(entry, "primary")
     weekly, weekly_reset, weekly_raw = window(entry, "secondary")
-    severity_values = [item["raw_percentage"] for item in quotas] if quotas else [session_raw, weekly_raw]
+    # Block severity only considers windows shown in compact text (Gemini by default).
+    compact_quotas = antigravity_compact_quotas(quotas) if quotas else []
+    severity_values = (
+        [item["raw_percentage"] for item in compact_quotas]
+        if quotas
+        else [session_raw, weekly_raw]
+    )
     severity = "critical" if error else usage_severity([value for value in severity_values if value is not None])
     result = {
         "provider": identifier,
@@ -148,6 +176,7 @@ def compact_provider(entry: Any) -> dict[str, Any] | None:
         "error_message": error,
     }
     if quotas:
+        # Full list for tooltip detail; compact surfaces filter to Gemini.
         result["quotas"] = quotas
         result["percentages"] = {}
         result["resets"] = {}
@@ -172,7 +201,8 @@ def block_text(provider: dict[str, Any]) -> str:
         parts.append("ERR")
     else:
         if provider.get("quotas"):
-            for quota in provider["quotas"]:
+            # Compact block: Gemini group only. Tooltip keeps every window.
+            for quota in antigravity_compact_quotas(provider["quotas"]):
                 if quota["percentage"] is not None:
                     parts.append(f'{quota["label"]} {quota["percentage"]}%')
             return " ".join(parts)

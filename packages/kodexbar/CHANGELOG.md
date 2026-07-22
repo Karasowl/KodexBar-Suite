@@ -2,6 +2,12 @@
 
 All notable fork-specific changes are documented here.
 
+## 0.9.3, 2026-07-22
+
+- Limit default compact Antigravity quotas to the Gemini group (`GW`, `G5h`) so the taskbar block no longer truncates.
+- Keep Claude/GPT model windows (`CW`, `C5h`) out of compact text and severity unless the selection names them explicitly (for example `antigravity.claude-gpt-5h`).
+- Leave the popup unchanged with all four Antigravity model windows.
+
 ## 0.9.2, 2026-07-22
 
 - Show Antigravity quotas as Gemini and Claude/GPT weekly and five-hour model windows, matching agy.

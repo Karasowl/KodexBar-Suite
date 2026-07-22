@@ -363,15 +363,37 @@ function compactQuotaSelected(configuredSelection, provider, quotaKey, extra) {
     return false
 }
 
+function antigravityQuotaGroup(quotaKey) {
+    var key = compactQuotaKey(quotaKey)
+    if (key.indexOf("gemini") === 0) {
+        return "gemini"
+    }
+    if (key.indexOf("claude-gpt") === 0) {
+        return "claude-gpt"
+    }
+    return ""
+}
+
 function antigravityQuotaSelected(configuredSelection, quotaKey) {
     var selection = normalizeQuotaSelection(configuredSelection)
+    var key = compactQuotaKey(quotaKey)
     for (var i = 0; i < selection.length; i++) {
         if (selection[i].indexOf("antigravity.") === 0) {
-            return compactQuotaSelected(configuredSelection, "antigravity", quotaKey, true)
+            // Provider-scoped selection is explicit: only named windows appear.
+            return compactQuotaSelected(configuredSelection, "antigravity", key, true)
         }
     }
-    return compactQuotaSelected(configuredSelection, "antigravity", quotaKey, true)
-        || compactQuotaSelected(configuredSelection, "antigravity", "primary", false)
+    // Explicit extras or bare key selection (e.g. claude-gpt-5h) still works for all four.
+    if (compactQuotaSelected(configuredSelection, "antigravity", key, true)) {
+        return true
+    }
+    // Default primary/weekly (and equivalent generic selection) only surfaces the
+    // Gemini model group in compact UI. Claude/GPT and unclassified windows stay
+    // out of the tray text unless the user names them.
+    if (antigravityQuotaGroup(key) !== "gemini") {
+        return false
+    }
+    return compactQuotaSelected(configuredSelection, "antigravity", "primary", false)
         || compactQuotaSelected(configuredSelection, "antigravity", "weekly", false)
 }
 

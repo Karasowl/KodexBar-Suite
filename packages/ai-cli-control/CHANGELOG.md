@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.9.3, 2026-07-22
+
+- Show only Gemini Antigravity quotas (`GW`, `G5h`) in the compact panel block text and tray menu label by default.
+- Derive Antigravity block severity only from the Gemini windows shown in compact text. Hidden Claude/GPT limits no longer tint the block.
+- Keep all four Antigravity windows in panel tooltip lines for detail.
+
 ## 0.9.2, 2026-07-22
 
 - Normalize Antigravity agy quotas into Gemini and Claude/GPT weekly and five-hour windows, ordered like agy's usage view.
