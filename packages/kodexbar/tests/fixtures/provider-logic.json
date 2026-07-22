@@ -156,7 +156,7 @@
         {
           "title": "Gemini weekly",
           "compactKey": "gemini-weekly",
-          "compactLabel": "GW",
+          "compactLabel": "W",
           "antigravityQuota": true,
           "compactExtra": true,
           "percentLeft": 99.943274
@@ -164,7 +164,7 @@
         {
           "title": "Gemini 5-hour",
           "compactKey": "gemini-5h",
-          "compactLabel": "G5h",
+          "compactLabel": "S",
           "antigravityQuota": true,
           "compactExtra": true,
           "percentLeft": 99.65964

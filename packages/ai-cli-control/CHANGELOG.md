@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.9.4, 2026-07-22
+
+- Label Gemini Antigravity compact windows as `S` and `W` (five-hour then weekly), matching other providers in the panel block and tray menu.
+- Keep panel tooltips on full window titles. Claude/GPT compact labels remain `CW` and `C5h` when selected explicitly.
+
 ## 0.9.3, 2026-07-22
 
 - Show only Gemini Antigravity quotas (`GW`, `G5h`) in the compact panel block text and tray menu label by default.

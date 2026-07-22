@@ -374,6 +374,18 @@ function antigravityQuotaGroup(quotaKey) {
     return ""
 }
 
+// Compact order matches other providers: five-hour (S / C5h) before weekly (W / CW).
+function antigravityCompactRowRank(quotaKey) {
+    var key = compactQuotaKey(quotaKey)
+    if (key.indexOf("5h") !== -1) {
+        return 0
+    }
+    if (key.indexOf("weekly") !== -1) {
+        return 1
+    }
+    return 2
+}
+
 function antigravityQuotaSelected(configuredSelection, quotaKey) {
     var selection = normalizeQuotaSelection(configuredSelection)
     var key = compactQuotaKey(quotaKey)
@@ -830,7 +842,14 @@ function composeCompactBlocks(entries, options) {
                     }
                 }
             }
-            var rows = entry && Array.isArray(entry.rows) ? entry.rows : []
+            var rows = entry && Array.isArray(entry.rows) ? entry.rows.slice() : []
+            if (id === "antigravity") {
+                rows.sort(function(left, right) {
+                    var leftKey = left && (left.compactKey || compactQuotaKey(left.title))
+                    var rightKey = right && (right.compactKey || compactQuotaKey(right.title))
+                    return antigravityCompactRowRank(leftKey) - antigravityCompactRowRank(rightKey)
+                })
+            }
             for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
                 var row = rows[rowIndex]
                 var key = row && (row.compactKey || compactQuotaKey(row.title))

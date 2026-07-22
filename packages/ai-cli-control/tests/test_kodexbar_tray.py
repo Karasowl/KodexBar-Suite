@@ -66,8 +66,8 @@ class TrayLogicTests(unittest.TestCase):
             "providers": [
                 {"provider": "codex", "label": "Cx", "percentages": {"session": 12, "weekly": 34}},
                 {"provider": "antigravity", "label": "Ag", "percentages": {}, "quotas": [
-                    {"key": "gemini-weekly", "group": "gemini", "label": "GW", "percentage": 0},
-                    {"key": "gemini-5h", "group": "gemini", "label": "G5h", "percentage": 0},
+                    {"key": "gemini-weekly", "group": "gemini", "label": "W", "percentage": 0},
+                    {"key": "gemini-5h", "group": "gemini", "label": "S", "percentage": 0},
                     {"key": "claude-gpt-weekly", "group": "claude-gpt", "label": "CW", "percentage": 34},
                     {"key": "claude-gpt-5h", "group": "claude-gpt", "label": "C5h", "percentage": 100},
                 ]},
@@ -75,7 +75,7 @@ class TrayLogicTests(unittest.TestCase):
             ],
         })
         self.assertEqual(model[0], {"kind": "info", "label": "Cx (codex): Sesión 12%, Semanal 34%"})
-        self.assertEqual(model[1], {"kind": "info", "label": "Ag (antigravity): GW 0%, G5h 0%"})
+        self.assertEqual(model[1], {"kind": "info", "label": "Ag (antigravity): S 0%, W 0%"})
         self.assertEqual(model[2], {"kind": "info", "label": "Gk (grok): ERR, sin token"})
         self.assertEqual([item["kind"] for item in model[-5:]], ["separator", "refresh", "open", "separator", "quit"])
         error = tray.menu_model(tray.error_status("panel falló"))

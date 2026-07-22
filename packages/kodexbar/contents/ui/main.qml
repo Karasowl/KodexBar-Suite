@@ -1158,8 +1158,8 @@ PlasmoidItem {
                 compactKey: antigravityKey,
                 compactExtra: true,
                 antigravityQuota: true,
-                compactLabel: antigravityKey === "gemini-weekly" ? "GW"
-                    : antigravityKey === "gemini-5h" ? "G5h"
+                compactLabel: antigravityKey === "gemini-weekly" ? "W"
+                    : antigravityKey === "gemini-5h" ? "S"
                     : antigravityKey === "claude-gpt-weekly" ? "CW"
                     : antigravityKey === "claude-gpt-5h" ? "C5h" : "Ag",
                 windowBadge: antigravityWindow.windowType === "weekly" ? "W"

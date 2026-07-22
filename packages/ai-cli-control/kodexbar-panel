@@ -103,9 +103,20 @@ def antigravity_quota_group(item: dict[str, Any]) -> str:
     return ""
 
 
+def antigravity_compact_rank(quota: dict[str, Any]) -> int:
+    """Match other providers: five-hour (S) before weekly (W) in compact text."""
+    key = str(quota.get("key") or "").strip().lower()
+    if "5h" in key:
+        return 0
+    if "weekly" in key:
+        return 1
+    return 2
+
+
 def antigravity_compact_quotas(quotas: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Default compact block shows only the Gemini model group."""
-    return [quota for quota in quotas if antigravity_quota_group(quota) == "gemini"]
+    """Default compact block shows only the Gemini model group, S then W."""
+    selected = [quota for quota in quotas if antigravity_quota_group(quota) == "gemini"]
+    return sorted(selected, key=antigravity_compact_rank)
 
 
 def antigravity_quotas(entry: dict[str, Any]) -> list[dict[str, Any]]:
@@ -114,8 +125,8 @@ def antigravity_quotas(entry: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(raw_items, list):
         return []
     labels = {
-        "gemini-weekly": "GW",
-        "gemini-5h": "G5h",
+        "gemini-weekly": "W",
+        "gemini-5h": "S",
         "claude-gpt-weekly": "CW",
         "claude-gpt-5h": "C5h",
     }

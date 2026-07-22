@@ -2,6 +2,11 @@
 
 All notable fork-specific changes are documented here.
 
+## 0.9.4, 2026-07-22
+
+- Use compact Antigravity labels `S` and `W` for the Gemini five-hour and weekly windows, matching Codex and Claude.
+- Order the default compact Antigravity block as `Ag S0% W0%` (five-hour before weekly). Explicit Claude/GPT selections keep `CW` and `C5h`.
+
 ## 0.9.3, 2026-07-22
 
 - Limit default compact Antigravity quotas to the Gemini group (`GW`, `G5h`) so the taskbar block no longer truncates.

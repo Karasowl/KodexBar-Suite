@@ -129,7 +129,7 @@ def provider_menu_label(provider: Any) -> str | None:
     percentages = provider.get("percentages")
     quotas_data = provider.get("quotas")
     if isinstance(quotas_data, list):
-        quotas = []
+        selected = []
         for quota in quotas_data:
             if not isinstance(quota, dict) or not isinstance(quota.get("percentage"), int):
                 continue
@@ -144,9 +144,18 @@ def provider_menu_label(provider: Any) -> str | None:
                     continue
                 if not key:
                     compact_label = str(quota.get("label") or "")
-                    if compact_label not in ("GW", "G5h"):
+                    if compact_label not in ("S", "W"):
                         continue
-            quotas.append(f"{quota.get('label') or 'Cuota'} {quota['percentage']}%")
+            selected.append(quota)
+        # Compact order matches panel and other providers: S (5h) then W (weekly).
+        selected.sort(
+            key=lambda item: (
+                0 if "5h" in str(item.get("key") or "").lower()
+                else 1 if "weekly" in str(item.get("key") or "").lower()
+                else 2
+            )
+        )
+        quotas = [f"{quota.get('label') or 'Cuota'} {quota['percentage']}%" for quota in selected]
         return f"{label} ({identifier}): {', '.join(quotas) if quotas else 'sin cuotas reportadas'}"
     if not isinstance(percentages, dict):
         return f"{label} ({identifier}): sin cuotas reportadas"
