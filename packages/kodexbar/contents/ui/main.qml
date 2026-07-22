@@ -216,7 +216,7 @@ PlasmoidItem {
         return Math.max(0, Math.min(100, 100 - percentLeft))
     }
 
-    function formatUsedPercent(percentLeft, usageKnown, showRemaining) {
+    function formatUsedPercent(percentLeft, usageKnown, showRemaining, precise) {
         if (usageKnown === false) {
             return i18n("Reset only")
         }
@@ -224,7 +224,10 @@ PlasmoidItem {
         if (used === null) {
             return i18n("Unavailable")
         }
-        var usedText = i18n("%1% used", Math.round(used))
+        var displayUsed = precise === true && Math.abs(used - Math.round(used)) >= 0.005
+            ? Number(used).toLocaleString(Qt.locale(), "f", 2)
+            : String(Math.round(used))
+        var usedText = i18n("%1% used", displayUsed)
         if (showRemaining === true) {
             var left = Math.max(0, Math.min(100, Math.round(100 - used)))
             return usedText + " · " + i18n("%1% left", left)
@@ -1100,14 +1103,12 @@ PlasmoidItem {
         var primary = usage.primary
         var secondary = usage.secondary
         var tertiary = usage.tertiary
-        var normalizedWindows = ProviderLogic.normalizeUsageWindows(entry.provider, primary, secondary)
-        primary = normalizedWindows.primary
-        secondary = normalizedWindows.secondary
+        var antigravity = ProviderLogic.providerId(entry.provider) === "antigravity"
         var providerCost = usage.providerCost && typeof usage.providerCost === "object" ? usage.providerCost : null
         var status = entry.status && typeof entry.status === "object" ? entry.status : null
         var bankedResets = ProviderLogic.normalizeCodexResetCredits(usage.codexResetCredits)
         var rows = []
-        var windows = [
+        var windows = antigravity ? [] : [
             { key: "primary", title: i18n("Session"), data: primary },
             { key: "weekly", title: i18n("Weekly"), data: secondary },
             { key: "tertiary", title: i18n("Tertiary"), data: tertiary }
@@ -1132,7 +1133,40 @@ PlasmoidItem {
                 rows.push(standardRow)
             }
         }
-        var extraRateWindows = usage.extraRateWindows && usage.extraRateWindows.length ? usage.extraRateWindows : []
+        var extraRateWindows = antigravity ? [] : (usage.extraRateWindows && usage.extraRateWindows.length ? usage.extraRateWindows : [])
+        var antigravityWindows = antigravity && Array.isArray(usage.antigravityRateWindows)
+            ? usage.antigravityRateWindows : []
+        for (var antigravityIndex = 0; antigravityIndex < antigravityWindows.length; antigravityIndex++) {
+            var antigravityWindow = antigravityWindows[antigravityIndex]
+            if (!antigravityWindow || !antigravityWindow.window) {
+                continue
+            }
+            var antigravityLeft = percentLeft(antigravityWindow.window)
+            var antigravityReset = resetAt(antigravityWindow.window)
+            if (antigravityLeft === null && !antigravityReset) {
+                continue
+            }
+            var antigravityKnown = antigravityLeft !== null && antigravityWindow.window.usageKnown !== false
+            var antigravityKey = antigravityWindow.key || ProviderLogic.compactQuotaKey(antigravityWindow.title || "quota")
+            rows.push({
+                title: antigravityWindow.title || i18n("Upstream quota"),
+                percentLeft: antigravityKnown ? antigravityLeft : null,
+                resetsAt: antigravityReset,
+                detail: windowDetail(antigravityWindow.window, antigravityKnown),
+                usageKnown: antigravityKnown,
+                precisePercent: true,
+                compactKey: antigravityKey,
+                compactExtra: true,
+                antigravityQuota: true,
+                compactLabel: antigravityKey === "gemini-weekly" ? "GW"
+                    : antigravityKey === "gemini-5h" ? "G5h"
+                    : antigravityKey === "claude-gpt-weekly" ? "CW"
+                    : antigravityKey === "claude-gpt-5h" ? "C5h" : "Ag",
+                windowBadge: antigravityWindow.windowType === "weekly" ? "W"
+                    : antigravityWindow.windowType === "5h" ? "5h"
+                    : ProviderLogic.quotaWindowBadge(antigravityKey, antigravityWindow.title || "")
+            })
+        }
         for (var j = 0; j < extraRateWindows.length; j++) {
             var extra = extraRateWindows[j]
             if (!extra || !extra.window) {
@@ -1186,10 +1220,10 @@ PlasmoidItem {
             account: entry.account || usage.accountEmail || identity.accountEmail || "",
             plan: usage.loginMethod || identity.loginMethod || dashboard.accountPlan || "",
             primaryPercentLeft: displayPercentLeft(entry.provider, primary, secondary),
-            compactPrimaryPercentLeft: primaryLeft,
-            primaryResetsAt: resetAt(primary),
-            secondaryPercentLeft: secondaryLeft,
-            secondaryResetsAt: resetAt(secondary),
+            compactPrimaryPercentLeft: antigravity ? null : primaryLeft,
+            primaryResetsAt: antigravity ? null : resetAt(primary),
+            secondaryPercentLeft: antigravity ? null : secondaryLeft,
+            secondaryResetsAt: antigravity ? null : resetAt(secondary),
             tertiaryPercentLeft: knownPercentLeft(tertiary),
             tertiaryResetsAt: resetAt(tertiary),
             creditsRemaining: credits ? credits.remaining : (typeof dashboard.creditsRemaining === "number" ? dashboard.creditsRemaining : null),
@@ -2059,7 +2093,8 @@ PlasmoidItem {
                                             text: root.formatUsedPercent(
                                                 modelData.percentLeft,
                                                 modelData.usageKnown,
-                                                !!(modelData.segments && modelData.segments.length))
+                                                !!(modelData.segments && modelData.segments.length),
+                                                modelData.precisePercent === true)
                                             color: root.metricAccent(modelData.percentLeft, modelData.usageKnown)
                                             font.family: root.designFont
                                             font.pixelSize: 13

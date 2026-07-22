@@ -2,6 +2,11 @@
 
 All notable fork-specific changes are documented here.
 
+## 0.9.2, 2026-07-22
+
+- Show Antigravity quotas as Gemini and Claude/GPT weekly and five-hour model windows, matching agy.
+- Keep Antigravity five-hour limits out of generic Session and Weekly popup and compact rows.
+
 ## 0.9.1, 2026-07-21
 
 - Show Credits and banked resets only when the remaining balance or count is greater than zero.

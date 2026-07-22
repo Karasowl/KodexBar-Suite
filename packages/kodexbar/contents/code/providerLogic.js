@@ -363,6 +363,18 @@ function compactQuotaSelected(configuredSelection, provider, quotaKey, extra) {
     return false
 }
 
+function antigravityQuotaSelected(configuredSelection, quotaKey) {
+    var selection = normalizeQuotaSelection(configuredSelection)
+    for (var i = 0; i < selection.length; i++) {
+        if (selection[i].indexOf("antigravity.") === 0) {
+            return compactQuotaSelected(configuredSelection, "antigravity", quotaKey, true)
+        }
+    }
+    return compactQuotaSelected(configuredSelection, "antigravity", quotaKey, true)
+        || compactQuotaSelected(configuredSelection, "antigravity", "primary", false)
+        || compactQuotaSelected(configuredSelection, "antigravity", "weekly", false)
+}
+
 function grokWeeklyIsCanonicalCompact(entry) {
     // Grok has no Session/primary rate window. The weekly secondary pool is its
     // only quota surface and the canonical compact representation (badge W).
@@ -680,7 +692,9 @@ function selectedExtraRows(entries, configuredSelection) {
             var key = row && (row.compactKey || compactQuotaKey(row.title))
             if (row && row.compactExtra === true
                     && standardWindowVisible(row.percentLeft, row.resetsAt)
-                    && compactQuotaSelected(configuredSelection, id, key, true)) {
+                    && (row.antigravityQuota === true
+                        ? antigravityQuotaSelected(configuredSelection, key)
+                        : compactQuotaSelected(configuredSelection, id, key, true))) {
                 byProvider[id].push(row)
             }
         }
@@ -800,13 +814,15 @@ function composeCompactBlocks(entries, options) {
                 var key = row && (row.compactKey || compactQuotaKey(row.title))
                 if (!row || row.compactExtra !== true
                         || !standardWindowVisible(row.percentLeft, row.resetsAt)
-                        || !compactQuotaSelected(settings.quotaSelection, id, key, true)) {
+                        || (row.antigravityQuota === true
+                            ? !antigravityQuotaSelected(settings.quotaSelection, key)
+                            : !compactQuotaSelected(settings.quotaSelection, id, key, true))) {
                     continue
                 }
                 var cursor = extraCursors[id] || 0
-                var label = extraLabels[id] && extraLabels[id][cursor]
+                var label = row.compactLabel || (extraLabels[id] && extraLabels[id][cursor]
                     ? extraLabels[id][cursor]
-                    : compactQuotaLabel(key, row.title)
+                    : compactQuotaLabel(key, row.title))
                 extraCursors[id] = cursor + 1
                 var extraPart = compactValuePart(label, row.percentLeft, row.resetsAt)
                 if (extraPart) {
@@ -1001,8 +1017,10 @@ function entryHasSelectedQuota(entry, configuredSelection) {
         var row = rows[j]
         if (row && row.compactExtra === true
                 && standardWindowVisible(row.percentLeft, row.resetsAt)
-                && compactQuotaSelected(configuredSelection, entry && entry.provider,
-                    row.compactKey || compactQuotaKey(row.title), true)) {
+                && (row.antigravityQuota === true
+                    ? antigravityQuotaSelected(configuredSelection, row.compactKey || compactQuotaKey(row.title))
+                    : compactQuotaSelected(configuredSelection, entry && entry.provider,
+                        row.compactKey || compactQuotaKey(row.title), true))) {
             return true
         }
     }
@@ -1055,14 +1073,6 @@ function filterAndOrderEntries(entries, configuredOrder) {
 }
 
 function normalizeUsageWindows(provider, primary, secondary) {
-    var id = providerId(provider)
-    if ((id === "antigravity" || id === "gemini")
-            && primary && secondary
-            && typeof primary.windowMinutes === "number"
-            && typeof secondary.windowMinutes === "number"
-            && primary.windowMinutes > secondary.windowMinutes) {
-        return { primary: secondary, secondary: primary }
-    }
     return { primary: primary, secondary: secondary }
 }
 

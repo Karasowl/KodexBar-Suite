@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.9.2, 2026-07-22
+
+- Normalize Antigravity agy quotas into Gemini and Claude/GPT weekly and five-hour windows, ordered like agy's usage view.
+- Render Antigravity model-window labels in the compact panel and tray instead of misleading generic Session and Weekly slots.
+
 ## 0.9.1, 2026-07-21
 
 - Enrich native Codex usage mapping with top-level credits (only when balance > 0) and banked rate-limit reset credits (`codexResetCredits` only when available count > 0).

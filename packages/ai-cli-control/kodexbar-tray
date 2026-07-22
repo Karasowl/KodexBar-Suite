@@ -127,6 +127,14 @@ def provider_menu_label(provider: Any) -> str | None:
         message = " ".join(str(provider.get("error_message") or "quota data is unavailable").split())
         return f"{label} ({identifier}): ERR, {message}"
     percentages = provider.get("percentages")
+    quotas_data = provider.get("quotas")
+    if isinstance(quotas_data, list):
+        quotas = []
+        for quota in quotas_data:
+            if not isinstance(quota, dict) or not isinstance(quota.get("percentage"), int):
+                continue
+            quotas.append(f"{quota.get('label') or 'Cuota'} {quota['percentage']}%")
+        return f"{label} ({identifier}): {', '.join(quotas) if quotas else 'sin cuotas reportadas'}"
     if not isinstance(percentages, dict):
         return f"{label} ({identifier}): sin cuotas reportadas"
     quotas = []

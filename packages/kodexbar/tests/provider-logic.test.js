@@ -261,8 +261,8 @@ const normalizedAntigravity = context.normalizeUsageWindows(
     fixture.antigravityUsage.primary,
     fixture.antigravityUsage.secondary
 )
-assert.equal(normalizedAntigravity.primary.windowMinutes, 300)
-assert.equal(normalizedAntigravity.secondary.windowMinutes, 10080)
+assert.equal(normalizedAntigravity.primary.windowMinutes, 10080)
+assert.equal(normalizedAntigravity.secondary.windowMinutes, 300)
 
 const unchangedClaude = context.normalizeUsageWindows(
     "claude",
@@ -271,6 +271,23 @@ const unchangedClaude = context.normalizeUsageWindows(
 )
 assert.equal(unchangedClaude.primary.windowMinutes, 10080, "other providers keep their original windows")
 assert.equal(unchangedClaude.secondary.windowMinutes, 300)
+
+const antigravityRows = [
+    { title: "Gemini weekly", compactKey: "gemini-weekly", compactLabel: "GW", compactExtra: true, antigravityQuota: true, percentLeft: 99.943274, resetsAt: "2026-07-29T15:43:38Z", windowBadge: "W" },
+    { title: "Gemini 5-hour", compactKey: "gemini-5h", compactLabel: "G5h", compactExtra: true, antigravityQuota: true, percentLeft: 99.65964, resetsAt: "2026-07-22T20:43:38Z", windowBadge: "5h" },
+    { title: "Claude/GPT weekly", compactKey: "claude-gpt-weekly", compactLabel: "CW", compactExtra: true, antigravityQuota: true, percentLeft: 65.824175, resetsAt: "2026-07-29T12:10:59Z", windowBadge: "W" },
+    { title: "Claude/GPT 5-hour", compactKey: "claude-gpt-5h", compactLabel: "C5h", compactExtra: true, antigravityQuota: true, percentLeft: 0, resetsAt: "2026-07-22T20:44:48Z", windowBadge: "5h" }
+]
+const antigravityCompact = plain(context.composeCompactBlocks([{ provider: "antigravity", rows: antigravityRows }], {
+    providerOrder: "antigravity", quotaSelection: "primary,weekly", showProvider: true, showUsed: true, showCredits: false
+}))
+assert.equal(antigravityCompact.text, "Ag GW0% G5h0% CW34% C5h100%")
+assert.doesNotMatch(antigravityCompact.text, /\bS\d|\bW\d/, "Antigravity never turns a five-hour limit into Session or Weekly")
+const narrowedAntigravity = context.composeCompactBlocks([{ provider: "antigravity", rows: antigravityRows }], {
+    providerOrder: "antigravity", quotaSelection: "antigravity.gemini-weekly", showProvider: true, showUsed: true, showCredits: false
+})
+assert.equal(narrowedAntigravity.text, "Ag GW0%", "provider-scoped Antigravity selection narrows model windows")
+assert.deepEqual(antigravityRows.map(row => row.windowBadge), ["W", "5h", "W", "5h"])
 
 assert.deepEqual(
     plain(context.normalizeCodexResetCredits(fixture.codexResetCredits)),
@@ -565,7 +582,7 @@ const compactDefault = plain(context.composeCompactBlocks(fixture.defaultCompact
     showUsed: true,
     showCredits: false
 }))
-assert.equal(compactDefault.text, "Cx S19% W0% | Cl ERR | Gk S8% W31% | Ag S0% W1%")
+assert.equal(compactDefault.text, "Cx S19% W0% | Cl ERR | Gk S8% W31% | Ag GW0% G5h0% CW34% C5h100%")
 assert.deepEqual(
     compactDefault.blocks.map(block => block.provider),
     ["codex", "claude", "grok", "antigravity"],
@@ -574,12 +591,12 @@ assert.deepEqual(
 assert.equal(compactDefault.blocks[1].displayText, "ERR", "compact errors stay visible")
 assert.deepEqual(
     compactDefault.blocks.map(block => block.worstUsedPercent),
-    [19, null, 31, 1],
+    [19, null, 31, 100],
     "each compact block exposes its worst selected used percentage"
 )
 assert.deepEqual(
     compactDefault.blocks.map(block => block.status),
-    ["good", "error", "good", "good"],
+    ["good", "error", "good", "error"],
     "compact blocks expose deterministic usage severity"
 )
 
@@ -891,7 +908,10 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.9.1", "package metadata uses version 0.9.1")
+assert.equal(metadata.KPlugin.Version, "0.9.2", "package metadata uses version 0.9.2")
+assert.match(mainQml, /var antigravityWindows = antigravity && Array\.isArray\(usage\.antigravityRateWindows\)/, "popup consumes the engine's Antigravity model windows")
+assert.match(mainQml, /compactLabel: antigravityKey === "gemini-weekly" \? "GW"/, "compact Antigravity labels preserve group and window")
+assert.doesNotMatch(mainQml, /var normalizedWindows = ProviderLogic\.normalizeUsageWindows/, "popup does not reinterpret Antigravity primary and secondary slots")
 assert.equal(metadata.KPlugin.Name, "KodexBar Suite", "package metadata uses the public product name")
 assert.equal(metadata.KPlugin.Id, "org.kde.plasma.kodexbar", "the technical plugin ID remains compatible")
 assert.doesNotMatch(
@@ -967,8 +987,8 @@ assert.doesNotMatch(
 )
 assert.match(
     mainQml,
-    /compactPrimaryPercentLeft:\s*primaryLeft/,
-    "compact primary is Session percent only"
+    /compactPrimaryPercentLeft:\s*antigravity \? null : primaryLeft/,
+    "compact primary is Session percent only and absent for Antigravity"
 )
 // Segmented weekly bar (Grok composition): segments attach to weekly row, not extra windows.
 assert.match(

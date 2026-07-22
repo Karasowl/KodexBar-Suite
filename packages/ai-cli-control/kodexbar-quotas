@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover - Python < 3.11
     tomllib = None  # type: ignore[assignment]
 
 
-VERSION = "0.9.1"
+VERSION = "0.9.2"
 TIMEOUT_SECONDS = 15
 HTTP_MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MiB: enough for quota JSON / gRPC-web billing
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -2056,6 +2056,74 @@ def _sanitize_companion_usage_entry(entry: dict[str, Any], provider: str) -> dic
     }
 
 
+def _antigravity_window_identity(item: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Classify an agy quota by stable id first, then its public title and duration."""
+    window_id = str(item.get("id") or "").lower()
+    title = str(item.get("title") or "").lower()
+    window = item.get("window") if isinstance(item.get("window"), dict) else {}
+    minutes = _codex_finite_number(window.get("windowMinutes"))
+    text = f"{window_id} {title}"
+    group = "gemini" if "gemini" in text else "claude-gpt" if (
+        "3p" in text or "claude" in text or "gpt" in text
+    ) else None
+    kind = "weekly" if "weekly" in text or minutes == 10080 else "5h" if (
+        "5h" in text or "5-hour" in text or minutes == 300
+    ) else None
+    return group, kind
+
+
+def normalize_antigravity_rate_windows(usage: Any) -> list[dict[str, Any]]:
+    """Return agy's model-group quota windows in its documented display order.
+
+    Do not derive Session or Weekly from upstream primary/secondary. Those are
+    implementation slots, and both can be five-hour limits. Unknown upstream
+    extras remain visible under their own title after the classified windows.
+    """
+    if not isinstance(usage, dict):
+        return []
+    raw_items = usage.get("extraRateWindows")
+    if not isinstance(raw_items, list):
+        return []
+    classified: dict[tuple[str, str], dict[str, Any]] = {}
+    unknown: list[dict[str, Any]] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict) or not isinstance(raw.get("window"), dict):
+            continue
+        group, kind = _antigravity_window_identity(raw)
+        title = raw.get("title") if isinstance(raw.get("title"), str) and raw.get("title") else "Upstream quota"
+        item = {
+            "id": raw.get("id") if isinstance(raw.get("id"), str) else "",
+            "title": title,
+            "window": raw["window"],
+        }
+        if group and kind:
+            item["key"] = f"{group}-{kind}"
+            item["group"] = group
+            item["windowType"] = kind
+            classified[(group, kind)] = item
+        else:
+            item["key"] = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "upstream"
+            item["windowType"] = "unknown"
+            unknown.append(item)
+    ordered = [
+        classified[key]
+        for key in (("gemini", "weekly"), ("gemini", "5h"), ("claude-gpt", "weekly"), ("claude-gpt", "5h"))
+        if key in classified
+    ]
+    return ordered + unknown
+
+
+def normalize_antigravity_entry(entry: Any) -> Any:
+    """Add the frontend contract for agy without altering other providers."""
+    if not isinstance(entry, dict) or str(entry.get("provider") or "").lower() != "antigravity":
+        return entry
+    usage = entry.get("usage")
+    windows = normalize_antigravity_rate_windows(usage)
+    if not isinstance(usage, dict) or not windows:
+        return entry
+    return {**entry, "usage": {**usage, "antigravityRateWindows": windows}}
+
+
 def _dual_failure_message(provider: str, native_failure: FetchFallback, upstream_detail: str) -> str:
     """User-visible text when native and companion both failed (never leak upstream text)."""
     normalized = provider.lower()
@@ -2103,8 +2171,8 @@ def fallback_entry(
             ]
         return [cleaned]
 
-    # Normal passthrough (no native failure): upstream JSON wins as-is (antigravity / others).
-    return entries
+    # Antigravity keeps upstream acquisition, but gets one stable quota contract.
+    return [normalize_antigravity_entry(entry) for entry in entries]
 
 
 def _native_provider_result(

@@ -848,7 +848,7 @@ QQC2.ApplicationWindow {
 
                                                 QQC2.Label {
                                                     Layout.fillWidth: true
-                                                    text: i18n("Comma-separated quota keys, default primary,weekly. Use provider.key for a single provider, e.g. antigravity.tertiary. Leave empty to show provider icons only. The popup always shows every quota.")
+                                                    text: i18n("Comma-separated quota keys, default primary,weekly. Antigravity shows all four model limits by default. Use provider.key to narrow one provider, e.g. antigravity.gemini-weekly. Leave empty to show provider icons only. The popup always shows every quota.")
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
                                                     font.pixelSize: preferences.fontSizeSecondary
@@ -976,7 +976,7 @@ QQC2.ApplicationWindow {
                                                 }
 
                                                 QQC2.Label {
-                                                    text: i18n("Version %1", Plasmoid.metaData.version || "0.9.1")
+                                                    text: i18n("Version %1", Plasmoid.metaData.version || "0.9.2")
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
                                                     font.pixelSize: preferences.fontSizeSecondary

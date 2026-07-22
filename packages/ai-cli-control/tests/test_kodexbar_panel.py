@@ -27,7 +27,7 @@ class PanelAdapterTests(unittest.TestCase):
 
     def test_compact_model_applies_widget_thresholds_and_error_rendering(self) -> None:
         model = panel.compact_model(self.entries, [])
-        self.assertEqual(model["text"], "Cx S 12% W 52% | Cl S 50% W 80% | Gk ERR | Ag S 80% W 5%")
+        self.assertEqual(model["text"], "Cx S 12% W 52% | Cl S 50% W 80% | Gk ERR | Ag GW 0% G5h 0% CW 34% C5h 100%")
         self.assertEqual(model["class"], "critical")
         self.assertEqual([item["severity"] for item in model["providers"]], ["warning", "warning", "critical", "critical"])
         self.assertTrue(model["providers"][2]["error"])
@@ -37,7 +37,11 @@ class PanelAdapterTests(unittest.TestCase):
         selected = panel.normalize_providers(" ANTIGRAVITY,claude,antigravity ")
         model = panel.compact_model(self.entries, selected)
         self.assertEqual(selected, ["antigravity", "claude"])
-        self.assertEqual(model["text"], "Ag S 80% W 5% | Cl S 50% W 80%")
+        self.assertEqual(model["text"], "Ag GW 0% G5h 0% CW 34% C5h 100% | Cl S 50% W 80%")
+        antigravity = model["providers"][0]
+        self.assertEqual([quota["label"] for quota in antigravity["quotas"]], ["GW", "G5h", "CW", "C5h"])
+        self.assertEqual([quota["percentage"] for quota in antigravity["quotas"]], [0, 0, 34, 100])
+        self.assertEqual(antigravity["percentages"], {})
 
     def test_waybar_output_is_valid_json_and_limits_tooltip_lines(self) -> None:
         model = panel.compact_model(self.entries, [])

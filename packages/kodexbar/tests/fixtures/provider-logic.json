@@ -150,14 +150,40 @@
     },
     {
       "provider": "antigravity",
-      "compactPrimaryPercentLeft": 100,
-      "secondaryPercentLeft": 99,
+      "compactPrimaryPercentLeft": null,
+      "secondaryPercentLeft": null,
       "rows": [
         {
-          "title": "Gemini 5-hour",
-          "compactKey": "gemini-5-hour",
+          "title": "Gemini weekly",
+          "compactKey": "gemini-weekly",
+          "compactLabel": "GW",
+          "antigravityQuota": true,
           "compactExtra": true,
-          "percentLeft": 75
+          "percentLeft": 99.943274
+        },
+        {
+          "title": "Gemini 5-hour",
+          "compactKey": "gemini-5h",
+          "compactLabel": "G5h",
+          "antigravityQuota": true,
+          "compactExtra": true,
+          "percentLeft": 99.65964
+        },
+        {
+          "title": "Claude/GPT weekly",
+          "compactKey": "claude-gpt-weekly",
+          "compactLabel": "CW",
+          "antigravityQuota": true,
+          "compactExtra": true,
+          "percentLeft": 65.824175
+        },
+        {
+          "title": "Claude/GPT 5-hour",
+          "compactKey": "claude-gpt-5h",
+          "compactLabel": "C5h",
+          "antigravityQuota": true,
+          "compactExtra": true,
+          "percentLeft": 0
         }
       ]
     }

@@ -90,6 +90,34 @@ def window(entry: dict[str, Any], key: str) -> tuple[int | None, str | None, flo
     return percent, str(reset) if isinstance(reset, str) and reset else None, severity_percent
 
 
+def antigravity_quotas(entry: dict[str, Any]) -> list[dict[str, Any]]:
+    usage = entry.get("usage")
+    raw_items = usage.get("antigravityRateWindows") if isinstance(usage, dict) else None
+    if not isinstance(raw_items, list):
+        return []
+    labels = {
+        "gemini-weekly": "GW",
+        "gemini-5h": "G5h",
+        "claude-gpt-weekly": "CW",
+        "claude-gpt-5h": "C5h",
+    }
+    quotas = []
+    for item in raw_items:
+        if not isinstance(item, dict) or not isinstance(item.get("window"), dict):
+            continue
+        key = str(item.get("key") or "").strip().lower()
+        percent, reset, raw = window({"usage": {"quota": item["window"]}}, "quota")
+        quotas.append({
+            "key": key or "upstream",
+            "label": labels.get(key, str(item.get("title") or "Quota")),
+            "title": str(item.get("title") or "Upstream quota"),
+            "percentage": percent,
+            "reset": reset,
+            "raw_percentage": raw,
+        })
+    return quotas
+
+
 def error_message(entry: dict[str, Any]) -> str | None:
     error = entry.get("error")
     if not isinstance(error, dict):
@@ -105,12 +133,12 @@ def compact_provider(entry: Any) -> dict[str, Any] | None:
     if not identifier:
         return None
     error = error_message(entry)
+    quotas = antigravity_quotas(entry) if identifier == "antigravity" else []
     session, session_reset, session_raw = window(entry, "primary")
     weekly, weekly_reset, weekly_raw = window(entry, "secondary")
-    severity = "critical" if error else usage_severity(
-        [value for value in (session_raw, weekly_raw) if value is not None]
-    )
-    return {
+    severity_values = [item["raw_percentage"] for item in quotas] if quotas else [session_raw, weekly_raw]
+    severity = "critical" if error else usage_severity([value for value in severity_values if value is not None])
+    result = {
         "provider": identifier,
         "label": provider_label(identifier, entry.get("name")),
         "percentages": {"session": session, "weekly": weekly},
@@ -119,6 +147,11 @@ def compact_provider(entry: Any) -> dict[str, Any] | None:
         "error": error is not None,
         "error_message": error,
     }
+    if quotas:
+        result["quotas"] = quotas
+        result["percentages"] = {}
+        result["resets"] = {}
+    return result
 
 
 def select_entries(entries: list[Any], providers: list[str]) -> list[Any]:
@@ -138,6 +171,11 @@ def block_text(provider: dict[str, Any]) -> str:
     if provider["error"]:
         parts.append("ERR")
     else:
+        if provider.get("quotas"):
+            for quota in provider["quotas"]:
+                if quota["percentage"] is not None:
+                    parts.append(f'{quota["label"]} {quota["percentage"]}%')
+            return " ".join(parts)
         session = provider["percentages"]["session"]
         weekly = provider["percentages"]["weekly"]
         if session is not None:
@@ -166,6 +204,20 @@ def tooltip_lines(providers: list[dict[str, Any]]) -> list[str]:
             lines.append(f"{title}: ERR, {provider['error_message']}")
             continue
         known = False
+        if provider.get("quotas"):
+            for quota in provider["quotas"]:
+                if quota["percentage"] is None and not quota["reset"]:
+                    continue
+                known = True
+                detail = f'{title}: {quota["title"]}'
+                if quota["percentage"] is not None:
+                    detail += f' {quota["percentage"]}%'
+                if quota["reset"]:
+                    detail += f', resets {quota["reset"]}'
+                lines.append(detail)
+            if not known:
+                lines.append(f"{title}: no Antigravity quotas reported")
+            continue
         for key, title_key in (("session", "Session"), ("weekly", "Weekly")):
             percent = provider["percentages"][key]
             reset = provider["resets"][key]

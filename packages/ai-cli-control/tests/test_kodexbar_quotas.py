@@ -1567,6 +1567,18 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(entries[0]["source"], "cli")
         self.assertEqual(entries[0]["provider"], "antigravity")
 
+    def test_antigravity_normalizes_agy_model_windows_without_primary_secondary_labels(self) -> None:
+        entry = json.loads((FIXTURES / "antigravity-usage-2026-07-22.json").read_text(encoding="utf-8"))[0]
+        normalized = quotas.normalize_antigravity_entry(entry)
+        windows = normalized["usage"]["antigravityRateWindows"]
+        self.assertEqual(
+            [item["key"] for item in windows],
+            ["gemini-weekly", "gemini-5h", "claude-gpt-weekly", "claude-gpt-5h"],
+        )
+        self.assertEqual([item["window"]["usedPercent"] for item in windows], [0.05672599999999761, 0.3403599999999898, 34.175825, 100])
+        self.assertEqual([item["window"]["windowMinutes"] for item in windows], [10080, 300, 10080, 300])
+        self.assertTrue(all(item["title"] not in ("Session", "Weekly") for item in windows))
+
     def test_native_errors_never_include_secrets_in_messages(self) -> None:
         """Adversarial non-leak coverage for stdout-equivalent blobs (H1/H2/H4/H5/H8)."""
         with tempfile.TemporaryDirectory() as directory:

@@ -20,8 +20,14 @@
   {
     "provider": "antigravity",
     "usage": {
-      "primary": {"usedPercent": 80},
-      "secondary": {"usedPercent": 5}
+      "primary": {"usedPercent": 0.34, "windowMinutes": 300},
+      "secondary": {"usedPercent": 100, "windowMinutes": 300},
+      "antigravityRateWindows": [
+        {"key": "gemini-weekly", "title": "Gemini weekly", "windowType": "weekly", "window": {"usedPercent": 0.056726, "windowMinutes": 10080, "resetsAt": "2026-07-29T15:43:38Z"}},
+        {"key": "gemini-5h", "title": "Gemini 5-hour", "windowType": "5h", "window": {"usedPercent": 0.34036, "windowMinutes": 300, "resetsAt": "2026-07-22T20:43:38Z"}},
+        {"key": "claude-gpt-weekly", "title": "Claude/GPT weekly", "windowType": "weekly", "window": {"usedPercent": 34.175825, "windowMinutes": 10080, "resetsAt": "2026-07-29T12:10:59Z"}},
+        {"key": "claude-gpt-5h", "title": "Claude/GPT 5-hour", "windowType": "5h", "window": {"usedPercent": 100, "windowMinutes": 300, "resetsAt": "2026-07-22T20:44:48Z"}}
+      ]
     }
   }
 ]
