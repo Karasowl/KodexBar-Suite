@@ -2713,15 +2713,17 @@ PlasmoidItem {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
+                        QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
                         ListView {
                             id: localModelsList
                             width: localModelsScroll.availableWidth
+                            contentWidth: width
                             model: root.localModels
                             spacing: 2
                             clip: true
+                            flickableDirection: Flickable.VerticalFlick
                             boundsBehavior: Flickable.StopAtBounds
-                            QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
                             delegate: Rectangle {
                                 required property var modelData
