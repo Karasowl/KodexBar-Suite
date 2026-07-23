@@ -3053,10 +3053,10 @@ PlasmoidItem {
                                     QQC2.ToolButton {
                                         width: 26
                                         height: 26
-                                        visible: modelData.capabilities && (modelData.capabilities.unmount || modelData.capabilities.mount)
-                                        enabled: !root.localModelsLoading && modelData.state !== "active"
+                                        visible: !!(modelData.capabilities && (modelData.capabilities.unmount || modelData.capabilities.mount))
+                                        enabled: !!(!root.localModelsLoading && modelData.state !== "active"
                                             && ((modelData.state === "installed" && modelData.capabilities.mount)
-                                                || (modelData.state !== "installed" && modelData.capabilities.unmount))
+                                                || (modelData.state !== "installed" && modelData.capabilities.unmount)))
                                         text: modelData.state === "installed" && modelData.capabilities.mount ? i18n("Mount") : i18n("Unmount")
                                         display: QQC2.AbstractButton.IconOnly
                                         Accessible.name: text
@@ -3081,8 +3081,8 @@ PlasmoidItem {
                                     delegate: RowLayout {
                                         required property var modelData
                                         width: localModelsList.width
-                                        visible: modelData.capabilities && (modelData.capabilities.releaseRuntime
-                                            || modelData.capabilities.stopRuntime)
+                                        visible: !!(modelData.capabilities && (modelData.capabilities.releaseRuntime
+                                            || modelData.capabilities.stopRuntime))
                                         PlasmaComponents.Label {
                                             text: modelData.stopImpact || modelData.releaseWarning
                                                 || (modelData.id + " · " + i18n("runtime-wide control"))
@@ -3092,13 +3092,13 @@ PlasmoidItem {
                                             Layout.fillWidth: true
                                         }
                                         QQC2.Button {
-                                            visible: modelData.capabilities && modelData.capabilities.releaseRuntime
+                                            visible: !!(modelData.capabilities && modelData.capabilities.releaseRuntime)
                                             text: i18n("Release runtime")
                                             enabled: !root.localModelsLoading
                                             onClicked: { localReleaseDialog.runtime = modelData.id; localReleaseDialog.warning = modelData.releaseWarning || ""; localReleaseDialog.open() }
                                         }
                                         QQC2.Button {
-                                            visible: modelData.capabilities && modelData.capabilities.stopRuntime
+                                            visible: !!(modelData.capabilities && modelData.capabilities.stopRuntime)
                                             text: i18n("Stop runtime")
                                             enabled: !root.localModelsLoading
                                             onClicked: {
@@ -3409,8 +3409,8 @@ PlasmoidItem {
                                 PlasmaComponents.Label { Layout.preferredWidth: modelData.state === "installed" ? 78 : 58; visible: modelData.state !== "active"; text: modelData.state === "loaded" ? i18n("Idle") : i18n("Unmounted"); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
                                 QQC2.ToolButton {
                                     width: 26; height: 26
-                                    visible: modelData.capabilities && (modelData.capabilities.unmount || modelData.capabilities.mount)
-                                    enabled: !root.localModelsLoading && modelData.state !== "active" && ((modelData.state === "installed" && modelData.capabilities.mount) || (modelData.state !== "installed" && modelData.capabilities.unmount))
+                                    visible: !!(modelData.capabilities && (modelData.capabilities.unmount || modelData.capabilities.mount))
+                                    enabled: !!(!root.localModelsLoading && modelData.state !== "active" && ((modelData.state === "installed" && modelData.capabilities.mount) || (modelData.state !== "installed" && modelData.capabilities.unmount)))
                                     text: modelData.state === "installed" ? i18n("Mount") : i18n("Unmount")
                                     display: QQC2.AbstractButton.IconOnly
                                     Accessible.name: text

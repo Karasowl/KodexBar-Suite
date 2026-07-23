@@ -39,6 +39,9 @@ assert.match(localList, /flickableDirection: Flickable\.VerticalFlick/, "local l
 assert.doesNotMatch(localList, /ScrollBar\./, "local list never dereferences a nullable scrollbar attachment");
 assert.match(qml, /delegate: Rectangle \{\s*required property var modelData\s*required property int index\s*readonly property bool groupStart/, "the full local list explicitly receives its delegate index");
 assert.match(qml, /delegate: Item \{\s*required property var modelData\s*required property int index\s*readonly property bool groupStart/, "the AI CLI popover explicitly receives its delegate index");
+assert.doesNotMatch(qml, /(?:visible|enabled): modelData\.capabilities &&/, "capability-driven boolean properties never receive undefined");
+assert.match(qml, /visible: !!\(modelData\.capabilities && \(modelData\.capabilities\.releaseRuntime/, "runtime release controls coerce sparse capabilities to booleans");
+assert.match(qml, /visible: !!\(modelData\.capabilities && modelData\.capabilities\.stopRuntime\)/, "runtime stop controls coerce sparse capabilities to booleans");
 assert.match(qml, /Layout\.maximumHeight: 340/, "local inventory keeps the approved compact scroll limit");
 assert.match(qml, /localKindGlyph/, "local rows are grouped with a semantic type glyph");
 assert.match(qml, /localModelMeta/, "local rows retain size, quantization, VRAM and confidence evidence");
