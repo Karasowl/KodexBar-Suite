@@ -24,6 +24,7 @@ quotas_source="${script_dir}/kodexbar-quotas"
 panel_source="${script_dir}/kodexbar-panel"
 tray_source="${script_dir}/kodexbar-tray"
 local_ai_source="${script_dir}/local-ai"
+local_ai_drivers_source="${script_dir}/local_ai_drivers"
 recover_source="${script_dir}/recover.py"
 uninstall_source="${script_dir}/uninstall.sh"
 adapters_dir="${script_dir}/skills-adapters"
@@ -34,6 +35,7 @@ installed_quotas="${data_dir}/kodexbar-quotas"
 installed_panel="${data_dir}/kodexbar-panel"
 installed_tray="${data_dir}/kodexbar-tray"
 installed_local_ai="${data_dir}/local-ai"
+installed_local_ai_drivers="${data_dir}/local_ai_drivers"
 installed_recover="${data_dir}/recover.py"
 installed_uninstall="${data_dir}/uninstall.sh"
 marker="${data_dir}/.ai-cli-control-owner"
@@ -45,7 +47,7 @@ tray_target="${bin_dir}/kodexbar-tray"
 local_ai_target="${bin_dir}/local-ai"
 icon_target_dir="${HOME}/.local/share/icons/hicolor/scalable/apps"
 
-if [[ ! -f "$source_file" || ! -f "$quotas_source" || ! -f "$panel_source" || ! -f "$tray_source" || ! -f "$local_ai_source" || ! -f "$recover_source" || ! -f "$uninstall_source" ]]; then
+if [[ ! -f "$source_file" || ! -f "$quotas_source" || ! -f "$panel_source" || ! -f "$tray_source" || ! -f "$local_ai_source" || ! -d "$local_ai_drivers_source" || ! -f "$recover_source" || ! -f "$uninstall_source" ]]; then
     say "No se encontraron los archivos fuente de instalación." "Installation source files were not found." >&2
     exit 1
 fi
@@ -94,6 +96,8 @@ install -m 0755 -- "$quotas_source" "$installed_quotas"
 install -m 0755 -- "$panel_source" "$installed_panel"
 install -m 0755 -- "$tray_source" "$installed_tray"
 install -m 0755 -- "$local_ai_source" "$installed_local_ai"
+mkdir -p -- "$installed_local_ai_drivers"
+cp -a -- "${local_ai_drivers_source}/." "$installed_local_ai_drivers/"
 install -m 0755 -- "$recover_source" "$installed_recover"
 install -m 0755 -- "$uninstall_source" "$installed_uninstall"
 if [[ ! -L "$target" ]]; then

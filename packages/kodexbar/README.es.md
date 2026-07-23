@@ -16,7 +16,7 @@ Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../REA
 
 ## Funciones
 
-- Usa el diseño oscuro seleccionado de 520 por 560 con pestañas de proveedores, estado real, etiquetas de fuente, distintivos de ventana, barras de progreso y una vista previa compacta coincidente.
+- Usa el diseño oscuro seleccionado de 520 por 520 con pestañas de proveedores, estado real, etiquetas de fuente, distintivos de ventana, barras de progreso y una vista previa compacta coincidente.
 - Mantiene separado el botón de terminal **AI CLI Control** del tab de modelos locales. Su menú abre el selector o actualiza todas las CLI de proveedor.
 - Añade un tab de icono **Modelos locales**. Agrupa pesos instalados y montados, muestra estado, confianza de clasificación, rendimiento real cuando el runtime lo aporta, sparkline acotado de actividad y controles seguros de montar o desmontar.
 - Conserva atenuados los modelos instalados sin montar, omite los que no están instalados y usa una lista local solo vertical. Así siguen disponibles proveedor, cuenta, plan, fuente, cuotas, créditos, coste, errores, caché y tira compacta sin desborde horizontal.

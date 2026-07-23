@@ -468,6 +468,16 @@ PlasmoidItem {
         if (localModelsLoading) {
             return
         }
+        // The executable data engine accepts one shell command. Never pass
+        // arbitrary runtime values through it: these identifiers are produced
+        // by local-ai and validated again by local-ai before an action runs.
+        if (["mount", "unmount", "release", "stop"].indexOf(action) === -1
+                || !/^[a-z][a-z0-9_]*$/.test(runtime)
+                || ((action === "mount" || action === "unmount")
+                    && !/^[a-z0-9_]+:[a-f0-9]{12}$/.test(model))) {
+            localModelsError = i18n("Invalid local runtime action.")
+            return
+        }
         var arguments = [action, runtime]
         if (model && model.length > 0) {
             arguments.push(model)
@@ -1550,11 +1560,11 @@ PlasmoidItem {
         Layout.minimumWidth: 520
         Layout.maximumWidth: 520
         Layout.preferredWidth: 520
-        // Keep every provider on the same 520 by 560 design viewport. The
-        // metric ScrollView owns overflow instead of resizing the popup.
-        Layout.minimumHeight: 560
-        Layout.maximumHeight: 560
-        Layout.preferredHeight: 560
+        // The metric ScrollView owns overflow instead of enlarging the compact
+        // 520 by 520 viewport.
+        Layout.minimumHeight: 520
+        Layout.maximumHeight: 520
+        Layout.preferredHeight: 520
 
         Rectangle {
             id: popupCard
@@ -2219,17 +2229,6 @@ PlasmoidItem {
                                             Layout.maximumWidth: 124
                                         }
 
-                                        PlasmaComponents.Label {
-                                            text: root.formatUsedPercent(
-                                                modelData.percentLeft,
-                                                modelData.usageKnown,
-                                                !!(modelData.segments && modelData.segments.length),
-                                                modelData.precisePercent === true)
-                                            color: root.metricAccent(modelData.percentLeft, modelData.usageKnown)
-                                            font.family: root.designFont
-                                            font.pixelSize: 13
-                                            font.weight: Font.Bold
-                                        }
                                     }
 
                                     // Solid fill when the row has no composition segments.
@@ -2240,15 +2239,15 @@ PlasmoidItem {
                                             && modelData.percentLeft !== undefined
                                             && !(modelData.segments && modelData.segments.length)
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: 8
-                                        radius: 4
+                                        Layout.preferredHeight: 6
+                                        radius: 3
                                         color: "#20232d"
                                         clip: true
 
                                         Rectangle {
                                             width: parent.width * parent.used / 100
                                             height: parent.height
-                                            radius: 4
+                                            radius: 3
                                             color: root.metricAccent(modelData.percentLeft, modelData.usageKnown)
                                         }
                                     }
@@ -2262,8 +2261,8 @@ PlasmoidItem {
                                         visible: modelData.usageKnown !== false
                                             && !!(modelData.segments && modelData.segments.length)
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: 8
-                                        radius: 4
+                                        Layout.preferredHeight: 6
+                                        radius: 3
                                         color: "#20232d"
                                         clip: true
 
@@ -2297,6 +2296,22 @@ PlasmoidItem {
                                                 }
                                             }
                                         }
+                                    }
+
+                                    // Percentage stays below its thin activity line so the
+                                    // quota title and reset remain a single compact heading.
+                                    PlasmaComponents.Label {
+                                        visible: modelData.usageKnown !== false
+                                        text: root.formatUsedPercent(
+                                            modelData.percentLeft,
+                                            modelData.usageKnown,
+                                            !!(modelData.segments && modelData.segments.length),
+                                            modelData.precisePercent === true)
+                                        color: root.metricAccent(modelData.percentLeft, modelData.usageKnown)
+                                        font.family: root.designFont
+                                        font.pixelSize: 11
+                                        font.weight: Font.DemiBold
+                                        Layout.topMargin: 1
                                     }
 
                                     // Color + text legend: interpretation must not rely on color alone.
@@ -2866,18 +2881,31 @@ PlasmoidItem {
                                     delegate: RowLayout {
                                         required property var modelData
                                         width: localModelsList.width
-                                        visible: modelData.capabilities && modelData.capabilities.releaseRuntime
+                                        visible: modelData.capabilities && (modelData.capabilities.releaseRuntime
+                                            || modelData.capabilities.stopRuntime)
                                         PlasmaComponents.Label {
-                                            text: modelData.releaseWarning || (modelData.id + " · " + i18n("runtime-wide control"))
+                                            text: modelData.stopImpact || modelData.releaseWarning
+                                                || (modelData.id + " · " + i18n("runtime-wide control"))
                                             color: root.quietColor
                                             font.family: root.designFont
                                             font.pixelSize: 10
                                             Layout.fillWidth: true
                                         }
                                         QQC2.Button {
+                                            visible: modelData.capabilities && modelData.capabilities.releaseRuntime
                                             text: i18n("Release runtime")
                                             enabled: !root.localModelsLoading
                                             onClicked: { localReleaseDialog.runtime = modelData.id; localReleaseDialog.warning = modelData.releaseWarning || ""; localReleaseDialog.open() }
+                                        }
+                                        QQC2.Button {
+                                            visible: modelData.capabilities && modelData.capabilities.stopRuntime
+                                            text: i18n("Stop runtime")
+                                            enabled: !root.localModelsLoading
+                                            onClicked: {
+                                                localStopDialog.runtime = modelData.id
+                                                localStopDialog.impact = modelData.stopImpact || modelData.releaseWarning || ""
+                                                localStopDialog.open()
+                                            }
                                         }
                                     }
                                 }
@@ -2907,6 +2935,24 @@ PlasmoidItem {
                 onAccepted: root.localModelAction("release", runtime, "", true)
                 contentItem: PlasmaComponents.Label {
                     text: localReleaseDialog.warning.length > 0 ? localReleaseDialog.warning : i18n("This affects every resident model in this runtime.")
+                    wrapMode: Text.WordWrap
+                    color: root.mutedColor
+                    width: 300
+                }
+            }
+
+            QQC2.Dialog {
+                id: localStopDialog
+                property string runtime: ""
+                property string impact: ""
+                modal: true
+                title: i18n("Stop local runtime?")
+                standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
+                onAccepted: root.localModelAction("stop", runtime, "", true)
+                contentItem: PlasmaComponents.Label {
+                    text: localStopDialog.impact.length > 0
+                        ? localStopDialog.impact
+                        : i18n("This stops the configured local service and releases all of its runtime memory.")
                     wrapMode: Text.WordWrap
                     color: root.mutedColor
                     width: 300

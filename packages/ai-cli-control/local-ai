@@ -25,6 +25,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from local_ai_drivers import builtin_drivers
+from local_ai_drivers.descriptors import descriptor_drivers
+
 
 VERSION = "0.9.4"
 DEFAULT_TIMEOUT = 2.5
@@ -65,6 +69,8 @@ def default_config() -> dict[str, Any]:
     return {
         "refreshSeconds": 15,
         "scanDepth": 3,
+        "observeGpuProcesses": True,
+        "adapterDescriptors": [],
         "roots": [],
         "knownRoots": [
             str(home / ".ollama" / "models"),
@@ -92,7 +98,7 @@ def load_config(path: Path) -> dict[str, Any]:
         raise LocalAIError(f"invalid configuration: {error}") from error
     if not isinstance(raw, dict):
         raise LocalAIError("invalid configuration: root must be an object")
-    for key in ("refreshSeconds", "scanDepth", "roots", "knownRoots"):
+    for key in ("refreshSeconds", "scanDepth", "roots", "knownRoots", "observeGpuProcesses", "adapterDescriptors"):
         if key in raw:
             config[key] = raw[key]
     if isinstance(raw.get("runtimes"), dict):
@@ -239,95 +245,34 @@ def metric(value: Any, unit: str = "") -> dict[str, Any] | None:
 
 def make_model(runtime: str, name: str, *, location: str = "", state: str = "installed", declared_kind: str = "", metadata: dict[str, str] | None = None,
                metric_value: Any = None, metric_unit: str = "", memory: dict[str, Any] | None = None,
-               activity: bool = False, capabilities: dict[str, bool] | None = None, detail: str = "") -> dict[str, Any]:
+               activity: bool = False, capabilities: dict[str, bool] | None = None, detail: str = "",
+               evidence: dict[str, Any] | None = None) -> dict[str, Any]:
     kind, confidence = classify(name, declared_kind, metadata, location)
     return {
         "id": model_id(runtime, name, location), "runtime": runtime, "name": name, "location": location or None,
         "kind": kind, "classificationConfidence": confidence, "state": state if state in VALID_STATES else "unknown",
         "activity": bool(activity), "metric": metric(metric_value, metric_unit), "memory": memory or {},
         "capabilities": capabilities or {"mount": False, "unmount": False, "releaseRuntime": False, "stopRuntime": False},
-        "detail": detail,
+        "detail": detail, "evidence": evidence or {},
     }
 
 
-def models_from_llama(runtime: Runtime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    raw = request_json(runtime.endpoint + "/models")
-    values = raw.get("data", raw.get("models", raw)) if isinstance(raw, dict) else raw
-    if not isinstance(values, list):
-        raise LocalAIError("runtime returned an invalid model catalog")
-    models = []
-    for item in values:
-        item = item if isinstance(item, dict) else {"id": item}
-        name = safe_name(item.get("id") or item.get("name") or item.get("model"))
-        if not name:
-            continue
-        status = safe_name(item.get("status") or item.get("state")).lower()
-        state = {"loaded": "loaded", "loading": "loading", "unloaded": "installed", "sleeping": "loaded", "unloading": "unloading"}.get(status, "unknown")
-        active = status in {"loading", "unloading"} or bool(item.get("active_requests") or item.get("requests"))
-        if active and state == "loaded":
-            state = "active"
-        rate = item.get("tokens_per_second", item.get("tokensPerSecond"))
-        models.append(make_model("llama_cpp", name, state=state, declared_kind=safe_name(item.get("type")),
-                                 metric_value=rate, metric_unit="tok/s", activity=active,
-                                 memory={"vramMiB": item.get("vram_mib", item.get("vramMiB")), "ramMiB": item.get("ram_mib", item.get("ramMiB"))},
-                                 capabilities={"mount": True, "unmount": True, "releaseRuntime": False, "stopRuntime": False},
-                                 detail=status))
-    return models, {"id": "llama_cpp", "state": "connected", "capabilities": {"releaseRuntime": False, "stopRuntime": False}}
+DRIVERS = builtin_drivers({"request_json": lambda *args, **kwargs: request_json(*args, **kwargs), "safe_name": safe_name,
+                           "make_model": make_model, "LocalAIError": LocalAIError})
+# Compatibility names keep the small, testable adapters callable without
+# restoring their implementation to this policy module.
+models_from_llama = DRIVERS["llama_cpp"]
+models_from_ollama = DRIVERS["ollama"]
+models_from_lm_studio = DRIVERS["lm_studio"]
+models_from_comfyui = DRIVERS["comfyui"]
+models_from_vllm = DRIVERS["vllm"]
 
 
-def models_from_ollama(runtime: Runtime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    tags = request_json(runtime.endpoint + "/api/tags")
-    running = request_json(runtime.endpoint + "/api/ps")
-    catalog = tags.get("models", []) if isinstance(tags, dict) else []
-    active = running.get("models", []) if isinstance(running, dict) else []
-    by_name = {safe_name(item.get("name") or item.get("model")): item for item in active if isinstance(item, dict)}
-    models = []
-    for item in catalog if isinstance(catalog, list) else []:
-        item = item if isinstance(item, dict) else {"name": item}
-        name = safe_name(item.get("name") or item.get("model"))
-        if not name:
-            continue
-        running_item = by_name.get(name)
-        models.append(make_model("ollama", name, state="loaded" if running_item else "installed", activity=False,
-                                 memory={"vramMiB": running_item.get("size_vram", 0) / (1024 * 1024) if running_item else None},
-                                 capabilities={"mount": False, "unmount": True, "releaseRuntime": False, "stopRuntime": False},
-                                 detail="resident" if running_item else "installed"))
-    return models, {"id": "ollama", "state": "connected", "capabilities": {"releaseRuntime": False, "stopRuntime": False}}
-
-
-def models_from_lm_studio(runtime: Runtime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    raw = request_json(runtime.endpoint + "/v1/models")
-    catalog = raw.get("data", []) if isinstance(raw, dict) else []
-    models = [make_model("lm_studio", safe_name(item.get("id")), state="loaded", declared_kind=safe_name(item.get("type")),
-                         capabilities={"mount": False, "unmount": False, "releaseRuntime": False, "stopRuntime": False}, detail="served")
-              for item in catalog if isinstance(item, dict) and safe_name(item.get("id"))]
-    return models, {"id": "lm_studio", "state": "connected", "capabilities": {"releaseRuntime": False, "stopRuntime": False}}
-
-
-def models_from_comfyui(runtime: Runtime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    stats = request_json(runtime.endpoint + "/system_stats")
-    queue = request_json(runtime.endpoint + "/queue")
-    running = queue.get("queue_running", []) if isinstance(queue, dict) else []
-    pending = queue.get("queue_pending", []) if isinstance(queue, dict) else []
-    # ComfyUI's public API reports engine memory, not a reliable per-checkpoint
-    # residency list. Filesystem records remain installed until a workflow API
-    # can truthfully attribute a loaded checkpoint.
-    return [], {"id": "comfyui", "state": "connected", "queueActive": bool(running or pending),
-                "releaseWarning": "Affects every model resident in ComfyUI. Individual residency is not exposed.",
-                "capabilities": {"releaseRuntime": not bool(running or pending), "stopRuntime": False}}
-
-
-def models_from_vllm(runtime: Runtime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    raw = request_json(runtime.endpoint + "/v1/models")
-    catalog = raw.get("data", []) if isinstance(raw, dict) else []
-    models = [make_model("vllm", safe_name(item.get("id")), state="loaded",
-                         capabilities={"mount": False, "unmount": False, "releaseRuntime": False, "stopRuntime": False}, detail="served")
-              for item in catalog if isinstance(item, dict) and safe_name(item.get("id"))]
-    return models, {"id": "vllm", "state": "connected", "capabilities": {"releaseRuntime": False, "stopRuntime": False}}
-
-
-DRIVERS = {"llama_cpp": models_from_llama, "ollama": models_from_ollama, "lm_studio": models_from_lm_studio,
-           "comfyui": models_from_comfyui, "vllm": models_from_vllm}
+def driver_registry(config: dict[str, Any]) -> dict[str, Any]:
+    registry = dict(DRIVERS)
+    registry.update(descriptor_drivers(config, {"request_json": lambda *args, **kwargs: request_json(*args, **kwargs),
+        "safe_name": safe_name, "make_model": make_model}))
+    return registry
 
 
 def configured_roots(config: dict[str, Any], runtimes: Iterable[Runtime]) -> list[Path]:
@@ -376,6 +321,41 @@ def discover_files(config: dict[str, Any], runtimes: Iterable[Runtime], issues: 
     return found
 
 
+def observed_gpu_processes(config: dict[str, Any], run: Any = subprocess.run, proc_root: Path = Path("/proc")) -> list[dict[str, Any]]:
+    """Expose GPU compute processes without claiming control over them.
+
+    This is deliberately best effort.  An unavailable NVIDIA utility or an
+    unreadable process is normal on machines without NVIDIA hardware and never
+    turns a status refresh into an error.
+    """
+    if config.get("observeGpuProcesses", True) is False:
+        return []
+    try:
+        completed = run(["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader,nounits"],
+                        text=True, capture_output=True, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if completed.returncode != 0:
+        return []
+    models: list[dict[str, Any]] = []
+    for raw_pid in completed.stdout.splitlines():
+        pid = raw_pid.strip()
+        if not pid.isdigit():
+            continue
+        process = proc_root / pid
+        try:
+            command = (process / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", errors="replace").strip()
+            files = [str(link.resolve()) for link in (process / "fd").iterdir() if link.is_symlink()]
+        except (OSError, PermissionError):
+            continue
+        evidence = {"pid": int(pid), "cmdline": command[:500], "openFiles": files[:12]}
+        label = Path(command.split()[0]).name if command else f"GPU process {pid}"
+        models.append(make_model("unknown_process", label or f"GPU process {pid}", location=" ".join(files), state="loaded",
+            detail="GPU process observed, activity unknown", evidence=evidence,
+            capabilities={"mount": False, "unmount": False, "releaseRuntime": False, "stopRuntime": False}))
+    return models
+
+
 def inventory(config: dict[str, Any]) -> dict[str, Any]:
     runtimes, models, issues = runtime_list(config), [], []
     runtime_states = []
@@ -383,13 +363,15 @@ def inventory(config: dict[str, Any]) -> dict[str, Any]:
         if not runtime.enabled:
             runtime_states.append({"id": runtime.id, "state": "disabled", "capabilities": {}})
             continue
-        driver = DRIVERS.get(runtime.id)
+        driver = driver_registry(config).get(runtime.id)
         if driver is None:
             runtime_states.append({"id": runtime.id, "state": "unknown", "capabilities": {}, "detail": "no driver"})
             continue
         try:
             items, state = driver(runtime)
             state.setdefault("capabilities", {})["stopRuntime"] = bool(re.fullmatch(r"[A-Za-z0-9@_.-]+\.service", runtime.service))
+            if state["capabilities"]["stopRuntime"]:
+                state.setdefault("stopImpact", "Stops the configured user service after its runtime is idle.")
             models.extend(items)
             runtime_states.append(state)
         except LocalAIError as error:
@@ -398,6 +380,7 @@ def inventory(config: dict[str, Any]) -> dict[str, Any]:
     for item in discover_files(config, runtimes, issues):
         if re.sub(r"[^a-z0-9]+", "", item["name"].lower()) not in runtime_names:
             models.append(item)
+    models.extend(observed_gpu_processes(config))
     # Stable order makes QML history and keyboard focus deterministic.
     models.sort(key=lambda item: (VALID_KINDS.index(item["kind"]), item["name"].lower(), item["runtime"]))
     return {"schemaVersion": 1, "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -433,6 +416,28 @@ def ensure_not_active(runtime: Runtime, model_key: str = "") -> str:
     raise LocalAIError("model disappeared before the action")
 
 
+def ensure_runtime_idle(runtime: Runtime) -> None:
+    """Run each runtime's truthful activity probe before global control."""
+    if runtime.id == "comfyui":
+        queue = request_json(runtime.endpoint + "/queue")
+        if isinstance(queue, dict) and (queue.get("queue_running") or queue.get("queue_pending")):
+            raise LocalAIError("action rejected while ComfyUI has running or pending work")
+        return
+    ensure_not_active(runtime)
+
+
+def validated_user_service(runtime: Runtime) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9@_.-]+\.service", runtime.service):
+        raise LocalAIError("this runtime has no validated user systemd service")
+    try:
+        inspected = subprocess.run(["systemctl", "--user", "show", runtime.service, "--property", "LoadState", "--value"],
+                                   text=True, capture_output=True, check=False)
+    except OSError as error:
+        raise LocalAIError("systemd user service inspection failed") from error
+    if inspected.returncode != 0 or inspected.stdout.strip().lower() != "loaded":
+        raise LocalAIError("this runtime has no validated user systemd service")
+
+
 def action(config: dict[str, Any], command: str, runtime_id: str, model_key: str = "", confirmed: bool = False) -> dict[str, Any]:
     runtime = find_runtime(config, runtime_id)
     runtime_model = ensure_not_active(runtime, model_key if command in {"mount", "unmount"} else "")
@@ -452,8 +457,8 @@ def action(config: dict[str, Any], command: str, runtime_id: str, model_key: str
     elif command == "stop":
         if not confirmed:
             raise LocalAIError("stop requires --confirm")
-        if not re.fullmatch(r"[A-Za-z0-9@_.-]+\.service", runtime.service):
-            raise LocalAIError("this runtime has no validated user systemd service")
+        ensure_runtime_idle(runtime)
+        validated_user_service(runtime)
         completed = subprocess.run(["systemctl", "--user", "stop", runtime.service], text=True, capture_output=True, check=False)
         if completed.returncode != 0:
             raise LocalAIError("systemd could not stop the configured runtime service")

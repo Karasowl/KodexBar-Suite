@@ -1,0 +1,6 @@
+{
+  "object": "list",
+  "data": [
+    {"id": "Qwen3-Worker", "object": "model", "owned_by": "local"}
+  ]
+}

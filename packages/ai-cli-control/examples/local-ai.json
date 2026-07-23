@@ -1,6 +1,8 @@
 {
   "refreshSeconds": 15,
   "scanDepth": 3,
+  "observeGpuProcesses": true,
+  "adapterDescriptors": [],
   "roots": [],
   "knownRoots": [],
   "runtimes": {

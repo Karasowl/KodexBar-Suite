@@ -134,9 +134,11 @@ local-ai unmount llama_cpp MODEL_ID
 local-ai release comfyui
 ```
 
-The status schema reports model type, classification confidence, installed or mounted state, activity, attributed throughput, memory when a runtime reports it, and safe capabilities. `tok/s` appears only when the runtime reports real tokens. Other runtimes may report no rate, a media-specific rate, or only activity and memory.
+The status schema reports model type, classification confidence, evidence, installed or mounted state, activity, attributed throughput, memory when a runtime reports it, and safe capabilities. `tok/s` appears only when the runtime reports real tokens. Other runtimes may report no rate, a media-specific rate, or only activity and memory. The optional GPU observer uses `nvidia-smi` and `/proc` as read-only evidence. It reports an unrecognised GPU process as `unknown_process`, with no rate and no control capability. Missing permissions or NVIDIA tools simply omit that observation.
 
-Individual unload is available only when a runtime offers it. ComfyUI exposes **Release runtime**, which calls its runtime memory-release API and identifies that the action affects the engine instead of claiming a per-model unload. Actions reject active requests. A stop action requires `--confirm` and is unavailable unless a driver has a safe stop API. Unknown processes are never terminated.
+Individual unload is available only when a runtime offers it. ComfyUI exposes **Release runtime**, which calls its runtime memory-release API and identifies that the action affects the engine instead of claiming a per-model unload. Actions reject active requests. A stop action requires `--confirm`, rechecks runtime-specific activity including the ComfyUI queue, and only addresses a loaded configured user `systemd` service. Unknown processes are never terminated.
+
+Built-in adapters are installed with the package. Additional adapters are declarative JSON descriptors only. The descriptor contract is documented in [`local_ai_drivers/CONTRACT.md`](local_ai_drivers/CONTRACT.md). Python adapters are never loaded from a user configuration directory.
 
 Use `examples/local-ai.json` as the portable configuration template. `examples/` also contains optional llama.cpp router and OpenCode templates. They are not installed, and no OpenCode package or model is downloaded by this release.
 

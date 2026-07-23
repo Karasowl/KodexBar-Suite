@@ -16,7 +16,7 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 
 ## Features
 
-- Uses the selected dark 520 by 560 card with provider tabs, live status, source pills, metric badges, progress bars, and a matching compact preview.
+- Uses the selected dark 520 by 520 card with provider tabs, live status, source pills, metric badges, progress bars, and a matching compact preview.
 - Keeps the terminal-shaped **AI CLI Control** button separate from the local-model tab. Its menu opens the selector or updates every provider CLI.
 - Adds an icon-only **Local models** tab. It groups installed and mounted local weights, shows state, classification confidence, real runtime throughput when available, a bounded activity sparkline, and safe mount or unload controls.
 - Keeps installed but unmounted models dimmed, omits models that are not installed, and uses a vertical-only local list so provider data, account identity, plan, source, quotas, credits, costs, errors, cache state, and compact strip remain available without horizontal overflow.

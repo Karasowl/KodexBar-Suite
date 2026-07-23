@@ -62,6 +62,7 @@ class LocalAIContractTests(unittest.TestCase):
             config = local_ai.default_config()
             config["roots"] = [str(root)]
             config["knownRoots"] = []
+            config["observeGpuProcesses"] = False
             for runtime in config["runtimes"].values():
                 runtime["enabled"] = False
             data = local_ai.inventory(config)
@@ -111,6 +112,16 @@ class LocalAIContractTests(unittest.TestCase):
         resident = next(item for item in models if item["name"] == "llama3.2")
         self.assertEqual(resident["state"], "loaded")
         self.assertFalse(resident["activity"])
+
+    def test_vllm_fixture_uses_its_runtime_identity(self) -> None:
+        original = local_ai.request_json
+        local_ai.request_json = lambda *args, **kwargs: self.fixture("local-ai-vllm-models.json")
+        try:
+            models, _ = local_ai.models_from_vllm(local_ai.Runtime("vllm", "vllm", "http://127.0.0.1:8000"))
+        finally:
+            local_ai.request_json = original
+        self.assertEqual(models[0]["runtime"], "vllm")
+        self.assertEqual(models[0]["name"], "Qwen3-Worker")
 
     def test_comfy_queue_blocks_global_release(self) -> None:
         original = local_ai.request_json
@@ -178,6 +189,20 @@ class LocalAIContractTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertIn(("http://127.0.0.1:8188/free", "POST", {"unload_models": True, "free_memory": True}), calls)
 
+    def test_stop_rechecks_comfy_queue_before_systemd(self) -> None:
+        original_request, original_run = local_ai.request_json, local_ai.subprocess.run
+        local_ai.request_json = lambda url, **kwargs: self.fixture("local-ai-comfyui-queue-active.json") if url.endswith("/queue") else self.fixture("local-ai-comfyui-system-stats.json")
+        local_ai.subprocess.run = lambda *args, **kwargs: self.fail("systemd must not run while ComfyUI is busy")
+        try:
+            config = local_ai.default_config()
+            for key, runtime in config["runtimes"].items():
+                runtime["enabled"] = key == "comfyui"
+            config["runtimes"]["comfyui"]["service"] = "comfyui.service"
+            with self.assertRaisesRegex(local_ai.LocalAIError, "running or pending"):
+                local_ai.action(config, "stop", "comfyui", confirmed=True)
+        finally:
+            local_ai.request_json, local_ai.subprocess.run = original_request, original_run
+
     def test_disconnected_runtime_has_honest_state(self) -> None:
         original = local_ai.request_json
         local_ai.request_json = lambda *args, **kwargs: (_ for _ in ()).throw(local_ai.LocalAIError("connection refused"))
@@ -191,6 +216,65 @@ class LocalAIContractTests(unittest.TestCase):
             local_ai.request_json = original
         ollama = next(item for item in data["runtimes"] if item["id"] == "ollama")
         self.assertEqual(ollama["state"], "disconnected")
+
+    def test_gpu_observer_is_best_effort_and_never_exposes_controls(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            proc = Path(temporary) / "4312"
+            (proc / "fd").mkdir(parents=True)
+            (proc / "cmdline").write_bytes(b"custom-server\0--model\0weights.gguf")
+            (proc / "fd" / "4").symlink_to(Path(temporary) / "weights.gguf")
+
+            class Result:
+                returncode = 0
+                stdout = "4312\n"
+
+            models = local_ai.observed_gpu_processes({}, run=lambda *args, **kwargs: Result(), proc_root=Path(temporary))
+        self.assertEqual(len(models), 1)
+        self.assertEqual(models[0]["runtime"], "unknown_process")
+        self.assertEqual(models[0]["state"], "loaded")
+        self.assertEqual(models[0]["metric"], None)
+        self.assertFalse(any(models[0]["capabilities"].values()))
+        self.assertEqual(models[0]["evidence"]["pid"], 4312)
+
+    def test_gpu_observer_tolerates_missing_nvidia_tools(self) -> None:
+        self.assertEqual(local_ai.observed_gpu_processes({}, run=lambda *args, **kwargs: (_ for _ in ()).throw(OSError("missing"))), [])
+
+    def test_declarative_adapter_adds_catalog_without_loading_user_python(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            descriptor = Path(temporary) / "catalog.json"
+            descriptor.write_text(json.dumps({"id": "custom", "kind": "openai-model-catalog", "modelsPath": "/models"}), encoding="utf-8")
+            original = local_ai.request_json
+            local_ai.request_json = lambda *args, **kwargs: {"data": [{"id": "custom-model", "type": "embedding"}]}
+            try:
+                config = local_ai.default_config()
+                config["knownRoots"] = []
+                config["observeGpuProcesses"] = False
+                for runtime in config["runtimes"].values(): runtime["enabled"] = False
+                config["runtimes"]["custom"] = {"enabled": True, "endpoint": "http://127.0.0.1:9999"}
+                config["adapterDescriptors"] = [str(descriptor)]
+                data = local_ai.inventory(config)
+            finally:
+                local_ai.request_json = original
+        self.assertEqual(data["models"][0]["runtime"], "custom")
+        self.assertEqual(data["models"][0]["kind"], "embedding")
+
+    def test_safetensors_and_gguf_headers_supply_classification_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            header = json.dumps({"__metadata__": {"model_type": "text-to-speech"}}).encode("utf-8")
+            safe = root / "opaque.safetensors"
+            safe.write_bytes(len(header).to_bytes(8, "little") + header)
+            metadata, issue = local_ai.metadata_strings(safe)
+            self.assertEqual(issue, "")
+            self.assertEqual(local_ai.classify(safe.stem, metadata=metadata), ("audio", "metadata"))
+
+            key, value = b"general.architecture", b"video"
+            gguf = root / "opaque.gguf"
+            gguf.write_bytes(b"GGUF" + (3).to_bytes(4, "little") + (0).to_bytes(8, "little") + (1).to_bytes(8, "little")
+                + len(key).to_bytes(8, "little") + key + (8).to_bytes(4, "little") + len(value).to_bytes(8, "little") + value)
+            metadata, issue = local_ai.metadata_strings(gguf)
+            self.assertEqual(issue, "")
+            self.assertEqual(local_ai.classify(gguf.stem, metadata=metadata), ("video", "metadata"))
 
 
 if __name__ == "__main__":

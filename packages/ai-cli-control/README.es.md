@@ -134,9 +134,11 @@ local-ai unmount llama_cpp ID_DEL_MODELO
 local-ai release comfyui
 ```
 
-El esquema de estado informa tipo de modelo, confianza de clasificación, estado instalado o montado, actividad, rendimiento atribuible y memoria cuando el runtime la reporta. `tok/s` solo aparece cuando el runtime entrega tokens reales. Otros motores pueden no aportar tasa, aportar una tasa propia de medios o solo actividad y memoria.
+El esquema de estado informa tipo de modelo, confianza y evidencia de clasificación, estado instalado o montado, actividad, rendimiento atribuible y memoria cuando el runtime la reporta. `tok/s` solo aparece cuando el runtime entrega tokens reales. Otros motores pueden no aportar tasa, aportar una tasa propia de medios o solo actividad y memoria. El observador opcional de GPU usa `nvidia-smi` y `/proc` solo como evidencia de lectura. Un proceso GPU no reconocido aparece como `unknown_process`, sin tasa ni capacidades de control. Si faltan permisos o las herramientas de NVIDIA, simplemente no se muestra esa observación.
 
-La descarga individual existe solo cuando el runtime la expone. ComfyUI muestra **Liberar motor**, que llama a su API de liberación de memoria y deja claro que afecta al motor, sin fingir una descarga por modelo. Las acciones rechazan solicitudes activas. Detener requiere `--confirm` y no se ofrece sin una API segura. Nunca se termina un proceso desconocido.
+La descarga individual existe solo cuando el runtime la expone. ComfyUI muestra **Liberar motor**, que llama a su API de liberación de memoria y deja claro que afecta al motor, sin fingir una descarga por modelo. Las acciones rechazan solicitudes activas. Detener requiere `--confirm`, vuelve a comprobar la actividad propia del runtime, incluida la cola de ComfyUI, y solo apunta a un servicio `systemd` de usuario configurado y cargado. Nunca se termina un proceso desconocido.
+
+Los adaptadores incluidos se instalan con el paquete. Los adicionales son descriptores JSON declarativos. El contrato está en [`local_ai_drivers/CONTRACT.md`](local_ai_drivers/CONTRACT.md). Nunca se carga Python desde un directorio de configuración de usuario.
 
 Usa `examples/local-ai.json` como plantilla portable de configuración. `examples/` incluye también plantillas opcionales para router llama.cpp y OpenCode. No se instalan, y este cambio no descarga modelos ni instala OpenCode.
 

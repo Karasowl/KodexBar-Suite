@@ -901,8 +901,8 @@ assert.match(mainQml, /ListView \{\s+id: providerTabs/, "popup provider tabs use
 assert.match(mainQml, /preferredWidth: 520/, "popup uses the normative 520 pixel width")
 assert.match(
     mainQml,
-    /Layout\.minimumHeight: 560\s*Layout\.maximumHeight: 560\s*Layout\.preferredHeight: 560/,
-    "popup keeps the normative fixed 560 pixel height"
+    /Layout\.minimumHeight: 520\s*Layout\.maximumHeight: 520\s*Layout\.preferredHeight: 520/,
+    "popup keeps the normative fixed 520 pixel height"
 )
 assert.match(
     mainQml,
