@@ -25,6 +25,9 @@ class LocalAIContractTests(unittest.TestCase):
     def fixture(self, name: str) -> object:
         return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
+    def text_fixture(self, name: str) -> str:
+        return (FIXTURES / name).read_text(encoding="utf-8")
+
     def test_classification_uses_declaration_before_heuristics(self) -> None:
         self.assertEqual(local_ai.classify("qwen-video", "embedding"), ("embedding", "declared"))
         self.assertEqual(local_ai.classify("qwen-video"), ("video", "heuristic"))
@@ -70,8 +73,9 @@ class LocalAIContractTests(unittest.TestCase):
             "/system_stats": self.fixture("local-ai-comfyui-system-stats.json"),
             "/queue": self.fixture("local-ai-comfyui-queue-empty.json"),
         }
-        original = local_ai.request_json
+        original, original_text = local_ai.request_json, local_ai.request_text
         local_ai.request_json = lambda url, **kwargs: next(value for suffix, value in responses.items() if url.endswith(suffix))
+        local_ai.request_text = lambda url, **kwargs: self.text_fixture("local-ai-llama-metrics-active.json")
         try:
             config = local_ai.default_config()
             config["knownRoots"] = []
@@ -79,11 +83,11 @@ class LocalAIContractTests(unittest.TestCase):
                 runtime["service"] = "local-ai.service"
             data = local_ai.inventory(config)
         finally:
-            local_ai.request_json = original
+            local_ai.request_json, local_ai.request_text = original, original_text
         by_runtime = {item["runtime"] for item in data["models"]}
         self.assertTrue({"llama_cpp", "ollama", "lm_studio", "vllm"}.issubset(by_runtime))
         llama = next(item for item in data["models"] if item["runtime"] == "llama_cpp" and item["state"] == "active")
-        self.assertEqual(llama["metric"], {"value": 26.5, "unit": "tok/s", "source": "runtime"})
+        self.assertEqual(llama["metric"], {"value": 31.25, "unit": "tok/s", "source": "runtime"})
         self.assertEqual(next(item for item in data["models"] if item["runtime"] == "ollama" and item["state"] == "installed")["metric"], None)
         comfy = next(item for item in data["runtimes"] if item["id"] == "comfyui")
         self.assertTrue(comfy["capabilities"]["releaseRuntime"])
@@ -129,6 +133,8 @@ class LocalAIContractTests(unittest.TestCase):
     def test_endpoint_rejects_file_scheme_and_oversized_responses(self) -> None:
         with self.assertRaisesRegex(local_ai.LocalAIError, "http or https"):
             local_ai.request_json("file:///tmp/models")
+        with self.assertRaisesRegex(local_ai.LocalAIError, "http or https"):
+            local_ai.request_text("file:///tmp/metrics")
         class Response:
             def __enter__(self): return self
             def __exit__(self, *args): return False
@@ -138,8 +144,64 @@ class LocalAIContractTests(unittest.TestCase):
         try:
             with self.assertRaisesRegex(local_ai.LocalAIError, "size limit"):
                 local_ai.request_json("http://127.0.0.1:9/models")
+            with self.assertRaisesRegex(local_ai.LocalAIError, "size limit"):
+                local_ai.request_text("http://127.0.0.1:9/metrics")
         finally:
             local_ai.urlopen = original
+
+    def test_llama_router_object_status_filters_only_the_placeholder(self) -> None:
+        original_json, original_text = local_ai.request_json, local_ai.request_text
+        calls: list[str] = []
+        local_ai.request_json = lambda *args, **kwargs: self.fixture("local-ai-llama-router-models.json")
+        local_ai.request_text = lambda url, **kwargs: (calls.append(url) or self.text_fixture("local-ai-llama-metrics-active.json"))
+        try:
+            models, _ = local_ai.models_from_llama(local_ai.Runtime("llama_cpp", "llama_cpp", "http://127.0.0.1:18100"))
+        finally:
+            local_ai.request_json, local_ai.request_text = original_json, original_text
+        self.assertEqual([item["name"] for item in models], ["qwen-worker", "gpt-oss"])
+        active = next(item for item in models if item["name"] == "qwen-worker")
+        self.assertEqual(active["state"], "active")
+        self.assertTrue(active["activity"])
+        self.assertEqual(active["metric"], {"value": 31.25, "unit": "tok/s", "source": "runtime"})
+        self.assertEqual(next(item for item in models if item["name"] == "gpt-oss")["state"], "installed")
+        self.assertEqual(calls, ["http://127.0.0.1:18100/metrics?model=qwen-worker"])
+
+    def test_llama_loaded_model_is_inactive_without_runtime_requests(self) -> None:
+        original_json, original_text = local_ai.request_json, local_ai.request_text
+        local_ai.request_json = lambda *args, **kwargs: {"data": [{"id": "worker", "status": {"value": "loaded", "args": ["--model", "worker.gguf"]}}]}
+        local_ai.request_text = lambda *args, **kwargs: self.text_fixture("local-ai-llama-metrics-idle.json")
+        try:
+            models, _ = local_ai.models_from_llama(local_ai.Runtime("llama_cpp", "llama_cpp", "http://127.0.0.1:18100"))
+        finally:
+            local_ai.request_json, local_ai.request_text = original_json, original_text
+        self.assertEqual(models[0]["state"], "loaded")
+        self.assertFalse(models[0]["activity"])
+        self.assertIsNone(models[0]["metric"])
+
+    def test_llama_real_model_named_default_is_not_filtered(self) -> None:
+        original_json = local_ai.request_json
+        local_ai.request_json = lambda *args, **kwargs: {"data": [{"id": "default", "source": "preset", "status": {
+            "value": "unloaded", "args": ["--model", "/models/default.gguf"], "preset": "[default]\\nmodel = /models/default.gguf\\n"}}]}
+        try:
+            models, _ = local_ai.models_from_llama(local_ai.Runtime("llama_cpp", "llama_cpp", "http://127.0.0.1:18100"))
+        finally:
+            local_ai.request_json = original_json
+        self.assertEqual(models[0]["name"], "default")
+        self.assertEqual(models[0]["state"], "installed")
+
+    def test_llama_metrics_failures_and_oversized_body_leave_inventory_usable(self) -> None:
+        original_json, original_text = local_ai.request_json, local_ai.request_text
+        local_ai.request_json = lambda *args, **kwargs: {"data": [{"id": "worker", "status": {"value": "loaded", "args": ["--model", "worker.gguf"]}}]}
+        try:
+            for detail in ("HTTP 400: metrics disabled", "HTTP 501: not implemented", "runtime response exceeds the safe size limit"):
+                with self.subTest(detail=detail):
+                    local_ai.request_text = lambda *args, _detail=detail, **kwargs: (_ for _ in ()).throw(local_ai.LocalAIError(_detail))
+                    models, _ = local_ai.models_from_llama(local_ai.Runtime("llama_cpp", "llama_cpp", "http://127.0.0.1:18100"))
+                    self.assertEqual(models[0]["state"], "loaded")
+                    self.assertFalse(models[0]["activity"])
+                    self.assertIsNone(models[0]["metric"])
+        finally:
+            local_ai.request_json, local_ai.request_text = original_json, original_text
 
     def test_opencode_catalog_reads_current_llama_catalog_without_writing(self) -> None:
         original = local_ai.request_json
@@ -185,8 +247,9 @@ class LocalAIContractTests(unittest.TestCase):
             local_ai.request_json = original
 
     def test_active_requests_block_unmount_and_global_release(self) -> None:
-        original = local_ai.request_json
+        original, original_text = local_ai.request_json, local_ai.request_text
         local_ai.request_json = lambda url, **kwargs: self.fixture("local-ai-llama-models.json")
+        local_ai.request_text = lambda *args, **kwargs: self.text_fixture("local-ai-llama-metrics-active.json")
         try:
             config = local_ai.default_config()
             for key, runtime in config["runtimes"].items():
@@ -194,11 +257,11 @@ class LocalAIContractTests(unittest.TestCase):
             with self.assertRaisesRegex(local_ai.LocalAIError, "requests are active"):
                 local_ai.action(config, "unmount", "llama_cpp", "qwen3-coder")
         finally:
-            local_ai.request_json = original
+            local_ai.request_json, local_ai.request_text = original, original_text
 
     def test_unmount_resolves_the_normalized_id_to_the_runtime_name(self) -> None:
         calls: list[tuple[str, str, object]] = []
-        original = local_ai.request_json
+        original, original_text = local_ai.request_json, local_ai.request_text
 
         def fake(url: str, method: str = "GET", payload: object = None, **kwargs: object) -> object:
             calls.append((url, method, payload))
@@ -207,6 +270,7 @@ class LocalAIContractTests(unittest.TestCase):
             return {}
 
         local_ai.request_json = fake
+        local_ai.request_text = lambda *args, **kwargs: self.text_fixture("local-ai-llama-metrics-idle.json")
         try:
             config = local_ai.default_config()
             for key, runtime in config["runtimes"].items():
@@ -214,7 +278,7 @@ class LocalAIContractTests(unittest.TestCase):
             runtime_id = local_ai.model_id("llama_cpp", "gpt-oss")
             result = local_ai.action(config, "unmount", "llama_cpp", runtime_id)
         finally:
-            local_ai.request_json = original
+            local_ai.request_json, local_ai.request_text = original, original_text
         self.assertTrue(result["ok"])
         self.assertIn(("http://127.0.0.1:18100/models/unload", "POST", {"model": "gpt-oss"}), calls)
 

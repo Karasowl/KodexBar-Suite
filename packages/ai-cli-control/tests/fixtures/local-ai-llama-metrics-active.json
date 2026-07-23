@@ -1,0 +1,5 @@
+# HELP llamacpp:requests_processing Number of requests processing.
+# TYPE llamacpp:requests_processing gauge
+llamacpp:requests_processing 1
+# HELP llamacpp:predicted_tokens_seconds Average generation throughput in tokens/s.
+llamacpp:predicted_tokens_seconds 31.25

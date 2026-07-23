@@ -1,0 +1,31 @@
+{
+  "data": [
+    {
+      "id": "default",
+      "source": "preset",
+      "status": {
+        "value": "unloaded",
+        "args": ["llama-server", "--alias", "default"],
+        "preset": "[default]\nmetrics = 1\n"
+      }
+    },
+    {
+      "id": "qwen-worker",
+      "source": "preset",
+      "status": {
+        "value": "loaded",
+        "args": ["llama-server", "--model", "/models/qwen.gguf"],
+        "preset": "[qwen-worker]\nmodel = /models/qwen.gguf\n"
+      }
+    },
+    {
+      "id": "gpt-oss",
+      "source": "preset",
+      "status": {
+        "value": "unloaded",
+        "args": ["llama-server", "--model", "/models/gpt-oss.gguf"],
+        "preset": "[gpt-oss]\nmodel = /models/gpt-oss.gguf\n"
+      }
+    }
+  ]
+}

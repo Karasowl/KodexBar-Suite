@@ -148,6 +148,25 @@ def request_json(url: str, method: str = "GET", payload: Any = None, timeout: fl
         raise LocalAIError("runtime returned invalid JSON") from error
 
 
+def request_text(url: str, timeout: float = DEFAULT_TIMEOUT) -> str:
+    """Read a bounded plain-text runtime endpoint, such as Prometheus metrics."""
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise LocalAIError("runtime endpoint must use http or https")
+    request = Request(url, headers={"Accept": "text/plain"})
+    try:
+        with urlopen(request, timeout=timeout) as response:  # nosec B310, endpoint is user-configured localhost by default
+            body = response.read(MAX_RESPONSE_BYTES + 1)
+            if len(body) > MAX_RESPONSE_BYTES:
+                raise LocalAIError("runtime response exceeds the safe size limit")
+            return body.decode("utf-8")
+    except HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")[:240]
+        raise LocalAIError(f"HTTP {error.code}: {detail or error.reason}") from error
+    except (UnicodeDecodeError, URLError, OSError) as error:
+        raise LocalAIError(str(error.reason if isinstance(error, URLError) else error)) from error
+
+
 def safe_name(value: Any) -> str:
     return str(value or "").strip()
 
@@ -262,8 +281,9 @@ def make_model(runtime: str, name: str, *, location: str = "", state: str = "ins
     }
 
 
-DRIVERS = builtin_drivers({"request_json": lambda *args, **kwargs: request_json(*args, **kwargs), "safe_name": safe_name,
-                           "make_model": make_model, "LocalAIError": LocalAIError})
+DRIVERS = builtin_drivers({"request_json": lambda *args, **kwargs: request_json(*args, **kwargs),
+                           "request_text": lambda *args, **kwargs: request_text(*args, **kwargs),
+                           "safe_name": safe_name, "make_model": make_model, "LocalAIError": LocalAIError})
 # Compatibility names keep the small, testable adapters callable without
 # restoring their implementation to this policy module.
 models_from_llama = DRIVERS["llama_cpp"]
