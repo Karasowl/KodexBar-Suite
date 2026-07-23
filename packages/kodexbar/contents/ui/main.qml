@@ -3079,7 +3079,8 @@ PlasmoidItem {
                                     }
 
                                     PlasmaComponents.Label {
-                                        Layout.preferredWidth: modelData.state === "installed" ? 130 : 58
+                                        Layout.preferredWidth: !root.localModelActivityKnown(modelData) ? 128
+                                            : modelData.state === "installed" ? 130 : 58
                                         text: root.localModelActivityText(modelData)
                                         color: modelData.state === "active" ? root.textColor : root.quietColor
                                         font.family: root.designFont
@@ -3448,7 +3449,7 @@ PlasmoidItem {
                                     PlasmaComponents.Label { text: modelData.metric && modelData.metric.unit ? modelData.metric.unit : ""; color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
                                     PlasmaComponents.Label { text: modelData.metric && typeof modelData.metric.value === "number" ? root.formatNumber(modelData.metric.value) : "—"; color: root.textColor; font.family: root.designFont; font.pixelSize: 11; font.weight: Font.Bold; anchors.verticalCenter: parent.verticalCenter }
                                 }
-                                PlasmaComponents.Label { Layout.preferredWidth: modelData.state === "installed" ? 78 : 104; visible: modelData.state !== "active"; text: root.localModelActivityText(modelData); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
+                                PlasmaComponents.Label { Layout.preferredWidth: !root.localModelActivityKnown(modelData) ? 128 : modelData.state === "installed" ? 78 : 58; visible: modelData.state !== "active"; text: root.localModelActivityText(modelData); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
                                 QQC2.ToolButton {
                                     width: 26; height: 26
                                     visible: !!(modelData.capabilities && (modelData.capabilities.unmount || modelData.capabilities.mount))

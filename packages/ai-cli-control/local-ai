@@ -510,15 +510,20 @@ def find_runtime(config: dict[str, Any], runtime_id: str) -> Runtime:
     raise LocalAIError("runtime is not configured or is disabled")
 
 
-def runtime_models(runtime: Runtime) -> list[dict[str, Any]]:
+def runtime_snapshot(runtime: Runtime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Read one runtime snapshot for a safety decision and its target lookup."""
     driver = DRIVERS.get(runtime.id)
     if driver is None:
         raise LocalAIError("runtime has no control driver")
-    return driver(runtime)[0]
+    return driver(runtime)
 
 
-def ensure_not_active(runtime: Runtime, model_key: str = "") -> str:
-    models = runtime_models(runtime)
+def runtime_models(runtime: Runtime) -> list[dict[str, Any]]:
+    return runtime_snapshot(runtime)[0]
+
+
+def ensure_not_active(runtime: Runtime, model_key: str = "", snapshot: tuple[list[dict[str, Any]], dict[str, Any]] | None = None) -> str:
+    models = (snapshot if snapshot is not None else runtime_snapshot(runtime))[0]
     active = [item for item in models if item.get("state") == "active"]
     if active:
         names = ", ".join(item["name"] for item in active)
@@ -531,24 +536,20 @@ def ensure_not_active(runtime: Runtime, model_key: str = "") -> str:
     raise LocalAIError("model disappeared before the action")
 
 
-def ensure_runtime_idle(runtime: Runtime) -> None:
-    """Run each runtime's truthful activity probe before global control."""
+def ensure_runtime_idle(runtime: Runtime, snapshot: tuple[list[dict[str, Any]], dict[str, Any]] | None = None) -> None:
+    """Use one truthful activity snapshot before global control."""
+    current = snapshot if snapshot is not None else runtime_snapshot(runtime)
     if runtime.id == "comfyui":
-        queue = request_json(runtime.endpoint + "/queue")
-        if not isinstance(queue, dict):
-            raise LocalAIError("could not verify ComfyUI queue activity")
-        if queue.get("queue_running") or queue.get("queue_pending"):
+        state = current[1]
+        if state.get("queueActive"):
             raise LocalAIError("action rejected while ComfyUI has running or pending work")
         return
-    ensure_not_active(runtime)
+    ensure_not_active(runtime, snapshot=current)
 
 
 def runtime_has_reliable_activity_probe(runtime: Runtime) -> bool:
-    driver = DRIVERS.get(runtime.id)
-    if driver is None:
-        return False
     try:
-        _, state = driver(runtime)
+        _, state = runtime_snapshot(runtime)
     except LocalAIError:
         return False
     return state.get("activityProbe") is True
@@ -568,36 +569,39 @@ def validated_user_service(runtime: Runtime) -> None:
 
 def action(config: dict[str, Any], command: str, runtime_id: str, model_key: str = "", confirmed: bool = False) -> dict[str, Any]:
     runtime = find_runtime(config, runtime_id)
-    if command == "unmount" and runtime.id == "llama_cpp" and not runtime_has_reliable_activity_probe(runtime):
-        raise LocalAIError("could not verify llama.cpp activity, refusing to unmount")
-    runtime_model = ensure_not_active(runtime, model_key if command in {"mount", "unmount"} else "")
-    if command == "mount" and runtime.id == "llama_cpp":
-        request_json(runtime.endpoint + "/models/load", "POST", {"model": runtime_model})
-    elif command == "unmount" and runtime.id == "llama_cpp":
-        request_json(runtime.endpoint + "/models/unload", "POST", {"model": runtime_model})
-    elif command == "unmount" and runtime.id == "ollama":
-        request_json(runtime.endpoint + "/api/generate", "POST", {"model": runtime_model, "keep_alive": 0})
-    elif command == "release" and runtime.id == "comfyui":
-        if not confirmed:
-            raise LocalAIError("release affects every ComfyUI resident model and requires --confirm")
-        queue = request_json(runtime.endpoint + "/queue")
-        if not isinstance(queue, dict):
-            raise LocalAIError("could not verify ComfyUI queue activity")
-        if queue.get("queue_running") or queue.get("queue_pending"):
-            raise LocalAIError("action rejected while ComfyUI has running or pending work")
-        request_json(runtime.endpoint + "/free", "POST", {"unload_models": True, "free_memory": True})
-    elif command == "stop":
+    if command == "stop":
         if not confirmed:
             raise LocalAIError("stop requires --confirm")
-        if not runtime_has_reliable_activity_probe(runtime):
+        snapshot = runtime_snapshot(runtime)
+        if snapshot[1].get("activityProbe") is not True:
             raise LocalAIError("this runtime has no reliable activity probe for stopping")
-        ensure_runtime_idle(runtime)
+        ensure_runtime_idle(runtime, snapshot=snapshot)
         validated_user_service(runtime)
         completed = subprocess.run(["systemctl", "--user", "stop", runtime.service], text=True, capture_output=True, check=False)
         if completed.returncode != 0:
             raise LocalAIError("systemd could not stop the configured runtime service")
     else:
-        raise LocalAIError("action is not supported by this runtime")
+        snapshot = runtime_snapshot(runtime) if runtime.id == "llama_cpp" and command in {"mount", "unmount"} else None
+        if command == "unmount" and runtime.id == "llama_cpp" and snapshot[1].get("activityProbe") is not True:
+            raise LocalAIError("could not verify llama.cpp activity, refusing to unmount")
+        runtime_model = ensure_not_active(runtime, model_key if command in {"mount", "unmount"} else "", snapshot=snapshot)
+        if command == "mount" and runtime.id == "llama_cpp":
+            request_json(runtime.endpoint + "/models/load", "POST", {"model": runtime_model})
+        elif command == "unmount" and runtime.id == "llama_cpp":
+            request_json(runtime.endpoint + "/models/unload", "POST", {"model": runtime_model})
+        elif command == "unmount" and runtime.id == "ollama":
+            request_json(runtime.endpoint + "/api/generate", "POST", {"model": runtime_model, "keep_alive": 0})
+        elif command == "release" and runtime.id == "comfyui":
+            if not confirmed:
+                raise LocalAIError("release affects every ComfyUI resident model and requires --confirm")
+            queue = request_json(runtime.endpoint + "/queue")
+            if not isinstance(queue, dict):
+                raise LocalAIError("could not verify ComfyUI queue activity")
+            if queue.get("queue_running") or queue.get("queue_pending"):
+                raise LocalAIError("action rejected while ComfyUI has running or pending work")
+            request_json(runtime.endpoint + "/free", "POST", {"unload_models": True, "free_memory": True})
+        else:
+            raise LocalAIError("action is not supported by this runtime")
     return {"ok": True, "action": command, "runtime": runtime.id, "model": model_key or None, "inventory": inventory(config)}
 
 

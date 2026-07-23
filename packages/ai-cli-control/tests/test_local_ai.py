@@ -318,12 +318,74 @@ class LocalAIContractTests(unittest.TestCase):
         local_ai.request_text = lambda *args, **kwargs: (_ for _ in ()).throw(local_ai.LocalAIError("metrics disabled"))
         try:
             config = local_ai.default_config()
+            config["observeGpuProcesses"] = False
             for key, runtime in config["runtimes"].items(): runtime["enabled"] = key == "llama_cpp"
             with self.assertRaisesRegex(local_ai.LocalAIError, "could not verify llama.cpp activity"):
                 local_ai.action(config, "unmount", "llama_cpp", "worker")
         finally:
             local_ai.request_json, local_ai.request_text = original_json, original_text
         self.assertFalse(any(method == "POST" and url.endswith("/models/unload") for url, method, _ in calls))
+
+    def test_llama_unmount_uses_one_snapshot_when_later_model_metrics_fail(self) -> None:
+        calls: list[tuple[str, str, object]] = []
+        metrics_calls = 0
+        original_json, original_text = local_ai.request_json, local_ai.request_text
+
+        def fake(url: str, method: str = "GET", payload: object = None, **kwargs: object) -> object:
+            calls.append((url, method, payload))
+            if url.endswith("/models"):
+                return {"data": [{"id": "worker", "status": "loaded"}, {"id": "other", "status": "loaded"}]}
+            return {}
+
+        def metrics(*args: object, **kwargs: object) -> str:
+            nonlocal metrics_calls
+            metrics_calls += 1
+            if metrics_calls == 1:
+                return self.text_fixture("local-ai-llama-metrics-idle.json")
+            raise local_ai.LocalAIError("metrics disabled after the first model")
+
+        local_ai.request_json, local_ai.request_text = fake, metrics
+        try:
+            config = local_ai.default_config()
+            for key, runtime in config["runtimes"].items(): runtime["enabled"] = key == "llama_cpp"
+            with self.assertRaisesRegex(local_ai.LocalAIError, "could not verify llama.cpp activity"):
+                local_ai.action(config, "unmount", "llama_cpp", "worker")
+        finally:
+            local_ai.request_json, local_ai.request_text = original_json, original_text
+        self.assertEqual(sum(url.endswith("/models") and method == "GET" for url, method, _ in calls), 1)
+        self.assertEqual(metrics_calls, 2)
+        self.assertFalse(any(method == "POST" and url.endswith("/models/unload") for url, method, _ in calls))
+
+    def test_stop_uses_one_snapshot_before_systemd(self) -> None:
+        original_driver, original_run = local_ai.DRIVERS["llama_cpp"], local_ai.subprocess.run
+        snapshot_reads = 0
+        service_calls: list[list[str]] = []
+
+        def driver(runtime: local_ai.Runtime) -> tuple[list[dict[str, object]], dict[str, object]]:
+            nonlocal snapshot_reads
+            snapshot_reads += 1
+            return ([local_ai.make_model("llama_cpp", "worker", state="installed")],
+                    {"id": "llama_cpp", "state": "connected", "activityProbe": True, "capabilities": {}})
+
+        class Result:
+            returncode = 0
+            stdout = "loaded\n"
+
+        def run(command: list[str], **kwargs: object) -> Result:
+            service_calls.append(command)
+            self.assertEqual(snapshot_reads, 1, "stop must not refresh the activity snapshot before systemd")
+            return Result()
+
+        local_ai.DRIVERS["llama_cpp"], local_ai.subprocess.run = driver, run
+        try:
+            config = local_ai.default_config()
+            for key, runtime in config["runtimes"].items(): runtime["enabled"] = key == "llama_cpp"
+            config["runtimes"]["llama_cpp"]["service"] = "llama-router.service"
+            result = local_ai.action(config, "stop", "llama_cpp", confirmed=True)
+        finally:
+            local_ai.DRIVERS["llama_cpp"], local_ai.subprocess.run = original_driver, original_run
+        self.assertTrue(result["ok"])
+        self.assertEqual(service_calls[-1], ["systemctl", "--user", "stop", "llama-router.service"])
 
     def test_unmount_resolves_the_normalized_id_to_the_runtime_name(self) -> None:
         calls: list[tuple[str, str, object]] = []

@@ -141,7 +141,9 @@ def builtin_drivers(api):
     def comfyui(runtime):
         request_json(runtime.endpoint + "/system_stats")
         queue = request_json(runtime.endpoint + "/queue")
-        busy = bool(queue.get("queue_running") or queue.get("queue_pending")) if isinstance(queue, dict) else False
+        if not isinstance(queue, dict):
+            raise api["LocalAIError"]("could not verify ComfyUI queue activity")
+        busy = bool(queue.get("queue_running") or queue.get("queue_pending"))
         return [], {"id": "comfyui", "state": "connected", "queueActive": busy,
             "activityProbe": True,
             "releaseWarning": "Affects every model resident in ComfyUI. Individual residency is not exposed.",

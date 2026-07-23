@@ -51,6 +51,7 @@ assert.match(qml, /function localModelActivityKnown\(item\)/, "activity certaint
 assert.match(qml, /i18n\("Activity unknown"\)/, "a resident with unknown activity is never labelled idle");
 assert.match(qml, /text: root\.localModelActivityText\(modelData\)/, "both local surfaces use the same honest activity label");
 assert.match(qml, /function localModelCanUnmount\(item\)/, "uncertain activity disables unmount affordances before the safe backend rejects them");
+assert.strictEqual((qml.match(/!root\.localModelActivityKnown\(modelData\) \? 128/g) || []).length, 2, "both local surfaces reserve the same translated width for uncertain activity");
 assert.match(qml, /function localModelOrder\(left, right\)/, "the QML inventory keeps residents globally before installed models");
 assert.match(qml, /localModels = payload\.models\.slice\(\)\.sort/, "the rendered inventory applies the resident-first order from the same payload");
 assert.match(qml, /i18n\("IN MEMORY"\)/, "resident models get a distinct top section");

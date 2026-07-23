@@ -12,7 +12,7 @@ All notable fork-specific changes are documented here.
 
 - Preserve the separate AI CLI Control terminal menu and all provider account, quota, source, status, cost, cache, error, and compact-strip surfaces when switching tabs.
 - Put the deduplicated resident inventory in a distinct In memory section above the unmounted model groups in the full tab and AI CLI Control popover.
-- Show RAM as well as VRAM when available, and label loaded models with uncertain activity honestly instead of calling them idle.
+- Show RAM as well as VRAM when available, and label loaded models with uncertain activity honestly instead of calling them idle, with the same reserved label width in both local surfaces.
 
 ## 0.9.4, 2026-07-22
 
