@@ -2939,7 +2939,7 @@ PlasmoidItem {
                     text: localReleaseDialog.warning.length > 0 ? localReleaseDialog.warning : i18n("This affects every resident model in this runtime.")
                     wrapMode: Text.WordWrap
                     color: root.mutedColor
-                    width: 300
+                    implicitWidth: 300
                 }
             }
 
@@ -2957,7 +2957,7 @@ PlasmoidItem {
                         : i18n("This stops the configured local service and releases all of its runtime memory.")
                     wrapMode: Text.WordWrap
                     color: root.mutedColor
-                    width: 300
+                    implicitWidth: 300
                 }
             }
 
