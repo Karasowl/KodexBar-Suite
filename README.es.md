@@ -51,7 +51,7 @@ El mismo paquete también aparece en gestores gráficos de AUR en CachyOS como S
 
 Qué instala el paquete bajo `/usr`:
 
-- Widget de Plasma, `ai`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray` e iconos del tray.
+- Widget de Plasma, `ai`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray`, `local-ai`, sus controladores integrados e iconos del tray.
 - Primer uso sin configuración manual: si no existe `~/.config/codexbar/config.json`, la suite detecta qué CLI de IA ya tienes e habilita sus cuotas sola. No hace falta editar archivos ni leer documentación de proveedores.
 
 Cómo funcionan las cuotas después de instalar:

@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## Unreleased
+## 0.10.0, 2026-07-23
 
 ### Added
 
@@ -12,7 +12,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Install and remove the owned `local-ai` executable with the other user-local tools.
-- Keep the published AUR 0.9.4 payload unchanged. Local model monitoring remains an unreleased source and manual-install feature until a versioned package release includes it.
+- Prepare the versioned AUR payload with `local-ai` and its built-in drivers, so the packaged Plasma widget no longer requires a manual local-model installation.
 - Coalesce a llama.cpp GPU child only when its executable and the same absolute canonical model location prove it repeats the configured runtime, while keeping basename matches, aliases, and independent GPU work visible.
 - Order active and loaded models before unmounted inventory entries for every local consumer.
 - Treat llama.cpp activity as indeterminate when its metrics endpoint cannot prove request activity, and refuse unmount before sending an unload request in that state. The same runtime snapshot now resolves the model and authorizes unmount or stop, avoiding a second safety read with different state.

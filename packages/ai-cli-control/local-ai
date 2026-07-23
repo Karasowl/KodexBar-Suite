@@ -30,7 +30,7 @@ from local_ai_drivers import builtin_drivers
 from local_ai_drivers.descriptors import descriptor_drivers
 
 
-VERSION = "0.9.4"
+VERSION = "0.10.0"
 DEFAULT_TIMEOUT = 2.5
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MODEL_SUFFIXES = {".gguf", ".safetensors", ".ckpt", ".pt", ".pth", ".onnx", ".bin"}

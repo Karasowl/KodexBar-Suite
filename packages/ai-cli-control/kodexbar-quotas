@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover - Python < 3.11
     tomllib = None  # type: ignore[assignment]
 
 
-VERSION = "0.9.4"
+VERSION = "0.10.0"
 TIMEOUT_SECONDS = 15
 HTTP_MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MiB: enough for quota JSON / gRPC-web billing
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -2291,6 +2291,9 @@ def print_json(value: Any, pretty: bool) -> None:
 
 
 def main(arguments: list[str]) -> int:
+    if arguments in (["--version"], ["-V"]):
+        print(f"kodexbar-quotas {VERSION}")
+        return 0
     if not arguments:
         return delegate_whole_call(arguments)
     if arguments[0] == "cost":

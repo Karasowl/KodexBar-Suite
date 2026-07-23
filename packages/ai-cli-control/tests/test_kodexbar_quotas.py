@@ -115,6 +115,11 @@ def sample_codex_usage_payload() -> dict:
 
 
 class QuotasEngineTests(unittest.TestCase):
+    def test_version_is_the_public_suite_release(self) -> None:
+        result = subprocess.run([str(ENGINE), "--version"], text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "kodexbar-quotas 0.10.0")
+
     def test_maps_claude_oauth_shape_to_widget_envelope(self) -> None:
         response = json.loads((FIXTURES / "claude-oauth-usage.json").read_text(encoding="utf-8"))
         expected = json.loads((FIXTURES / "claude-widget-entry.json").read_text(encoding="utf-8"))

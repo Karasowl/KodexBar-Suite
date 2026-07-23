@@ -51,7 +51,7 @@ The same package also appears in graphical AUR helpers on CachyOS such as Shelly
 
 What the package installs under `/usr`:
 
-- Plasma widget, `ai`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray`, and tray icons.
+- Plasma widget, `ai`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray`, `local-ai`, its built-in drivers, and tray icons.
 - A zero-config first run: on first use without `~/.config/codexbar/config.json`, the suite detects which AI CLIs you already have and enables their quotas automatically. You do not need to edit config files or read provider docs.
 
 How quotas work after install:

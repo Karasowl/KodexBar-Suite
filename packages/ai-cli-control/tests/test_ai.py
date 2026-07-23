@@ -600,7 +600,7 @@ class AiSelectorTests(unittest.TestCase):
         version = self.run_ai("--version")
         help_result = self.run_ai("--language", "en", "--help")
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.9.4")
+        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.10.0")
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("Choose and launch Codex", help_result.stdout)
         self.assertIn("--language LANGUAGE", help_result.stdout)

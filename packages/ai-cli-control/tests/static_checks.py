@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -17,6 +18,8 @@ PANEL = ROOT / "kodexbar-panel"
 TRAY = ROOT / "kodexbar-tray"
 LOCAL_AI = ROOT / "local-ai"
 AUR_PKGBUILD = ROOT.parents[1] / "packaging" / "aur" / "PKGBUILD"
+PLASMOID_METADATA = ROOT.parent / "kodexbar" / "metadata.json"
+RELEASE_VERSION = "0.10.0"
 FORBIDDEN = ("eval(", "shell=True", "shell = True", "os.system(")
 SECRET_PATTERNS = {
     "private key": re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"),
@@ -76,11 +79,37 @@ def main() -> int:
         print("Missing local-ai engine", file=sys.stderr)
         return 1
     aur_source = AUR_PKGBUILD.read_text(encoding="utf-8")
-    if "pkgver=0.9.4" not in aur_source or "Publication gate:" not in aur_source:
-        print("AUR publication gate or released version is missing", file=sys.stderr)
+    package_statements = "\n".join(line for line in aur_source.splitlines() if not line.lstrip().startswith("#"))
+    release_sources = {"ai": AI, "kodexbar-quotas": QUOTAS, "local-ai": LOCAL_AI}
+    for name, path in release_sources.items():
+        if f'VERSION = "{RELEASE_VERSION}"' not in path.read_text(encoding="utf-8"):
+            print(f"{name} does not declare release version {RELEASE_VERSION}", file=sys.stderr)
+            return 1
+    try:
+        metadata_version = json.loads(PLASMOID_METADATA.read_text(encoding="utf-8"))["KPlugin"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        print("Plasmoid metadata is invalid", file=sys.stderr)
         return 1
-    if "packages/ai-cli-control/local-ai" not in aur_source or "packages/ai-cli-control/local_ai_drivers" not in aur_source:
-        print("AUR publication gate does not cover the local-ai payload", file=sys.stderr)
+    if metadata_version.get("Version") != RELEASE_VERSION:
+        print("Plasmoid metadata version does not match the release", file=sys.stderr)
+        return 1
+    if metadata_version.get("Website") != "https://github.com/Karasowl/KodexBar-Suite":
+        print("Plasmoid metadata does not point to the maintained suite repository", file=sys.stderr)
+        return 1
+    if f"pkgver={RELEASE_VERSION}" not in package_statements:
+        print("AUR package version does not match the release", file=sys.stderr)
+        return 1
+    required_payload_statements = (
+        r"(?m)^\s*packages/ai-cli-control/local-ai\s+\\$",
+        r'(?m)^\s*install -d "\$\{payload\}/local_ai_drivers"$',
+        r"(?m)^\s*packages/ai-cli-control/local_ai_drivers/__init__\.py\s+\\$",
+        r"(?m)^\s*packages/ai-cli-control/local_ai_drivers/builtin\.py\s+\\$",
+        r"(?m)^\s*packages/ai-cli-control/local_ai_drivers/descriptors\.py\s+\\$",
+        r'(?m)^\s*ln -s /usr/lib/kodexbar-suite/ai-cli-control/local-ai "\$\{pkgdir\}/usr/bin/local-ai"$',
+        r"(?m)^\s*install -m644 packages/ai-cli-control/local_ai_drivers/CONTRACT\.md\s+\\$",
+    )
+    if not all(re.search(pattern, package_statements) for pattern in required_payload_statements):
+        print("AUR package does not install the local-ai executable, drivers, documentation, and symlink", file=sys.stderr)
         return 1
     recover_source = RECOVER.read_text(encoding="utf-8")
     quotas_source = QUOTAS.read_text(encoding="utf-8")
