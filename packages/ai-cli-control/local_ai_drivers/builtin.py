@@ -40,6 +40,20 @@ def safe_text(value):
     return str(value or "").strip()
 
 
+def model_argument(args):
+    """Return the explicit model selector reported by a runtime, if any."""
+    if not isinstance(args, list):
+        return ""
+    for index, argument in enumerate(args):
+        value = safe_text(argument)
+        if value in {"--model", "-m", "--model-path"} and index + 1 < len(args):
+            return safe_text(args[index + 1])
+        for prefix in ("--model=", "--model-path="):
+            if value.startswith(prefix):
+                return value[len(prefix):]
+    return ""
+
+
 def builtin_drivers(api):
     request_json, request_text, make_model = api["request_json"], api.get("request_text"), api["make_model"]
     safe_name = api["safe_name"]
@@ -82,10 +96,12 @@ def builtin_drivers(api):
             if active and state == "loaded":
                 state = "active"
             detail = "sleeping" if status in {"sleeping", "slept"} else status
+            runtime_model_evidence = model_argument(status_object.get("args") if status_object else None)
             models.append(make_model("llama_cpp", name, state=state, declared_kind=safe_text(item.get("type")),
                 metric_value=metric_value, metric_unit="tok/s" if metric_value is not None else "", activity=state == "active",
                 memory={"vramMiB": item.get("vram_mib", item.get("vramMiB")), "ramMiB": item.get("ram_mib", item.get("ramMiB"))},
-                capabilities={"mount": True, "unmount": True, "releaseRuntime": False, "stopRuntime": False}, detail=detail))
+                capabilities={"mount": True, "unmount": True, "releaseRuntime": False, "stopRuntime": False}, detail=detail,
+                evidence={"runtimeModelEvidence": runtime_model_evidence} if runtime_model_evidence else {}))
         return models, {"id": "llama_cpp", "state": "connected", "activityProbe": True,
             "capabilities": {"releaseRuntime": False, "stopRuntime": False}}
 

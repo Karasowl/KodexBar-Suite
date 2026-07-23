@@ -381,6 +381,55 @@ class LocalAIContractTests(unittest.TestCase):
     def test_gpu_observer_tolerates_missing_nvidia_tools(self) -> None:
         self.assertEqual(local_ai.observed_gpu_processes({}, run=lambda *args, **kwargs: (_ for _ in ()).throw(OSError("missing"))), [])
 
+    def test_inventory_coalesces_sleeping_llama_gpu_child_without_hiding_unknown_gpu_work(self) -> None:
+        original_json, original_text, original_observed = local_ai.request_json, local_ai.request_text, local_ai.observed_gpu_processes
+        local_ai.request_json = lambda url, **kwargs: self.fixture("local-ai-llama-sleeping-models.json")
+        local_ai.request_text = lambda *args, **kwargs: ""
+        local_ai.observed_gpu_processes = lambda config: [
+            local_ai.make_model("unknown_process", "Qwen-Worker.gguf", location="/models/Qwen-Worker.gguf", state="loaded",
+                detail="GPU process observed, activity unknown",
+                evidence={"pid": 321, "runtimeExecutable": "llama-server", "modelEvidence": "/models/Qwen-Worker.gguf"}),
+            local_ai.make_model("unknown_process", "other.gguf", location="/models/other.gguf", state="loaded",
+                detail="GPU process observed, activity unknown",
+                evidence={"pid": 322, "runtimeExecutable": "custom-server", "modelEvidence": "/models/other.gguf"}),
+        ]
+        try:
+            config = local_ai.default_config()
+            config["knownRoots"] = []
+            for key, runtime in config["runtimes"].items():
+                runtime["enabled"] = key == "llama_cpp"
+            data = local_ai.inventory(config)
+        finally:
+            local_ai.request_json, local_ai.request_text, local_ai.observed_gpu_processes = original_json, original_text, original_observed
+        self.assertEqual([item["runtime"] for item in data["models"]], ["unknown_process", "llama_cpp"])
+        llama = next(item for item in data["models"] if item["runtime"] == "llama_cpp")
+        unknown = next(item for item in data["models"] if item["runtime"] == "unknown_process")
+        self.assertEqual(llama["state"], "installed")
+        self.assertEqual(llama["evidence"]["runtimeModelEvidence"], "/models/Qwen-Worker.gguf")
+        self.assertEqual(unknown["evidence"]["runtimeExecutable"], "custom-server")
+
+    def test_inventory_orders_residents_before_unmounted_models(self) -> None:
+        original_json, original_text = local_ai.request_json, local_ai.request_text
+        local_ai.request_json = lambda url, **kwargs: {
+            "data": [
+                {"id": "unmounted", "status": "unloaded", "type": "llm"},
+                {"id": "resident", "status": "loaded", "type": "llm"},
+                {"id": "busy", "status": "active", "type": "llm"},
+            ]
+        }
+        local_ai.request_text = lambda *args, **kwargs: ""
+        try:
+            config = local_ai.default_config()
+            config["knownRoots"] = []
+            config["observeGpuProcesses"] = False
+            for key, runtime in config["runtimes"].items():
+                runtime["enabled"] = key == "llama_cpp"
+            data = local_ai.inventory(config)
+        finally:
+            local_ai.request_json, local_ai.request_text = original_json, original_text
+        self.assertEqual([(item["name"], item["state"]) for item in data["models"]],
+                         [("busy", "active"), ("resident", "loaded"), ("unmounted", "installed")])
+
     def test_declarative_adapter_adds_catalog_without_loading_user_python(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             descriptor = Path(temporary) / "catalog.json"

@@ -1,0 +1,1 @@
+{"data":[{"id":"qwen-worker","status":{"value":"sleeping","args":["--model","/models/Qwen-Worker.gguf"]}}]}

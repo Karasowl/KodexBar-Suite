@@ -392,6 +392,73 @@ def observed_gpu_processes(config: dict[str, Any], run: Any = subprocess.run, pr
     return models
 
 
+GPU_RUNTIME_EXECUTABLES = {
+    "llama-server": "llama_cpp",
+    "llama-cli": "llama_cpp",
+    "ollama": "ollama",
+    "vllm": "vllm",
+    "lm-studio": "lm_studio",
+    "lmstudio": "lm_studio",
+    "comfyui": "comfyui",
+}
+
+
+def model_evidence_identity(value: Any) -> str:
+    """Normalize a model path or selector without treating arbitrary GPU work as AI."""
+    text = safe_name(value)
+    if not text:
+        return ""
+    leaf = Path(text).name
+    suffix = Path(leaf).suffix.lower()
+    if suffix in MODEL_SUFFIXES:
+        leaf = Path(leaf).stem
+    return re.sub(r"[^a-z0-9]+", "", leaf.lower())
+
+
+def coalesce_gpu_observations(models: list[dict[str, Any]], observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop only unknown GPU children that repeat a model from their known runtime.
+
+    A matching executable alone is not enough.  The process must also carry a
+    model selector that identifies a resident model already reported by that
+    same runtime. Runtime state is authoritative, including a sleeping model
+    normalized as installed. Everything else stays visible as an unknown,
+    no-control observation.
+    """
+    runtime_model_identities: dict[str, set[str]] = {}
+    for model in models:
+        if model.get("runtime") == "unknown_process":
+            continue
+        evidence = model.get("evidence") if isinstance(model.get("evidence"), dict) else {}
+        values = (model.get("location"), evidence.get("runtimeModelEvidence"), model.get("name"))
+        identities = {model_evidence_identity(value) for value in values}
+        identities.discard("")
+        if identities:
+            runtime_model_identities.setdefault(str(model.get("runtime")), set()).update(identities)
+
+    retained = []
+    for observation in observations:
+        if observation.get("runtime") != "unknown_process":
+            retained.append(observation)
+            continue
+        evidence = observation.get("evidence") if isinstance(observation.get("evidence"), dict) else {}
+        executable = Path(safe_name(evidence.get("runtimeExecutable"))).name.lower()
+        runtime_id = GPU_RUNTIME_EXECUTABLES.get(executable)
+        identity = model_evidence_identity(evidence.get("modelEvidence"))
+        if runtime_id and identity and identity in runtime_model_identities.get(runtime_id, set()):
+            continue
+        retained.append(observation)
+    return retained
+
+
+def inventory_sort_key(item: dict[str, Any]) -> tuple[int, int, str, str]:
+    state = str(item.get("state", ""))
+    resident_rank = 0 if state in {"active", "loaded"} else 1
+    activity_rank = 0 if state == "active" else 1
+    kind = str(item.get("kind", "unknown"))
+    kind_rank = VALID_KINDS.index(kind) if kind in VALID_KINDS else len(VALID_KINDS)
+    return resident_rank, activity_rank if resident_rank == 0 else kind_rank, str(item.get("name", "")).lower(), str(item.get("runtime", ""))
+
+
 def inventory(config: dict[str, Any]) -> dict[str, Any]:
     runtimes, models, issues = runtime_list(config), [], []
     registry = driver_registry(config)
@@ -418,9 +485,10 @@ def inventory(config: dict[str, Any]) -> dict[str, Any]:
     for item in discover_files(config, runtimes, issues):
         if re.sub(r"[^a-z0-9]+", "", item["name"].lower()) not in runtime_names:
             models.append(item)
-    models.extend(observed_gpu_processes(config))
-    # Stable order makes QML history and keyboard focus deterministic.
-    models.sort(key=lambda item: (VALID_KINDS.index(item["kind"]), item["name"].lower(), item["runtime"]))
+    models.extend(coalesce_gpu_observations(models, observed_gpu_processes(config)))
+    # Residents must lead every local surface. The remaining type order keeps
+    # model history and keyboard focus deterministic.
+    models.sort(key=inventory_sort_key)
     return {"schemaVersion": 1, "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "refreshSeconds": max(5, min(3600, int(config.get("refreshSeconds", 15)))), "models": models,
             "runtimes": runtime_states, "issues": issues}

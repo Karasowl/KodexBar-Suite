@@ -11,6 +11,7 @@ All notable fork-specific changes are documented here.
 ### Changed
 
 - Preserve the separate AI CLI Control terminal menu and all provider account, quota, source, status, cost, cache, error, and compact-strip surfaces when switching tabs.
+- Put the deduplicated resident inventory in a distinct In memory section above the unmounted model groups in the full tab and AI CLI Control popover.
 
 ## 0.9.4, 2026-07-22
 

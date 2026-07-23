@@ -526,8 +526,28 @@ PlasmoidItem {
     }
 
     function localKindCount(kind) {
-        var count = localModels.filter(function(item) { return item.kind === kind }).length
+        var count = localModels.filter(function(item) {
+            return !localModelIsResident(item) && item.kind === kind
+        }).length
         return i18n("%1 models", count)
+    }
+
+    function localModelIsResident(item) {
+        return !!(item && (item.state === "active" || item.state === "loaded"))
+    }
+
+    function localResidentCount() {
+        return localModels.filter(function(item) { return localModelIsResident(item) }).length
+    }
+
+    function localModelOrder(left, right) {
+        var leftResident = localModelIsResident(left)
+        var rightResident = localModelIsResident(right)
+        if (leftResident !== rightResident) return leftResident ? -1 : 1
+        if (leftResident && left.state !== right.state) return left.state === "active" ? -1 : 1
+        if (!leftResident && left.kind !== right.kind) return String(left.kind).localeCompare(String(right.kind))
+        var nameOrder = String(left.name || "").localeCompare(String(right.name || ""))
+        return nameOrder !== 0 ? nameOrder : String(left.runtime || "").localeCompare(String(right.runtime || ""))
     }
 
     function localModelMeta(item) {
@@ -537,8 +557,9 @@ PlasmoidItem {
         var vram = typeof memory.vramMiB === "number" && memory.vramMiB > 0
             ? formatNumber(memory.vramMiB / 1024) + " GB"
             : i18n("VRAM unknown")
+        var type = localModelIsResident(item) ? localKindText(item.kind) + " · " : ""
         var confidence = item && item.classificationConfidence === "heuristic" ? " · " + i18n("heuristic") : ""
-        return size + " · " + quant + " · " + vram + confidence
+        return type + size + " · " + quant + " · " + vram + confidence
     }
 
     function applyLocalInventory(payload) {
@@ -546,7 +567,7 @@ PlasmoidItem {
             localModelsError = i18n("Invalid local model response")
             return
         }
-        localModels = payload.models
+        localModels = payload.models.slice().sort(function(left, right) { return root.localModelOrder(left, right) })
         localRuntimes = payload.runtimes instanceof Array ? payload.runtimes : []
         var histories = localModelHistory
         for (var i = 0; i < localModels.length; i++) {
@@ -2912,8 +2933,10 @@ PlasmoidItem {
                             delegate: Rectangle {
                                 required property var modelData
                                 required property int index
+                                readonly property bool resident: root.localModelIsResident(modelData)
                                 readonly property bool groupStart: index === 0
-                                    || root.localModels[index - 1].kind !== modelData.kind
+                                    || resident !== root.localModelIsResident(root.localModels[index - 1])
+                                    || (!resident && root.localModels[index - 1].kind !== modelData.kind)
                                 width: localModelsList.width
                                 height: groupStart ? 72 : 52
                                 radius: 10
@@ -2934,18 +2957,18 @@ PlasmoidItem {
                                         Layout.preferredWidth: 20
                                         Layout.preferredHeight: 20
                                         radius: 6
-                                        color: root.localKindColor(modelData.kind) + "1f"
+                                        color: (parent.parent.resident ? root.accentColor : root.localKindColor(modelData.kind)) + "1f"
                                         PlasmaComponents.Label {
                                             anchors.centerIn: parent
-                                            text: root.localKindGlyph(modelData.kind)
-                                            color: root.localKindColor(modelData.kind)
+                                            text: parent.parent.parent.resident ? "●" : root.localKindGlyph(modelData.kind)
+                                            color: parent.parent.parent.resident ? root.accentColor : root.localKindColor(modelData.kind)
                                             font.family: "monospace"
                                             font.pixelSize: 10
                                             font.weight: Font.Bold
                                         }
                                     }
                                     PlasmaComponents.Label {
-                                        text: root.localKindText(modelData.kind).toUpperCase()
+                                        text: parent.parent.resident ? i18n("IN MEMORY") : root.localKindText(modelData.kind).toUpperCase()
                                         color: root.quietColor
                                         font.family: root.designFont
                                         font.pixelSize: 9
@@ -2958,7 +2981,7 @@ PlasmoidItem {
                                         color: "#20232d"
                                     }
                                     PlasmaComponents.Label {
-                                        text: root.localKindCount(modelData.kind)
+                                        text: parent.parent.resident ? i18n("%1 resident", root.localResidentCount()) : root.localKindCount(modelData.kind)
                                         color: "#565b68"
                                         font.family: root.designFont
                                         font.pixelSize: 9
@@ -3328,7 +3351,10 @@ PlasmoidItem {
                         delegate: Item {
                             required property var modelData
                             required property int index
-                            readonly property bool groupStart: index === 0 || root.localModels[index - 1].kind !== modelData.kind
+                            readonly property bool resident: root.localModelIsResident(modelData)
+                            readonly property bool groupStart: index === 0
+                                || resident !== root.localModelIsResident(root.localModels[index - 1])
+                                || (!resident && root.localModels[index - 1].kind !== modelData.kind)
                             width: aiControlModelsList.width
                             height: groupStart ? 70 : 50
 
@@ -3343,12 +3369,12 @@ PlasmoidItem {
                                 spacing: 6
                                 Rectangle {
                                     Layout.preferredWidth: 18; Layout.preferredHeight: 18; radius: 5
-                                    color: root.localKindColor(modelData.kind) + "1f"
-                                    PlasmaComponents.Label { anchors.centerIn: parent; text: root.localKindGlyph(modelData.kind); color: root.localKindColor(modelData.kind); font.family: "monospace"; font.pixelSize: 9 }
+                                    color: (parent.parent.resident ? root.accentColor : root.localKindColor(modelData.kind)) + "1f"
+                                    PlasmaComponents.Label { anchors.centerIn: parent; text: parent.parent.parent.resident ? "●" : root.localKindGlyph(modelData.kind); color: parent.parent.parent.resident ? root.accentColor : root.localKindColor(modelData.kind); font.family: "monospace"; font.pixelSize: 9 }
                                 }
-                                PlasmaComponents.Label { text: root.localKindText(modelData.kind).toUpperCase(); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; font.weight: Font.Bold }
+                                PlasmaComponents.Label { text: parent.parent.resident ? i18n("IN MEMORY") : root.localKindText(modelData.kind).toUpperCase(); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; font.weight: Font.Bold }
                                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#20232d" }
-                                PlasmaComponents.Label { text: root.localKindCount(modelData.kind); color: "#565b68"; font.family: root.designFont; font.pixelSize: 9 }
+                                PlasmaComponents.Label { text: parent.parent.resident ? i18n("%1 resident", root.localResidentCount()) : root.localKindCount(modelData.kind); color: "#565b68"; font.family: root.designFont; font.pixelSize: 9 }
                             }
 
                             RowLayout {
