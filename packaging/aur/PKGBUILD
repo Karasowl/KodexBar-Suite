@@ -8,8 +8,6 @@
 pkgname=kodexbar-suite
 pkgver=0.10.0
 pkgrel=1
-# `SKIP` is a pre-tag marker only. Replace it with the checksum of the released
-# v0.10.0 source tarball before publishing this PKGBUILD to AUR.
 pkgdesc='KodexBar Suite: Plasma widget, ai CLI, native Claude/Codex/Grok quotas (optional codexbar for Antigravity)'
 arch=('any')
 url='https://github.com/Karasowl/KodexBar-Suite'
@@ -28,7 +26,7 @@ optdepends=(
 )
 install=kodexbar-suite.install
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Karasowl/KodexBar-Suite/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('824e74395ca69b54fbd8480210c9ddbebe849f08eed1308e4fad90586b88773c')
 
 package() {
   cd "${srcdir}/KodexBar-Suite-${pkgver}"
