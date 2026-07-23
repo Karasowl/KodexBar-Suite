@@ -14,7 +14,7 @@
     ],
     "Category": "System Information",
     "Description": "KodexBar Suite KDE Plasma panel widget for ordered multi-provider CodexBar quotas.",
-    "Icon": "/icons/kodexbar.svg",
+    "Icon": "utilities-terminal",
     "Id": "org.kde.plasma.kodexbar",
     "License": "MIT",
     "Name": "KodexBar Suite",

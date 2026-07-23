@@ -3394,7 +3394,7 @@ PlasmoidItem {
                                     visible: modelData.state === "active"
                                     spacing: 2
                                     layoutDirection: Qt.RightToLeft
-                                    PlasmaComponents.Label { text: modelData.metric && modelData.metric.unit ? modelData.metric.unit : ""; color: root.quietColor; font.family: root.designFont; font.pixelSize: 8.5; anchors.verticalCenter: parent.verticalCenter }
+                                    PlasmaComponents.Label { text: modelData.metric && modelData.metric.unit ? modelData.metric.unit : ""; color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
                                     PlasmaComponents.Label { text: modelData.metric && typeof modelData.metric.value === "number" ? root.formatNumber(modelData.metric.value) : "—"; color: root.textColor; font.family: root.designFont; font.pixelSize: 11; font.weight: Font.Bold; anchors.verticalCenter: parent.verticalCenter }
                                 }
                                 PlasmaComponents.Label { Layout.preferredWidth: modelData.state === "installed" ? 78 : 58; visible: modelData.state !== "active"; text: modelData.state === "loaded" ? i18n("Idle") : i18n("Unmounted"); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
