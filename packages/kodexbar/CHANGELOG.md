@@ -2,6 +2,16 @@
 
 All notable fork-specific changes are documented here.
 
+## Unreleased
+
+### Added
+
+- Add the minimal icon-only Local models popup tab, periodic refresh, vertical-only activity list, state labels, honest throughput display, and safe runtime controls through `local-ai`.
+
+### Changed
+
+- Preserve the separate AI CLI Control terminal menu and all provider account, quota, source, status, cost, cache, error, and compact-strip surfaces when switching tabs.
+
 ## 0.9.4, 2026-07-22
 
 - Use compact Antigravity labels `S` and `W` for the Gemini five-hour and weekly windows, matching Codex and Claude.

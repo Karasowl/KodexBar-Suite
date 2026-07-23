@@ -1,0 +1,13 @@
+{
+  "refreshSeconds": 15,
+  "scanDepth": 3,
+  "roots": [],
+  "knownRoots": [],
+  "runtimes": {
+    "llama_cpp": {"enabled": true, "endpoint": "http://127.0.0.1:18100", "modelsMax": 1, "sleepIdleSeconds": 120},
+    "ollama": {"enabled": true, "endpoint": "http://127.0.0.1:11434"},
+    "lm_studio": {"enabled": true, "endpoint": "http://127.0.0.1:1234"},
+    "comfyui": {"enabled": true, "endpoint": "http://127.0.0.1:8188"},
+    "vllm": {"enabled": true, "endpoint": "http://127.0.0.1:8000"}
+  }
+}

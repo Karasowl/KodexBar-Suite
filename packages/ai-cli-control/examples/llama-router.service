@@ -1,0 +1,14 @@
+[Unit]
+Description=Local llama.cpp model router for KodexBar
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/llama-server --host 127.0.0.1 --port 18100 --models-dir %h/.local/share/local-ai/models --models-max 1 --models-autoload --sleep-idle-seconds 120
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

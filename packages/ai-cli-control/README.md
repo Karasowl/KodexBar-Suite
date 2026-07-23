@@ -17,6 +17,7 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 - Use English by default. Spanish locales receive Spanish interface text. `--language en` and `--language es` override locale detection.
 - Keep every launched and updated command as an argument array without shell evaluation.
 - Provide `kodexbar-quotas`, a local quota engine for the KodexBar Suite widget, `kodexbar-panel`, a compact adapter for non-KDE bars, and `kodexbar-tray`, a StatusNotifierItem indicator.
+- Provide `local-ai`, a JSON inventory and safe control surface for local model runtimes. It is optional and does not install or download models.
 
 ## Requirements
 
@@ -122,6 +123,22 @@ ai --version
 ```
 
 The installed executable is `~/.local/share/ai-cli-control/ai`, with `~/.local/bin/ai` as its symlink. Its standalone `recover.py` engine, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray`, tray icons, and a copy of `uninstall.sh` are stored beside it for removal after a checkout has been deleted. No `sudo` is used. Installation refuses to replace an existing user-local command that is not owned by this project. It installs adapters only when their CLI home directory exists and never replaces an unowned `recover-chat` skill. Uninstallation checks ownership markers and removes only project-owned files. Both scripts are idempotent.
+
+## Local model monitor
+
+`local-ai` is the only interface the Plasma widget uses for local models. It returns normalized JSON, so the widget does not parse processes or runtime-specific output. It discovers only configured roots plus conventional runtime directories that exist. It does not crawl the home directory or disk.
+
+```bash
+local-ai status
+local-ai unmount llama_cpp MODEL_ID
+local-ai release comfyui
+```
+
+The status schema reports model type, classification confidence, installed or mounted state, activity, attributed throughput, memory when a runtime reports it, and safe capabilities. `tok/s` appears only when the runtime reports real tokens. Other runtimes may report no rate, a media-specific rate, or only activity and memory.
+
+Individual unload is available only when a runtime offers it. ComfyUI exposes **Release runtime**, which calls its runtime memory-release API and identifies that the action affects the engine instead of claiming a per-model unload. Actions reject active requests. A stop action requires `--confirm` and is unavailable unless a driver has a safe stop API. Unknown processes are never terminated.
+
+Use `examples/local-ai.json` as the portable configuration template. `examples/` also contains optional llama.cpp router and OpenCode templates. They are not installed, and no OpenCode package or model is downloaded by this release.
 
 ## Quotas engine
 

@@ -1,0 +1,419 @@
+#!/usr/bin/env python3
+"""Portable inventory and safe control surface for local AI runtimes.
+
+The program deliberately knows about runtimes, not a particular installer.  It
+only examines configured roots and a small set of conventional directories. It
+never searches a complete home directory, guesses a process to kill, or emits a
+made-up throughput value.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import sys
+import time
+from dataclasses import dataclass, field
+from typing import Any, Iterable
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+
+VERSION = "0.9.4"
+DEFAULT_TIMEOUT = 2.5
+MODEL_SUFFIXES = {".gguf", ".safetensors", ".ckpt", ".pt", ".pth", ".onnx", ".bin"}
+VALID_KINDS = ("llm", "vision", "image", "video", "audio", "embedding", "unknown")
+VALID_STATES = ("active", "loaded", "loading", "unloading", "installed", "disconnected", "unknown", "error")
+
+
+class LocalAIError(Exception):
+    """A safe, user-visible local runtime error."""
+
+
+@dataclass
+class Runtime:
+    id: str
+    kind: str
+    endpoint: str = ""
+    enabled: bool = True
+    roots: list[Path] = field(default_factory=list)
+
+
+def config_path(value: str | None = None) -> Path:
+    if value:
+        return Path(value).expanduser()
+    configured = os.environ.get("KODEXBAR_LOCAL_AI_CONFIG")
+    if configured:
+        return Path(configured).expanduser()
+    xdg = Path(os.environ.get("XDG_CONFIG_HOME", "~/.config")).expanduser()
+    return xdg / "kodexbar" / "local-models.json"
+
+
+def default_config() -> dict[str, Any]:
+    home = Path.home()
+    # These are conventional locations only. They are not written to disk and
+    # can be replaced entirely by the user's config roots.
+    return {
+        "refreshSeconds": 15,
+        "scanDepth": 3,
+        "roots": [],
+        "knownRoots": [
+            str(home / ".ollama" / "models"),
+            str(home / ".cache" / "lm-studio" / "models"),
+            str(home / ".cache" / "huggingface" / "hub"),
+            str(home / "ComfyUI" / "models"),
+        ],
+        "runtimes": {
+            "llama_cpp": {"enabled": True, "endpoint": "http://127.0.0.1:18100", "modelsMax": 1, "sleepIdleSeconds": 120},
+            "ollama": {"enabled": True, "endpoint": "http://127.0.0.1:11434"},
+            "lm_studio": {"enabled": True, "endpoint": "http://127.0.0.1:1234"},
+            "comfyui": {"enabled": True, "endpoint": "http://127.0.0.1:8188"},
+            "vllm": {"enabled": True, "endpoint": "http://127.0.0.1:8000"},
+        },
+    }
+
+
+def load_config(path: Path) -> dict[str, Any]:
+    config = default_config()
+    if not path.exists():
+        return config
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise LocalAIError(f"invalid configuration: {error}") from error
+    if not isinstance(raw, dict):
+        raise LocalAIError("invalid configuration: root must be an object")
+    for key in ("refreshSeconds", "scanDepth", "roots", "knownRoots"):
+        if key in raw:
+            config[key] = raw[key]
+    if isinstance(raw.get("runtimes"), dict):
+        for runtime_id, value in raw["runtimes"].items():
+            if not isinstance(value, dict):
+                continue
+            current = config["runtimes"].get(runtime_id, {})
+            config["runtimes"][runtime_id] = {**current, **value}
+    return config
+
+
+def normalized_url(value: str) -> str:
+    return value.rstrip("/")
+
+
+def runtime_list(config: dict[str, Any]) -> list[Runtime]:
+    result: list[Runtime] = []
+    for runtime_id, details in config.get("runtimes", {}).items():
+        if not isinstance(details, dict):
+            continue
+        roots = [Path(item).expanduser() for item in details.get("roots", []) if isinstance(item, str)]
+        result.append(Runtime(runtime_id, runtime_id, normalized_url(str(details.get("endpoint", ""))),
+                              details.get("enabled", True) is not False, roots))
+    return result
+
+
+def request_json(url: str, method: str = "GET", payload: Any = None, timeout: float = DEFAULT_TIMEOUT) -> Any:
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    request = Request(url, data=body, method=method, headers={"Accept": "application/json", "Content-Type": "application/json"})
+    try:
+        with urlopen(request, timeout=timeout) as response:  # nosec B310, endpoint is user-configured localhost by default
+            text = response.read().decode("utf-8")
+    except HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")[:240]
+        raise LocalAIError(f"HTTP {error.code}: {detail or error.reason}") from error
+    except (URLError, OSError) as error:
+        raise LocalAIError(str(error.reason if isinstance(error, URLError) else error)) from error
+    try:
+        return json.loads(text) if text else {}
+    except json.JSONDecodeError as error:
+        raise LocalAIError("runtime returned invalid JSON") from error
+
+
+def safe_name(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def model_id(runtime: str, name: str, location: str = "") -> str:
+    digest = hashlib.sha256((runtime + "\0" + name + "\0" + location).encode("utf-8")).hexdigest()[:12]
+    return f"{runtime}:{digest}"
+
+
+def classify(name: str, declared: str = "") -> tuple[str, str]:
+    value = (declared or "").lower()
+    aliases = {
+        "llm": "llm", "text-generation": "llm", "code": "llm", "vision": "vision", "multimodal": "vision",
+        "image": "image", "video": "video", "audio": "audio", "tts": "audio", "stt": "audio", "music": "audio",
+        "embedding": "embedding", "embeddings": "embedding", "reranker": "embedding", "reranking": "embedding",
+    }
+    if value in aliases:
+        return aliases[value], "declared"
+    text = name.lower()
+    patterns = (
+        ("embedding", ("embed", "bge-", "e5-", "rerank")),
+        ("video", ("video", "wan", "ltx", "hunyuanvideo", "vace")),
+        ("image", ("stable-diffusion", "sdxl", "flux", "controlnet", "unet", "vae")),
+        ("audio", ("whisper", "tts", "audio", "music", "bark", "parler", "wav2vec")),
+        ("vision", ("vision", "vl", "llava", "clip")),
+        ("llm", ("llama", "qwen", "mistral", "gemma", "gpt", "deepseek", "coder", "phi", "mixtral")),
+    )
+    for kind, words in patterns:
+        if any(word in text for word in words):
+            return kind, "heuristic"
+    return "unknown", "unknown"
+
+
+def metric(value: Any, unit: str = "") -> dict[str, Any] | None:
+    if isinstance(value, (int, float)) and value >= 0 and unit:
+        return {"value": float(value), "unit": unit, "source": "runtime"}
+    return None
+
+
+def make_model(runtime: str, name: str, *, location: str = "", state: str = "installed", declared_kind: str = "",
+               metric_value: Any = None, metric_unit: str = "", memory: dict[str, Any] | None = None,
+               activity: bool = False, capabilities: dict[str, bool] | None = None, detail: str = "") -> dict[str, Any]:
+    kind, confidence = classify(name, declared_kind)
+    return {
+        "id": model_id(runtime, name, location), "runtime": runtime, "name": name, "location": location or None,
+        "kind": kind, "classificationConfidence": confidence, "state": state if state in VALID_STATES else "unknown",
+        "activity": bool(activity), "metric": metric(metric_value, metric_unit), "memory": memory or {},
+        "capabilities": capabilities or {"mount": False, "unmount": False, "releaseRuntime": False, "stopRuntime": False},
+        "detail": detail,
+    }
+
+
+def models_from_llama(runtime: Runtime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    raw = request_json(runtime.endpoint + "/models")
+    values = raw.get("data", raw.get("models", raw)) if isinstance(raw, dict) else raw
+    if not isinstance(values, list):
+        raise LocalAIError("runtime returned an invalid model catalog")
+    models = []
+    for item in values:
+        item = item if isinstance(item, dict) else {"id": item}
+        name = safe_name(item.get("id") or item.get("name") or item.get("model"))
+        if not name:
+            continue
+        status = safe_name(item.get("status") or item.get("state")).lower()
+        state = {"loaded": "loaded", "loading": "loading", "unloaded": "installed", "sleeping": "loaded", "unloading": "unloading"}.get(status, "unknown")
+        active = status in {"loading", "unloading"} or bool(item.get("active_requests") or item.get("requests"))
+        if active and state == "loaded":
+            state = "active"
+        rate = item.get("tokens_per_second", item.get("tokensPerSecond"))
+        models.append(make_model("llama_cpp", name, state=state, declared_kind=safe_name(item.get("type")),
+                                 metric_value=rate, metric_unit="tok/s", activity=active,
+                                 memory={"vramMiB": item.get("vram_mib", item.get("vramMiB")), "ramMiB": item.get("ram_mib", item.get("ramMiB"))},
+                                 capabilities={"mount": True, "unmount": True, "releaseRuntime": False, "stopRuntime": False},
+                                 detail=status))
+    return models, {"id": "llama_cpp", "state": "connected", "capabilities": {"releaseRuntime": False, "stopRuntime": False}}
+
+
+def models_from_ollama(runtime: Runtime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    tags = request_json(runtime.endpoint + "/api/tags")
+    running = request_json(runtime.endpoint + "/api/ps")
+    catalog = tags.get("models", []) if isinstance(tags, dict) else []
+    active = running.get("models", []) if isinstance(running, dict) else []
+    by_name = {safe_name(item.get("name") or item.get("model")): item for item in active if isinstance(item, dict)}
+    models = []
+    for item in catalog if isinstance(catalog, list) else []:
+        item = item if isinstance(item, dict) else {"name": item}
+        name = safe_name(item.get("name") or item.get("model"))
+        if not name:
+            continue
+        running_item = by_name.get(name)
+        models.append(make_model("ollama", name, state="active" if running_item else "installed", activity=bool(running_item),
+                                 memory={"vramMiB": running_item.get("size_vram", 0) / (1024 * 1024) if running_item else None},
+                                 capabilities={"mount": False, "unmount": True, "releaseRuntime": False, "stopRuntime": False},
+                                 detail="resident" if running_item else "installed"))
+    return models, {"id": "ollama", "state": "connected", "capabilities": {"releaseRuntime": False, "stopRuntime": False}}
+
+
+def models_from_lm_studio(runtime: Runtime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    raw = request_json(runtime.endpoint + "/v1/models")
+    catalog = raw.get("data", []) if isinstance(raw, dict) else []
+    models = [make_model("lm_studio", safe_name(item.get("id")), state="loaded", declared_kind=safe_name(item.get("type")),
+                         capabilities={"mount": False, "unmount": False, "releaseRuntime": False, "stopRuntime": False}, detail="served")
+              for item in catalog if isinstance(item, dict) and safe_name(item.get("id"))]
+    return models, {"id": "lm_studio", "state": "connected", "capabilities": {"releaseRuntime": False, "stopRuntime": False}}
+
+
+def models_from_comfyui(runtime: Runtime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    stats = request_json(runtime.endpoint + "/system_stats")
+    devices = stats.get("devices", []) if isinstance(stats, dict) else []
+    memory = {}
+    if devices and isinstance(devices[0], dict):
+        device = devices[0]
+        memory = {"vramMiB": device.get("vram_total", 0) / (1024 * 1024) if device.get("vram_total") else None,
+                  "vramFreeMiB": device.get("vram_free", 0) / (1024 * 1024) if device.get("vram_free") else None}
+    # ComfyUI's public API reports engine memory, not a reliable per-checkpoint
+    # residency list. Filesystem records remain installed until a workflow API
+    # can truthfully attribute a loaded checkpoint.
+    return [], {"id": "comfyui", "state": "connected", "memory": memory,
+                "capabilities": {"releaseRuntime": True, "stopRuntime": False}}
+
+
+def models_from_vllm(runtime: Runtime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    raw = request_json(runtime.endpoint + "/v1/models")
+    catalog = raw.get("data", []) if isinstance(raw, dict) else []
+    models = [make_model("vllm", safe_name(item.get("id")), state="loaded",
+                         capabilities={"mount": False, "unmount": False, "releaseRuntime": False, "stopRuntime": False}, detail="served")
+              for item in catalog if isinstance(item, dict) and safe_name(item.get("id"))]
+    return models, {"id": "vllm", "state": "connected", "capabilities": {"releaseRuntime": False, "stopRuntime": False}}
+
+
+DRIVERS = {"llama_cpp": models_from_llama, "ollama": models_from_ollama, "lm_studio": models_from_lm_studio,
+           "comfyui": models_from_comfyui, "vllm": models_from_vllm}
+
+
+def configured_roots(config: dict[str, Any], runtimes: Iterable[Runtime]) -> list[Path]:
+    values = list(config.get("roots", [])) + list(config.get("knownRoots", []))
+    for runtime in runtimes:
+        values.extend(str(root) for root in runtime.roots)
+    roots, seen = [], set()
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        root = Path(value).expanduser()
+        if root not in seen and root.is_dir():
+            roots.append(root)
+            seen.add(root)
+    return roots
+
+
+def discover_files(config: dict[str, Any], runtimes: Iterable[Runtime]) -> list[dict[str, Any]]:
+    depth = max(0, min(8, int(config.get("scanDepth", 3))))
+    found, seen = [], set()
+    for root in configured_roots(config, runtimes):
+        try:
+            for directory, child_dirs, filenames in os.walk(root):
+                relative = Path(directory).relative_to(root)
+                if len(relative.parts) > depth:
+                    child_dirs[:] = []
+                    continue
+                if len(relative.parts) == depth:
+                    child_dirs[:] = []
+                for filename in filenames:
+                    path = Path(directory) / filename
+                    if path.suffix.lower() not in MODEL_SUFFIXES:
+                        continue
+                    location = str(path)
+                    if location in seen:
+                        continue
+                    seen.add(location)
+                    found.append(make_model("filesystem", path.stem, location=location, state="installed", detail="discovered file"))
+        except PermissionError:
+            continue
+    return found
+
+
+def inventory(config: dict[str, Any]) -> dict[str, Any]:
+    runtimes, models, issues = runtime_list(config), [], []
+    runtime_states = []
+    for runtime in runtimes:
+        if not runtime.enabled:
+            runtime_states.append({"id": runtime.id, "state": "disabled", "capabilities": {}})
+            continue
+        driver = DRIVERS.get(runtime.id)
+        if driver is None:
+            runtime_states.append({"id": runtime.id, "state": "unknown", "capabilities": {}, "detail": "no driver"})
+            continue
+        try:
+            items, state = driver(runtime)
+            models.extend(items)
+            runtime_states.append(state)
+        except LocalAIError as error:
+            runtime_states.append({"id": runtime.id, "state": "disconnected", "capabilities": {}, "detail": str(error)})
+    active_locations = {item.get("location") for item in models if item.get("location")}
+    for item in discover_files(config, runtimes):
+        if item.get("location") not in active_locations:
+            models.append(item)
+    # Stable order makes QML history and keyboard focus deterministic.
+    models.sort(key=lambda item: (VALID_KINDS.index(item["kind"]), item["name"].lower(), item["runtime"]))
+    return {"schemaVersion": 1, "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "refreshSeconds": max(5, min(3600, int(config.get("refreshSeconds", 15)))), "models": models,
+            "runtimes": runtime_states, "issues": issues}
+
+
+def find_runtime(config: dict[str, Any], runtime_id: str) -> Runtime:
+    for runtime in runtime_list(config):
+        if runtime.id == runtime_id and runtime.enabled:
+            return runtime
+    raise LocalAIError("runtime is not configured or is disabled")
+
+
+def runtime_models(runtime: Runtime) -> list[dict[str, Any]]:
+    driver = DRIVERS.get(runtime.id)
+    if driver is None:
+        raise LocalAIError("runtime has no control driver")
+    return driver(runtime)[0]
+
+
+def ensure_not_active(runtime: Runtime, model_key: str = "") -> str:
+    models = runtime_models(runtime)
+    active = [item for item in models if item.get("state") == "active"]
+    if active:
+        names = ", ".join(item["name"] for item in active)
+        raise LocalAIError(f"action rejected while requests are active: {names}")
+    if not model_key:
+        return ""
+    for item in models:
+        if item["id"] == model_key or item["name"] == model_key:
+            return item["name"]
+    raise LocalAIError("model disappeared before the action")
+
+
+def action(config: dict[str, Any], command: str, runtime_id: str, model_key: str = "", confirmed: bool = False) -> dict[str, Any]:
+    runtime = find_runtime(config, runtime_id)
+    runtime_model = ensure_not_active(runtime, model_key if command in {"mount", "unmount"} else "")
+    if command == "mount" and runtime.id == "llama_cpp":
+        request_json(runtime.endpoint + "/models/load", "POST", {"model": runtime_model})
+    elif command == "unmount" and runtime.id == "llama_cpp":
+        request_json(runtime.endpoint + "/models/unload", "POST", {"model": runtime_model})
+    elif command == "unmount" and runtime.id == "ollama":
+        request_json(runtime.endpoint + "/api/generate", "POST", {"model": runtime_model, "keep_alive": 0})
+    elif command == "release" and runtime.id == "comfyui":
+        request_json(runtime.endpoint + "/free", "POST", {"unload_models": True, "free_memory": True})
+    elif command == "stop":
+        if not confirmed:
+            raise LocalAIError("stop requires --confirm")
+        raise LocalAIError("this runtime has no safe stop API")
+    else:
+        raise LocalAIError("action is not supported by this runtime")
+    return {"ok": True, "action": command, "runtime": runtime.id, "model": model_key or None, "inventory": inventory(config)}
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description="Inspect and safely control local AI runtimes.")
+    result.add_argument("--config", help="JSON configuration file")
+    result.add_argument("--version", action="version", version=VERSION)
+    sub = result.add_subparsers(dest="command", required=True)
+    sub.add_parser("status", help="Print the normalized inventory as JSON")
+    for name in ("mount", "unmount"):
+        item = sub.add_parser(name)
+        item.add_argument("runtime")
+        item.add_argument("model", help="Runtime model id or normalized model id")
+    item = sub.add_parser("release", help="Release every model held by one runtime when supported")
+    item.add_argument("runtime")
+    item = sub.add_parser("stop", help="Stop a runtime only through a safe runtime API")
+    item.add_argument("runtime")
+    item.add_argument("--confirm", action="store_true")
+    return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        config = load_config(config_path(args.config))
+        if args.command == "status":
+            payload = inventory(config)
+        else:
+            payload = action(config, args.command, args.runtime, getattr(args, "model", ""), getattr(args, "confirm", False))
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        return 0
+    except LocalAIError as error:
+        print(json.dumps({"ok": False, "error": str(error), "command": args.command}, ensure_ascii=False), file=sys.stdout)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

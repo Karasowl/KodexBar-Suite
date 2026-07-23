@@ -14,6 +14,7 @@ python3 -c 'import xml.etree.ElementTree as ET; ET.parse("contents/config/main.x
 bash -n scripts/validate.sh
 ruby -e 'require "yaml"; YAML.load_file("../../.github/workflows/ci.yml")'
 node tests/provider-logic.test.js
+node tests/local-models-static.test.js
 
 if command -v qmllint >/dev/null 2>&1; then
     qmllint contents/code/providerLogic.js contents/ui/main.qml contents/ui/PreferencesWindow.qml

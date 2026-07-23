@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+### Added
+
+- Add `local-ai`, a stdlib-only JSON inventory and safe control surface for llama.cpp router, Ollama, LM Studio, ComfyUI, vLLM, configured file roots, and disconnected runtimes.
+- Add portable local runtime, llama.cpp user service, and OpenCode permission templates without installing packages or downloading models.
+
+### Changed
+
+- Install and remove the owned `local-ai` executable with the other user-local tools.
+
 ## 0.9.4, 2026-07-22
 
 - Label Gemini Antigravity compact windows as `S` and `W` (five-hour then weekly), matching other providers in the panel block and tray menu.

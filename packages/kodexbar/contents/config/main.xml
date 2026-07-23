@@ -11,6 +11,14 @@
     <entry name="aiControlCommand" type="String">
       <default>ai</default>
     </entry>
+    <entry name="localAiCommand" type="String">
+      <default>local-ai</default>
+    </entry>
+    <entry name="localModelsRefreshInterval" type="Int">
+      <default>15</default>
+      <min>5</min>
+      <max>3600</max>
+    </entry>
     <entry name="source" type="String">
       <default>detect</default>
     </entry>

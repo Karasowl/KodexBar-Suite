@@ -8,7 +8,7 @@
 [![CodexBar CLI](https://img.shields.io/badge/powered%20by-CodexBar%20CLI-0a0a0c?style=flat-square)](https://github.com/steipete/CodexBar)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-KodexBar Suite is a KDE Plasma 6 widget for monitoring AI provider quotas through the [CodexBar CLI](https://github.com/steipete/CodexBar). It provides a configurable compact summary in the panel and a complete popup with every enabled provider and quota.
+KodexBar Suite is a KDE Plasma 6 widget for monitoring AI provider quotas through the [CodexBar CLI](https://github.com/steipete/CodexBar). It provides a configurable compact summary in the panel, a complete popup with every enabled provider and quota, and an optional local-model viewer.
 
 This package is also maintained inside the [KodexBar Suite monorepo](../../README.md). From that repository root, use `./install.sh` to install it together with `ai-cli-control`. The package can still be validated and installed independently.
 
@@ -17,6 +17,9 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 ## Features
 
 - Uses the selected dark 520 by 560 card with provider tabs, live status, source pills, metric badges, progress bars, and a matching compact preview.
+- Keeps the terminal-shaped **AI CLI Control** button separate from the local-model tab. Its menu opens the selector or updates every provider CLI.
+- Adds an icon-only **Local models** tab. It groups installed and mounted local weights, shows state, classification confidence, real runtime throughput when available, a bounded activity sparkline, and safe mount or unload controls.
+- Keeps installed but unmounted models dimmed, omits models that are not installed, and uses a vertical-only local list so provider data, account identity, plan, source, quotas, credits, costs, errors, cache state, and compact strip remain available without horizontal overflow.
 - Shows one provider account at a time, ordered as Codex, Claude, Grok, Antigravity, then every other enabled provider.
 - Keeps repeated accounts separate with stable non-sensitive ordinals in tabs and compact output.
 - Uses the supplied Codex, Claude, Grok, Antigravity, and Gemini SVG assets while keeping Antigravity and Gemini distinct.

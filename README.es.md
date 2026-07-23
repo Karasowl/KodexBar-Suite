@@ -6,6 +6,7 @@ KodexBar Suite es un pequeño conjunto de herramientas de escritorio para Linux 
 
 - `packages/kodexbar` es un widget de KDE Plasma 6 para mostrar cuotas ordenadas mediante CodexBar.
 - `packages/ai-cli-control` es el selector local `ai` para iniciar y actualizar las CLI de proveedores, con recuperación de conversaciones en solo lectura mediante `ai recover`.
+- `local-ai`, instalado junto con `ai-cli-control`, es un monitor JSON opcional para runtimes de modelos locales. No instala runtimes ni descarga pesos.
 
 Los paquetes se mantienen en un solo repositorio y pueden instalarse juntos desde la raíz. Cada paquete sigue siendo utilizable y comprobable por separado.
 
@@ -31,6 +32,8 @@ El instalador:
 El ID compartido de Plasma es intencional. Este paquete reemplaza en el mismo lugar una instalación upstream de KodexBar y conserva la configuración de Plasma asociada a ese ID.
 
 Después de instalar, agrega **KodexBar Suite** a un panel de Plasma si todavía no aparece. Abre el popup del widget para consultar las cuotas. Usa el botón AI o el menú contextual de Plasma para abrir `ai-cli-control` y actualizar las CLI de proveedores.
+
+El popup también tiene un tab de icono **Modelos locales**. Lee su inventario mediante `local-ai`, que admite raíces explícitas y runtimes comunes en localhost. Muestra solo métricas reales del runtime, conserva atenuados los modelos instalados sin montar y expone solo acciones que el runtime puede realizar de forma segura. Consulta [la documentación del monitor local](packages/ai-cli-control/README.es.md#monitor-de-modelos-locales) y las plantillas portables en `packages/ai-cli-control/examples/`.
 
 ## Canales de instalación
 

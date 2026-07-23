@@ -17,6 +17,7 @@ from io import StringIO
 ROOT = Path(__file__).resolve().parents[1]
 AI = ROOT / "ai"
 RECOVER = ROOT / "recover.py"
+LOCAL_AI = ROOT / "local-ai"
 INSTALL = ROOT / "install.sh"
 UNINSTALL = ROOT / "uninstall.sh"
 
@@ -658,12 +659,14 @@ class AiSelectorTests(unittest.TestCase):
         installed_quotas = home / ".local/share/ai-cli-control/kodexbar-quotas"
         installed_panel = home / ".local/share/ai-cli-control/kodexbar-panel"
         installed_tray = home / ".local/share/ai-cli-control/kodexbar-tray"
+        installed_local_ai = home / ".local/share/ai-cli-control/local-ai"
         installed_recover = home / ".local/share/ai-cli-control/recover.py"
         installed_uninstall = home / ".local/share/ai-cli-control/uninstall.sh"
         target = home / ".local/bin/ai"
         quotas_target = home / ".local/bin/kodexbar-quotas"
         panel_target = home / ".local/bin/kodexbar-panel"
         tray_target = home / ".local/bin/kodexbar-tray"
+        local_ai_target = home / ".local/bin/local-ai"
         icon_directory = home / ".local/share/icons/hicolor/scalable/apps"
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertEqual(second.returncode, 0, second.stderr)
@@ -671,20 +674,24 @@ class AiSelectorTests(unittest.TestCase):
         self.assertTrue(installed_quotas.is_file())
         self.assertTrue(installed_panel.is_file())
         self.assertTrue(installed_tray.is_file())
+        self.assertTrue(installed_local_ai.is_file())
         self.assertTrue(installed_recover.is_file())
         self.assertTrue(installed_uninstall.is_file())
         self.assertTrue(target.is_symlink())
         self.assertTrue(quotas_target.is_symlink())
         self.assertTrue(panel_target.is_symlink())
         self.assertTrue(tray_target.is_symlink())
+        self.assertTrue(local_ai_target.is_symlink())
         self.assertEqual(target.readlink(), installed)
         self.assertEqual(quotas_target.readlink(), installed_quotas)
         self.assertEqual(panel_target.readlink(), installed_panel)
         self.assertEqual(tray_target.readlink(), installed_tray)
+        self.assertEqual(local_ai_target.readlink(), installed_local_ai)
         for icon in ("kodexbar-tray-ok.svg", "kodexbar-tray-warning.svg", "kodexbar-tray-critical.svg"):
             self.assertTrue((icon_directory / icon).is_file())
         self.assertEqual(installed.read_text(encoding="utf-8"), AI.read_text(encoding="utf-8"))
         self.assertEqual(installed_recover.read_text(encoding="utf-8"), RECOVER.read_text(encoding="utf-8"))
+        self.assertEqual(installed_local_ai.read_text(encoding="utf-8"), LOCAL_AI.read_text(encoding="utf-8"))
         for cli in ("claude", "grok"):
             adapter = home / f".{cli}/skills/recover-chat"
             self.assertTrue((adapter / "SKILL.md").is_file())
@@ -696,10 +703,12 @@ class AiSelectorTests(unittest.TestCase):
         self.assertFalse(quotas_target.exists())
         self.assertFalse(panel_target.exists())
         self.assertFalse(tray_target.exists())
+        self.assertFalse(local_ai_target.exists())
         self.assertFalse(installed.exists())
         self.assertFalse(installed_quotas.exists())
         self.assertFalse(installed_panel.exists())
         self.assertFalse(installed_tray.exists())
+        self.assertFalse(installed_local_ai.exists())
         for icon in ("kodexbar-tray-ok.svg", "kodexbar-tray-warning.svg", "kodexbar-tray-critical.svg"):
             self.assertFalse((icon_directory / icon).exists())
         self.assertFalse(installed_recover.exists())

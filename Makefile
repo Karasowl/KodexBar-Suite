@@ -3,6 +3,7 @@
 test:
 	$(MAKE) -C packages/ai-cli-control test
 	node packages/kodexbar/tests/provider-logic.test.js
+	node packages/kodexbar/tests/local-models-static.test.js
 
 check:
 	$(MAKE) -C packages/ai-cli-control check
@@ -12,16 +13,7 @@ check:
 	git diff --check
 
 kodexbar-check:
-	if test -d packages/kodexbar/.git; then \
-		bash packages/kodexbar/scripts/validate.sh; \
-	else \
-		check_dir="$$(mktemp -d "$${TMPDIR:-/tmp}/kodexbar-suite-check.XXXXXX")"; \
-		trap 'rm -rf "$$check_dir"' EXIT INT TERM; \
-		cp -a packages/kodexbar/. "$$check_dir/"; \
-		git -C "$$check_dir" init --quiet; \
-		git -C "$$check_dir" add -A; \
-		bash "$$check_dir/scripts/validate.sh"; \
-	fi
+	bash packages/kodexbar/scripts/validate.sh
 
 install:
 	./install.sh

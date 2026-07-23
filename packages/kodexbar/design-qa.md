@@ -2,6 +2,7 @@
 
 ## Comparison target
 
+- Source visual truth for the local-model state: the `KodexBar.dc.html` and `screenshots/local-tab.png` files in the approved Widget retro tecnológico archive. The tab is icon-only, the AI CLI Control terminal action remains separate, model rows are grouped and minimal, and the local list has no horizontal scroll.
 - Source visual truth: `../Widget-design-reference-2026-07-13/source-codex-520x560.png`, `../Widget-design-reference-2026-07-13/source-claude-520x560.png`, and `../Widget-design-reference-2026-07-13/source-antigravity-520x560.png`.
 - Normative template: `../Widget-design-reference-2026-07-13/KodexBar.dc.html`.
 - Implementation screenshots: `qa-artifacts/window-codex-fixed.png`, `qa-artifacts/window-claude-fixed.png`, and `qa-artifacts/window-antigravity-fixed.png`.
@@ -27,6 +28,7 @@ Focused comparison covered the header, provider tabs, account heading, metric ro
 - Colors and visual tokens: mapped to the normative dark palette in QML, but rendered sampling is blocked.
 - Image quality and asset fidelity: supplied provider SVG files are used directly. Rendered sharpness and scale remain unverified.
 - Copy and content: reference labels and state copy are implemented with live CodexBar values.
+- Local-model tab: the implementation preserves every provider surface when switching back, shows installed but unmounted rows dimmed, shows real throughput only when present in the JSON contract, and gives ComfyUI a runtime-wide release action instead of pretending it can unload a named checkpoint.
 
 ## Implementation checklist
 

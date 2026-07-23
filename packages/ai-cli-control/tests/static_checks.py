@@ -15,6 +15,7 @@ RECOVER = ROOT / "recover.py"
 QUOTAS = ROOT / "kodexbar-quotas"
 PANEL = ROOT / "kodexbar-panel"
 TRAY = ROOT / "kodexbar-tray"
+LOCAL_AI = ROOT / "local-ai"
 FORBIDDEN = ("eval(", "shell=True", "shell = True", "os.system(")
 SECRET_PATTERNS = {
     "private key": re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"),
@@ -70,10 +71,14 @@ def main() -> int:
     if not TRAY.is_file():
         print("Missing kodexbar-tray indicator", file=sys.stderr)
         return 1
+    if not LOCAL_AI.is_file():
+        print("Missing local-ai engine", file=sys.stderr)
+        return 1
     recover_source = RECOVER.read_text(encoding="utf-8")
     quotas_source = QUOTAS.read_text(encoding="utf-8")
     panel_source = PANEL.read_text(encoding="utf-8")
     tray_source = TRAY.read_text(encoding="utf-8")
+    local_ai_source = LOCAL_AI.read_text(encoding="utf-8")
     failures = [token for token in FORBIDDEN if token in source]
     if failures:
         print(f"Forbidden execution tokens found: {', '.join(failures)}", file=sys.stderr)
@@ -98,6 +103,12 @@ def main() -> int:
         return 1
     if any(token in tray_source for token in FORBIDDEN):
         print("Forbidden execution tokens found in kodexbar-tray", file=sys.stderr)
+        return 1
+    if any(token in local_ai_source for token in FORBIDDEN):
+        print("Forbidden execution tokens found in local-ai", file=sys.stderr)
+        return 1
+    if 'sub.add_parser("status"' not in local_ai_source or '"unmount"' not in local_ai_source:
+        print("local-ai is missing its JSON inspection/control contract", file=sys.stderr)
         return 1
     findings = find_secrets()
     if findings:

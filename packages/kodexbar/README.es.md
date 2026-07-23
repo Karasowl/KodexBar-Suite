@@ -8,7 +8,7 @@
 [![CodexBar CLI](https://img.shields.io/badge/powered%20by-CodexBar%20CLI-0a0a0c?style=flat-square)](https://github.com/steipete/CodexBar)
 [![Licencia: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-KodexBar Suite es un widget para KDE Plasma 6 que permite consultar las cuotas de proveedores de IA mediante la [CLI CodexBar](https://github.com/steipete/CodexBar). Ofrece un resumen compacto configurable en el panel y un popup completo con todos los proveedores y cuotas habilitados.
+KodexBar Suite es un widget para KDE Plasma 6 que permite consultar las cuotas de proveedores de IA mediante la [CLI CodexBar](https://github.com/steipete/CodexBar). Ofrece un resumen compacto configurable en el panel, un popup completo con todos los proveedores y cuotas habilitados, y un visor opcional de modelos locales.
 
 Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../README.es.md). Desde la raíz de ese repositorio, usa `./install.sh` para instalarlo junto con `ai-cli-control`. El paquete todavía puede validarse e instalarse por separado.
 
@@ -17,6 +17,9 @@ Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../REA
 ## Funciones
 
 - Usa el diseño oscuro seleccionado de 520 por 560 con pestañas de proveedores, estado real, etiquetas de fuente, distintivos de ventana, barras de progreso y una vista previa compacta coincidente.
+- Mantiene separado el botón de terminal **AI CLI Control** del tab de modelos locales. Su menú abre el selector o actualiza todas las CLI de proveedor.
+- Añade un tab de icono **Modelos locales**. Agrupa pesos instalados y montados, muestra estado, confianza de clasificación, rendimiento real cuando el runtime lo aporta, sparkline acotado de actividad y controles seguros de montar o desmontar.
+- Conserva atenuados los modelos instalados sin montar, omite los que no están instalados y usa una lista local solo vertical. Así siguen disponibles proveedor, cuenta, plan, fuente, cuotas, créditos, coste, errores, caché y tira compacta sin desborde horizontal.
 - Muestra una cuenta de proveedor a la vez, ordenada como Codex, Claude, Grok, Antigravity y después todos los demás proveedores habilitados.
 - Mantiene separadas las cuentas repetidas con ordinales estables no sensibles en pestañas y salida compacta.
 - Usa los SVG suministrados de Codex, Claude, Grok, Antigravity y Gemini, y mantiene distintas las identidades de Antigravity y Gemini.

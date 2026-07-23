@@ -30,7 +30,16 @@ PlasmoidItem {
     property string configuredCodexbarCommand: String(Plasmoid.configuration.codexbarCommand || "")
     property string codexbarCommand: configuredCodexbarCommand.trim() || "codexbar"
     property string aiControlCommand: Plasmoid.configuration.aiControlCommand || "ai"
+    property string localAiCommand: Plasmoid.configuration.localAiCommand || "local-ai"
     property string aiControlError: ""
+    property string localModelsError: ""
+    property bool localModelsLoading: false
+    property var localModels: []
+    property var localRuntimes: []
+    property var localModelHistory: ({})
+    property string selectedPopupTab: "provider"
+    property int localModelsRefreshSeconds: Math.max(5, Math.min(3600,
+        Plasmoid.configuration.localModelsRefreshInterval || 15))
     property string selectedSource: Plasmoid.configuration.sourceDefault || Plasmoid.configuration.source || "detect"
     property string selectedEntryKey: ""
     property string activeProvider: ""
@@ -81,6 +90,14 @@ PlasmoidItem {
     readonly property var popupState: ProviderLogic.activeEntryData(entries, selectedEntryKey)
     readonly property var popupEntries: popupState.entries || []
     readonly property var activeEntry: popupState.entry || ({})
+    readonly property var popupTabs: {
+        var tabs = [{ kind: "local", id: "local", tabLabel: i18n("Local models"), icon: "cpu" }]
+        for (var i = 0; i < popupEntries.length; i++) {
+            tabs.push({ kind: "provider", entry: popupEntries[i], id: popupEntries[i].selectionKey,
+                tabLabel: popupEntries[i].tabLabel, provider: popupEntries[i].provider })
+        }
+        return tabs
+    }
 
     Plasmoid.contextualActions: [
         PlasmaCore.Action {
@@ -426,6 +443,78 @@ PlasmoidItem {
             command += " " + shellQuote(arguments[i])
         }
         return command
+    }
+
+    function localAiCommandLine(arguments) {
+        var command = shellQuote(localAiCommand)
+        for (var i = 0; i < arguments.length; i++) {
+            command += " " + shellQuote(arguments[i])
+        }
+        return command
+    }
+
+    function refreshLocalModels() {
+        if (localModelsLoading) {
+            return
+        }
+        localModelsLoading = true
+        localModelsError = ""
+        localAiExecutable.connectedSources = []
+        localAiExecutable.connectSource(localAiCommandLine(["status"]))
+    }
+
+    function localModelAction(action, runtime, model) {
+        if (localModelsLoading) {
+            return
+        }
+        var arguments = [action, runtime]
+        if (model && model.length > 0) {
+            arguments.push(model)
+        }
+        localModelsLoading = true
+        localModelsError = ""
+        localAiExecutable.connectedSources = []
+        localAiExecutable.connectSource(localAiCommandLine(arguments))
+    }
+
+    function localMetricText(item) {
+        if (!item || !item.metric || typeof item.metric.value !== "number" || !item.metric.unit) {
+            return i18n("Throughput unavailable")
+        }
+        return formatNumber(item.metric.value) + " " + item.metric.unit
+    }
+
+    function localStateText(state) {
+        var labels = {
+            "active": i18n("Active"), "loaded": i18n("Loaded, idle"), "loading": i18n("Loading"),
+            "unloading": i18n("Unloading"), "installed": i18n("Installed, unmounted"),
+            "disconnected": i18n("Runtime disconnected"), "unknown": i18n("State unknown"), "error": i18n("Error")
+        }
+        return labels[state] || labels.unknown
+    }
+
+    function localKindText(kind) {
+        var labels = { "llm": i18n("LLM and code"), "vision": i18n("Vision and multimodal"),
+            "image": i18n("Image"), "video": i18n("Video"), "audio": i18n("Audio"),
+            "embedding": i18n("Embeddings and reranking"), "unknown": i18n("Unknown") }
+        return labels[kind] || labels.unknown
+    }
+
+    function applyLocalInventory(payload) {
+        if (!payload || !(payload.models instanceof Array)) {
+            localModelsError = i18n("Invalid local model response")
+            return
+        }
+        localModels = payload.models
+        localRuntimes = payload.runtimes instanceof Array ? payload.runtimes : []
+        var histories = localModelHistory
+        for (var i = 0; i < localModels.length; i++) {
+            var item = localModels[i]
+            var sample = item.metric && typeof item.metric.value === "number" ? item.metric.value : 0
+            var history = histories[item.id] || []
+            histories[item.id] = history.concat([sample]).slice(-24)
+        }
+        localModelHistory = histories
     }
 
     function launchAiControl(arguments, showTerminal) {
@@ -1665,15 +1754,27 @@ PlasmoidItem {
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         interactive: contentWidth > width
-                        model: root.popupEntries
+                        model: root.popupTabs
 
                         delegate: QQC2.Button {
-                            readonly property bool selected: modelData.selectionKey === root.popupState.selectionKey
-                            width: Math.max(104, Math.floor((providerTabs.width - 9) / Math.min(4, Math.max(1, providerTabs.count))))
+                            readonly property bool selected: modelData.kind === "local"
+                                ? root.selectedPopupTab === "local"
+                                : root.selectedPopupTab === "provider"
+                                    && modelData.entry.selectionKey === root.popupState.selectionKey
+                            width: modelData.kind === "local" ? 38
+                                : Math.max(104, Math.floor((providerTabs.width - 42) / Math.min(4, Math.max(1, providerTabs.count - 1))))
                             height: 36
                             flat: true
                             text: modelData.tabLabel
-                            onClicked: root.selectedEntryKey = modelData.selectionKey
+                            onClicked: {
+                                if (modelData.kind === "local") {
+                                    root.selectedPopupTab = "local"
+                                    root.refreshLocalModels()
+                                } else {
+                                    root.selectedPopupTab = "provider"
+                                    root.selectedEntryKey = modelData.entry.selectionKey
+                                }
+                            }
 
                             contentItem: RowLayout {
                                 spacing: 7
@@ -1683,22 +1784,32 @@ PlasmoidItem {
                                 }
 
                                 Image {
+                                    visible: modelData.kind !== "local"
                                     Layout.preferredWidth: 16
-                                    Layout.preferredHeight: 16
+                                    Layout.preferredHeight: visible ? 16 : 0
                                     source: root.providerIconSource(modelData.provider)
                                     fillMode: Image.PreserveAspectFit
                                     opacity: parent.parent.selected ? 1 : 0.55
                                     smooth: true
                                 }
 
+                                Kirigami.Icon {
+                                    visible: modelData.kind === "local"
+                                    Layout.preferredWidth: visible ? 16 : 0
+                                    Layout.preferredHeight: 16
+                                    source: "cpu"
+                                    color: parent.parent.selected ? "#f2f3f8" : root.mutedColor
+                                }
+
                                 PlasmaComponents.Label {
+                                    visible: modelData.kind !== "local"
                                     text: modelData.tabLabel
                                     color: parent.parent.selected ? "#f2f3f8" : root.mutedColor
                                     font.family: root.designFont
                                     font.pixelSize: 13
                                     font.weight: Font.DemiBold
                                     elide: Text.ElideRight
-                                    Layout.maximumWidth: 104
+                                    Layout.maximumWidth: visible ? 104 : 0
                                 }
 
                                 Item {
@@ -1718,8 +1829,10 @@ PlasmoidItem {
             }
 
             Item {
+                id: providerContent
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                visible: root.selectedPopupTab !== "local"
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -2492,6 +2605,280 @@ PlasmoidItem {
             }
 
             Item {
+                id: localModelsContent
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: root.selectedPopupTab === "local"
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 20
+                    anchors.rightMargin: 20
+                    anchors.topMargin: 15
+                    anchors.bottomMargin: 6
+                    spacing: 8
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 30
+                        spacing: 9
+
+                        Kirigami.Icon {
+                            Layout.preferredWidth: 20
+                            Layout.preferredHeight: 20
+                            source: "cpu"
+                            color: root.textColor
+                        }
+
+                        PlasmaComponents.Label {
+                            text: i18n("Local models")
+                            color: root.textColor
+                            font.family: root.designFont
+                            font.pixelSize: 16
+                            font.weight: Font.Bold
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                        }
+
+                        PlasmaComponents.Label {
+                            text: i18n("%1 loaded", root.localModels.filter(function(item) {
+                                return item.state === "active" || item.state === "loaded"
+                            }).length)
+                            color: root.mutedColor
+                            font.family: root.designFont
+                            font.pixelSize: 11
+                        }
+
+                        QQC2.ToolButton {
+                            width: 28
+                            height: 28
+                            enabled: !root.localModelsLoading
+                            text: i18n("Check local models now")
+                            display: QQC2.AbstractButton.IconOnly
+                            Accessible.name: text
+                            onClicked: root.refreshLocalModels()
+                            QQC2.ToolTip.visible: hovered
+                            QQC2.ToolTip.text: text
+                            contentItem: Kirigami.Icon {
+                                source: "view-refresh"
+                                color: parent.enabled ? root.mutedColor : root.quietColor
+                            }
+                        }
+                    }
+
+                    PlasmaComponents.Label {
+                        visible: root.localModelsError.length > 0
+                        Layout.fillWidth: true
+                        text: root.localModelsError
+                        color: root.errorColor
+                        font.family: root.designFont
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                    }
+
+                    QQC2.ScrollView {
+                        id: localModelsScroll
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+
+                        ListView {
+                            id: localModelsList
+                            width: localModelsScroll.availableWidth
+                            model: root.localModels
+                            spacing: 2
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                            delegate: Rectangle {
+                                required property var modelData
+                                readonly property bool groupStart: index === 0
+                                    || root.localModels[index - 1].kind !== modelData.kind
+                                width: localModelsList.width
+                                height: groupStart ? 78 : 58
+                                radius: 9
+                                color: modelData.state === "installed" ? "#111319" : root.surfaceColor
+                                border.color: "#20242e"
+                                border.width: 1
+                                opacity: modelData.state === "installed" ? 0.58 : 1
+
+                                RowLayout {
+                                    visible: parent.groupStart
+                                    anchors.top: parent.top
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.topMargin: 5
+                                    anchors.leftMargin: 10
+                                    anchors.rightMargin: 10
+                                    spacing: 7
+                                    PlasmaComponents.Label {
+                                        text: root.localKindText(modelData.kind).toUpperCase()
+                                        color: root.quietColor
+                                        font.family: root.designFont
+                                        font.pixelSize: 9
+                                        font.weight: Font.Bold
+                                        font.letterSpacing: 0.8
+                                    }
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 1
+                                        color: "#20232d"
+                                    }
+                                    PlasmaComponents.Label {
+                                        text: modelData.classificationConfidence === "declared" ? i18n("runtime")
+                                            : modelData.classificationConfidence === "heuristic" ? i18n("heuristic") : i18n("unknown")
+                                        color: "#565b68"
+                                        font.family: root.designFont
+                                        font.pixelSize: 9
+                                    }
+                                }
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 10
+                                    anchors.rightMargin: 8
+                                    anchors.topMargin: parent.groupStart ? 20 : 0
+                                    spacing: 8
+
+                                    Rectangle {
+                                        Layout.preferredWidth: 6
+                                        Layout.preferredHeight: 6
+                                        radius: 3
+                                        color: modelData.state === "active" ? root.goodColor
+                                            : modelData.state === "loaded" ? root.mutedColor
+                                            : modelData.state === "installed" ? root.quietColor : root.warningColor
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 1
+                                        PlasmaComponents.Label {
+                                            text: modelData.name
+                                            color: root.textColor
+                                            font.family: "monospace"
+                                            font.pixelSize: 12
+                                            font.weight: Font.DemiBold
+                                            elide: Text.ElideRight
+                                            Layout.fillWidth: true
+                                        }
+                                        PlasmaComponents.Label {
+                                            text: root.localKindText(modelData.kind) + " · " + root.localStateText(modelData.state)
+                                                + (modelData.classificationConfidence === "heuristic" ? " · " + i18n("heuristic") : "")
+                                            color: root.quietColor
+                                            font.family: root.designFont
+                                            font.pixelSize: 10
+                                            elide: Text.ElideRight
+                                            Layout.fillWidth: true
+                                        }
+                                    }
+
+                                    Item {
+                                        Layout.preferredWidth: 72
+                                        Layout.preferredHeight: 22
+                                        visible: modelData.state === "active" || modelData.state === "loaded"
+                                        Canvas {
+                                            id: localSparkCanvas
+                                            anchors.fill: parent
+                                            onPaint: {
+                                                var context = getContext("2d")
+                                                context.clearRect(0, 0, width, height)
+                                                context.strokeStyle = modelData.state === "active" ? root.goodColor : "#2f333d"
+                                                context.lineWidth = 1.4
+                                                context.beginPath()
+                                                var values = root.localModelHistory[modelData.id] || []
+                                                if (modelData.state === "loaded" || values.length < 2) {
+                                                    context.moveTo(0, height / 2)
+                                                    context.lineTo(width, height / 2)
+                                                } else {
+                                                    var maximum = Math.max.apply(Math, values.concat([1]))
+                                                    for (var sample = 0; sample < values.length; sample++) {
+                                                        var x = width * sample / Math.max(1, values.length - 1)
+                                                        var y = height - 2 - ((height - 4) * values[sample] / maximum)
+                                                        if (sample === 0) context.moveTo(x, y)
+                                                        else context.lineTo(x, y)
+                                                    }
+                                                }
+                                                context.stroke()
+                                            }
+                                            Connections { target: root; function onLocalModelHistoryChanged() { localSparkCanvas.requestPaint() } }
+                                        }
+                                    }
+
+                                    PlasmaComponents.Label {
+                                        Layout.preferredWidth: 92
+                                        text: modelData.state === "active" ? root.localMetricText(modelData)
+                                            : modelData.state === "loaded" ? i18n("Idle")
+                                                : modelData.state === "installed" ? i18n("Unmounted")
+                                                    : root.localStateText(modelData.state)
+                                        color: modelData.state === "active" ? root.textColor : root.quietColor
+                                        font.family: root.designFont
+                                        font.pixelSize: 10
+                                        horizontalAlignment: Text.AlignRight
+                                        elide: Text.ElideRight
+                                    }
+
+                                    QQC2.ToolButton {
+                                        width: 28
+                                        height: 28
+                                        visible: modelData.capabilities && (modelData.capabilities.unmount || modelData.capabilities.mount)
+                                        enabled: !root.localModelsLoading && modelData.state !== "active"
+                                        text: modelData.state === "installed" ? i18n("Mount") : i18n("Unmount")
+                                        display: QQC2.AbstractButton.IconOnly
+                                        Accessible.name: text
+                                        onClicked: root.localModelAction(modelData.state === "installed" ? "mount" : "unmount",
+                                            modelData.runtime, modelData.id)
+                                        QQC2.ToolTip.visible: hovered
+                                        QQC2.ToolTip.text: modelData.state === "active" ? i18n("Unavailable while active") : text
+                                        contentItem: Kirigami.Icon {
+                                            source: modelData.state === "installed" ? "go-up" : "media-eject"
+                                            color: parent.enabled ? root.mutedColor : root.quietColor
+                                        }
+                                    }
+                                }
+                            }
+
+                            footer: Column {
+                                width: localModelsList.width
+                                spacing: 6
+                                Item { width: 1; height: 8 }
+                                Repeater {
+                                    model: root.localRuntimes
+                                    delegate: RowLayout {
+                                        required property var modelData
+                                        width: localModelsList.width
+                                        visible: modelData.capabilities && modelData.capabilities.releaseRuntime
+                                        PlasmaComponents.Label {
+                                            text: modelData.id + " · " + i18n("runtime-wide control")
+                                            color: root.quietColor
+                                            font.family: root.designFont
+                                            font.pixelSize: 10
+                                            Layout.fillWidth: true
+                                        }
+                                        QQC2.Button {
+                                            text: i18n("Release runtime")
+                                            enabled: !root.localModelsLoading
+                                            onClicked: root.localModelAction("release", modelData.id, "")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    PlasmaComponents.Label {
+                        visible: !root.localModelsLoading && root.localModels.length === 0 && root.localModelsError.length === 0
+                        Layout.fillWidth: true
+                        text: i18n("No installed local models in configured roots.")
+                        color: root.mutedColor
+                        font.family: root.designFont
+                        font.pixelSize: 12
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+            }
+
+            Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 78
 
@@ -2707,6 +3094,33 @@ PlasmoidItem {
         }
     }
 
+    // local-ai owns runtime probing and JSON normalization. The widget never
+    // parses ps output or talks to a model server directly.
+    Plasma5Support.DataSource {
+        id: localAiExecutable
+        engine: "executable"
+        onNewData: function(sourceName, data) {
+            disconnectSource(sourceName)
+            root.localModelsLoading = false
+            var text = String(data.stdout || "").trim()
+            if (text.length === 0) {
+                root.localModelsError = String(data.stderr || i18n("No output from local model monitor")).trim()
+                return
+            }
+            try {
+                var payload = JSON.parse(text)
+                if (payload.ok === false) {
+                    root.localModelsError = payload.error || i18n("Local model action failed")
+                    return
+                }
+                root.localModelsError = ""
+                root.applyLocalInventory(payload.inventory || payload)
+            } catch (error) {
+                root.localModelsError = i18n("Invalid local model response")
+            }
+        }
+    }
+
     Timer {
         id: usageWatchdog
         interval: 120000
@@ -2741,12 +3155,21 @@ PlasmoidItem {
         onTriggered: root.refreshClaude()
     }
 
+    Timer {
+        id: localModelsRefreshTimer
+        interval: root.localModelsRefreshSeconds * 1000
+        repeat: true
+        running: root.selectedPopupTab === "local"
+        onTriggered: root.refreshLocalModels()
+    }
+
     onRefreshSecondsChanged: {
         refreshTimer.restart()
         refresh()
     }
 
     onClaudeRefreshSecondsChanged: claudeRefreshTimer.restart()
+    onLocalModelsRefreshSecondsChanged: localModelsRefreshTimer.restart()
 
     onCodexbarCommandChanged: {
         cancelUsageRefresh()
