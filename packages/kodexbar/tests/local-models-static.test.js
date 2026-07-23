@@ -17,7 +17,7 @@ assert.match(qml, /width: 32/, "provider tabs are compact icon controls");
 assert.match(qml, /modelData\.kind === "local" && providerTabs\.count > 1/, "Local follows provider icons behind a separator");
 assert.match(qml, /Layout\.preferredHeight: 520/, "the popup uses the compact 520px viewport");
 assert.match(qml, /text: i18n\("Local models"\)/, "local models tab is present");
-assert.match(qml, /ScrollBar\.horizontal\.policy: ScrollBar\.AlwaysOff/, "local list cannot create horizontal scrolling");
+assert.match(qml, /QQC2\.ScrollBar\.horizontal\.policy: QQC2\.ScrollBar\.AlwaysOff/, "local list cannot create horizontal scrolling");
 assert.match(qml, /classificationConfidence/, "classification confidence is rendered");
 assert.match(qml, /localMetricText/, "missing throughput has an honest label");
 assert.match(qml, /state === "installed"/, "installed but unmounted rows are preserved");

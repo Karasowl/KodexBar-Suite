@@ -2721,7 +2721,7 @@ PlasmoidItem {
                             spacing: 2
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
-                            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                            QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
                             delegate: Rectangle {
                                 required property var modelData
