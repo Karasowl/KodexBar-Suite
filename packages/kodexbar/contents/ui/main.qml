@@ -1566,7 +1566,7 @@ PlasmoidItem {
                     text: i18n("%1 mdl", strip.activeLocalCount)
                     color: root.textColor
                     font.family: root.designFont
-                    font.pixelSize: 12.5
+                    font.pixelSize: 13
                     font.weight: Font.DemiBold
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -1659,12 +1659,22 @@ PlasmoidItem {
                     color: "transparent"
 
                     Image {
+                        visible: root.selectedPopupTab !== "local"
                         anchors.centerIn: parent
                         width: 26
                         height: 26
-                        source: root.selectedPopupTab === "local" ? Qt.resolvedUrl("../icons/kodexbar.svg") : root.providerIconSource(root.activeEntry.provider)
+                        source: root.providerIconSource(root.activeEntry.provider)
                         fillMode: Image.PreserveAspectFit
                         smooth: true
+                    }
+
+                    Kirigami.Icon {
+                        visible: root.selectedPopupTab === "local"
+                        anchors.centerIn: parent
+                        width: 22
+                        height: 22
+                        source: "cpu"
+                        color: root.textColor
                     }
                 }
 
