@@ -868,6 +868,34 @@ const mainQml = fs.readFileSync(mainQmlPath, "utf8")
 const preferencesQml = fs.readFileSync(preferencesQmlPath, "utf8")
 const configXml = fs.readFileSync(configXmlPath, "utf8")
 const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"))
+
+function qmlFunctionSource(name) {
+    const start = mainQml.indexOf(`function ${name}(`)
+    assert.notEqual(start, -1, `${name} is present in main.qml`)
+    const openingBrace = mainQml.indexOf("{", start)
+    let depth = 0
+    for (let index = openingBrace; index < mainQml.length; index += 1) {
+        if (mainQml[index] === "{") depth += 1
+        if (mainQml[index] === "}") depth -= 1
+        if (depth === 0) return mainQml.slice(start, index + 1)
+    }
+    assert.fail(`${name} has a closing brace`)
+}
+
+const localCommandContext = { localAiCommand: "local-ai" }
+vm.createContext(localCommandContext)
+vm.runInContext(
+    `${qmlFunctionSource("shellQuote")}\n${qmlFunctionSource("localAiCommandLine")}\nthis.localAiCommandLine = localAiCommandLine`,
+    localCommandContext,
+    { filename: mainQmlPath }
+)
+const buildLocalCommand = localCommandContext.localAiCommandLine
+assert.equal(buildLocalCommand(["status"]), "'local-ai' 'status'", "status uses an explicit argv array")
+assert.equal(buildLocalCommand(["mount", "llama_cpp", "llama_cpp:0123456789ab"]), "'local-ai' 'mount' 'llama_cpp' 'llama_cpp:0123456789ab'", "mount uses an explicit argv array")
+assert.equal(buildLocalCommand(["unmount", "llama_cpp", "llama_cpp:0123456789ab"]), "'local-ai' 'unmount' 'llama_cpp' 'llama_cpp:0123456789ab'", "unmount uses an explicit argv array")
+assert.equal(buildLocalCommand(["release", "llama_cpp", "--confirm"]), "'local-ai' 'release' 'llama_cpp' '--confirm'", "release uses an explicit argv array")
+assert.equal(buildLocalCommand(["stop", "llama_cpp", "--confirm"]), "'local-ai' 'stop' 'llama_cpp' '--confirm'", "stop uses an explicit argv array")
+
 assert.match(
     mainQml,
     /ProviderLogic\.replaceProviderEntries\(/,
@@ -889,6 +917,9 @@ assert.match(mainQml, /text: i18n\("Open AI CLI Control"\)/, "the widget can ope
 assert.match(mainQml, /launchAiControl\(\["--update", "all"\]\)/, "the widget can invoke the multi-CLI update flow")
 assert.match(mainQml, /konsole --hold -e/, "multi-CLI updates keep terminal output visible")
 assert.match(mainQml, /aiControlExecutable\.connectSource\(aiControlCommandLine/, "AI actions use the executable bridge")
+assert.match(mainQml, /function localAiCommandLine\(argv\)/, "local-ai command construction receives an explicit argv array")
+assert.match(mainQml, /function aiControlCommandLine\(argv, showTerminal\)/, "AI CLI command construction receives an explicit argv array")
+assert.doesNotMatch(mainQml, /\barguments\b/, "QML command construction never captures JavaScript's special arguments object")
 assert.doesNotMatch(mainQml, /readonly property var configureAction:/, "the popup no longer keeps an unused Plasma configure action")
 assert.match(mainQml, /id: configureButton/, "the popup exposes a discoverable configuration button")
 assert.match(mainQml, /PreferencesWindow \{\s*id: preferencesWindow\s*appletRoot: root/, "the widget owns one reusable preferences window")

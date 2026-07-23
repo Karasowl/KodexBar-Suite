@@ -437,19 +437,19 @@ PlasmoidItem {
         return wrapEngineCommand(command || codexbarCommand, args)
     }
 
-    function aiControlCommandLine(arguments, showTerminal) {
+    function aiControlCommandLine(argv, showTerminal) {
         var command = showTerminal ? "konsole --hold -e" : ""
         command += (command.length > 0 ? " " : "") + shellQuote(aiControlCommand)
-        for (var i = 0; i < arguments.length; i++) {
-            command += " " + shellQuote(arguments[i])
+        for (var i = 0; i < argv.length; i++) {
+            command += " " + shellQuote(argv[i])
         }
         return command
     }
 
-    function localAiCommandLine(arguments) {
+    function localAiCommandLine(argv) {
         var command = shellQuote(localAiCommand)
-        for (var i = 0; i < arguments.length; i++) {
-            command += " " + shellQuote(arguments[i])
+        for (var i = 0; i < argv.length; i++) {
+            command += " " + shellQuote(argv[i])
         }
         return command
     }
@@ -478,17 +478,17 @@ PlasmoidItem {
             localModelsError = i18n("Invalid local runtime action.")
             return
         }
-        var arguments = [action, runtime]
+        var argv = [action, runtime]
         if (model && model.length > 0) {
-            arguments.push(model)
+            argv.push(model)
         }
         if (confirmed === true) {
-            arguments.push("--confirm")
+            argv.push("--confirm")
         }
         localModelsLoading = true
         localModelsError = ""
         localAiExecutable.connectedSources = []
-        localAiExecutable.connectSource(localAiCommandLine(arguments))
+        localAiExecutable.connectSource(localAiCommandLine(argv))
         localModelsWatchdog.restart()
     }
 
@@ -564,10 +564,10 @@ PlasmoidItem {
         localModelHistory = histories
     }
 
-    function launchAiControl(arguments, showTerminal) {
+    function launchAiControl(argv, showTerminal) {
         aiControlError = ""
         aiControlExecutable.connectedSources = []
-        aiControlExecutable.connectSource(aiControlCommandLine(arguments || [], showTerminal === true))
+        aiControlExecutable.connectSource(aiControlCommandLine(argv || [], showTerminal === true))
     }
 
     function shellQuote(value) {
