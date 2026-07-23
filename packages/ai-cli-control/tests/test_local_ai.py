@@ -124,6 +124,49 @@ class LocalAIContractTests(unittest.TestCase):
         self.assertEqual(data["models"][0]["kind"], "llm")
         self.assertEqual(data["models"][0]["state"], "installed")
 
+    def test_discovery_keeps_same_basename_at_distinct_strong_locations(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            configured = Path(temporary) / "configured" / "shared.gguf"
+            independent = Path(temporary) / "independent" / "shared.gguf"
+            configured.parent.mkdir(parents=True)
+            independent.parent.mkdir(parents=True)
+            configured.write_bytes(b"GGUF")
+            independent.write_bytes(b"GGUF")
+            original_registry = local_ai.driver_registry
+            local_ai.driver_registry = lambda config: {"llama_cpp": lambda runtime: (
+                [local_ai.make_model("llama_cpp", "shared", location=str(configured), state="loaded")],
+                {"id": "llama_cpp", "state": "connected", "capabilities": {}})}
+            try:
+                config = local_ai.default_config()
+                config["roots"] = [str(configured.parent), str(independent.parent)]
+                config["knownRoots"] = []
+                config["observeGpuProcesses"] = False
+                for key, runtime in config["runtimes"].items(): runtime["enabled"] = key == "llama_cpp"
+                data = local_ai.inventory(config)
+            finally:
+                local_ai.driver_registry = original_registry
+        self.assertEqual({item["location"] for item in data["models"]}, {str(configured), str(independent)})
+
+    def test_discovery_omits_only_the_exact_runtime_location(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            configured = Path(temporary) / "configured" / "shared.gguf"
+            configured.parent.mkdir(parents=True)
+            configured.write_bytes(b"GGUF")
+            original_registry = local_ai.driver_registry
+            local_ai.driver_registry = lambda config: {"llama_cpp": lambda runtime: (
+                [local_ai.make_model("llama_cpp", "shared", location=str(configured), state="loaded")],
+                {"id": "llama_cpp", "state": "connected", "capabilities": {}})}
+            try:
+                config = local_ai.default_config()
+                config["roots"] = [str(configured.parent)]
+                config["knownRoots"] = []
+                config["observeGpuProcesses"] = False
+                for key, runtime in config["runtimes"].items(): runtime["enabled"] = key == "llama_cpp"
+                data = local_ai.inventory(config)
+            finally:
+                local_ai.driver_registry = original_registry
+        self.assertEqual([(item["runtime"], item["location"]) for item in data["models"]], [("llama_cpp", str(configured))])
+
     def test_metadata_and_path_classification_prevent_known_false_llms(self) -> None:
         self.assertEqual(local_ai.classify("qwen-image-Q4", location="/weights/qwen-image.gguf"), ("image", "heuristic"))
         self.assertEqual(local_ai.classify("umt5-xxl-encoder", location="/models/text_encoders/umt5.gguf"), ("embedding", "heuristic"))
@@ -196,10 +239,12 @@ class LocalAIContractTests(unittest.TestCase):
             for detail in ("HTTP 400: metrics disabled", "HTTP 501: not implemented", "runtime response exceeds the safe size limit"):
                 with self.subTest(detail=detail):
                     local_ai.request_text = lambda *args, _detail=detail, **kwargs: (_ for _ in ()).throw(local_ai.LocalAIError(_detail))
-                    models, _ = local_ai.models_from_llama(local_ai.Runtime("llama_cpp", "llama_cpp", "http://127.0.0.1:18100"))
+                    models, state = local_ai.models_from_llama(local_ai.Runtime("llama_cpp", "llama_cpp", "http://127.0.0.1:18100"))
                     self.assertEqual(models[0]["state"], "loaded")
                     self.assertFalse(models[0]["activity"])
                     self.assertIsNone(models[0]["metric"])
+                    self.assertFalse(models[0]["evidence"]["activityKnown"])
+                    self.assertFalse(state["activityProbe"])
         finally:
             local_ai.request_json, local_ai.request_text = original_json, original_text
 
@@ -258,6 +303,27 @@ class LocalAIContractTests(unittest.TestCase):
                 local_ai.action(config, "unmount", "llama_cpp", "qwen3-coder")
         finally:
             local_ai.request_json, local_ai.request_text = original, original_text
+
+    def test_llama_unmount_rejects_when_metrics_cannot_verify_activity(self) -> None:
+        calls: list[tuple[str, str, object]] = []
+        original_json, original_text = local_ai.request_json, local_ai.request_text
+
+        def fake(url: str, method: str = "GET", payload: object = None, **kwargs: object) -> object:
+            calls.append((url, method, payload))
+            if url.endswith("/models"):
+                return {"data": [{"id": "worker", "status": "loaded"}]}
+            return {}
+
+        local_ai.request_json = fake
+        local_ai.request_text = lambda *args, **kwargs: (_ for _ in ()).throw(local_ai.LocalAIError("metrics disabled"))
+        try:
+            config = local_ai.default_config()
+            for key, runtime in config["runtimes"].items(): runtime["enabled"] = key == "llama_cpp"
+            with self.assertRaisesRegex(local_ai.LocalAIError, "could not verify llama.cpp activity"):
+                local_ai.action(config, "unmount", "llama_cpp", "worker")
+        finally:
+            local_ai.request_json, local_ai.request_text = original_json, original_text
+        self.assertFalse(any(method == "POST" and url.endswith("/models/unload") for url, method, _ in calls))
 
     def test_unmount_resolves_the_normalized_id_to_the_runtime_name(self) -> None:
         calls: list[tuple[str, str, object]] = []
@@ -376,7 +442,7 @@ class LocalAIContractTests(unittest.TestCase):
         self.assertEqual(models[0]["metric"], None)
         self.assertFalse(any(models[0]["capabilities"].values()))
         self.assertEqual(models[0]["name"], "weights.gguf")
-        self.assertEqual(models[0]["evidence"], {"pid": 4312, "runtimeExecutable": "custom-server", "modelEvidence": "weights.gguf"})
+        self.assertEqual(models[0]["evidence"], {"pid": 4312, "runtimeExecutable": "custom-server", "modelEvidence": "weights.gguf", "activityKnown": False})
 
     def test_gpu_observer_tolerates_missing_nvidia_tools(self) -> None:
         self.assertEqual(local_ai.observed_gpu_processes({}, run=lambda *args, **kwargs: (_ for _ in ()).throw(OSError("missing"))), [])
@@ -407,6 +473,28 @@ class LocalAIContractTests(unittest.TestCase):
         self.assertEqual(llama["state"], "installed")
         self.assertEqual(llama["evidence"]["runtimeModelEvidence"], "/models/Qwen-Worker.gguf")
         self.assertEqual(unknown["evidence"]["runtimeExecutable"], "custom-server")
+
+    def test_inventory_keeps_independent_llama_server_and_relative_aliases(self) -> None:
+        original_json, original_text, original_observed = local_ai.request_json, local_ai.request_text, local_ai.observed_gpu_processes
+        local_ai.request_json = lambda url, **kwargs: {"data": [{"id": "shared", "status": {"value": "sleeping", "args": ["--model", "/configured/models/shared.gguf"]}}]}
+        local_ai.request_text = lambda *args, **kwargs: ""
+        local_ai.observed_gpu_processes = lambda config: [
+            local_ai.make_model("unknown_process", "shared.gguf", location="/configured/models/shared.gguf", state="loaded",
+                detail="GPU process observed, activity unknown", evidence={"pid": 321, "runtimeExecutable": "llama-server", "modelEvidence": "/configured/models/shared.gguf", "activityKnown": False}),
+            local_ai.make_model("unknown_process", "shared.gguf", location="/independent/models/shared.gguf", state="loaded",
+                detail="GPU process observed, activity unknown", evidence={"pid": 322, "runtimeExecutable": "llama-server", "modelEvidence": "/independent/models/shared.gguf", "activityKnown": False}),
+            local_ai.make_model("unknown_process", "shared", location="shared", state="loaded",
+                detail="GPU process observed, activity unknown", evidence={"pid": 323, "runtimeExecutable": "llama-server", "modelEvidence": "shared", "activityKnown": False}),
+        ]
+        try:
+            config = local_ai.default_config()
+            config["knownRoots"] = []
+            for key, runtime in config["runtimes"].items(): runtime["enabled"] = key == "llama_cpp"
+            data = local_ai.inventory(config)
+        finally:
+            local_ai.request_json, local_ai.request_text, local_ai.observed_gpu_processes = original_json, original_text, original_observed
+        unknown_locations = {item["location"] for item in data["models"] if item["runtime"] == "unknown_process"}
+        self.assertEqual(unknown_locations, {"/independent/models/shared.gguf", "shared"})
 
     def test_inventory_orders_residents_before_unmounted_models(self) -> None:
         original_json, original_text = local_ai.request_json, local_ai.request_text

@@ -44,8 +44,13 @@ assert.match(qml, /visible: !!\(modelData\.capabilities && \(modelData\.capabili
 assert.match(qml, /visible: !!\(modelData\.capabilities && modelData\.capabilities\.stopRuntime\)/, "runtime stop controls coerce sparse capabilities to booleans");
 assert.match(qml, /Layout\.maximumHeight: 340/, "local inventory keeps the approved compact scroll limit");
 assert.match(qml, /localKindGlyph/, "local rows are grouped with a semantic type glyph");
-assert.match(qml, /localModelMeta/, "local rows retain size, quantization, VRAM and confidence evidence");
+assert.match(qml, /localModelMeta/, "local rows retain size, quantization, memory and confidence evidence");
+assert.match(qml, /memory\.vramMiB[\s\S]{0,180}memory\.ramMiB/, "local metadata keeps VRAM and RAM when the runtime reports them");
 assert.match(qml, /function localModelIsResident\(item\)/, "resident state is defined once for both local surfaces");
+assert.match(qml, /function localModelActivityKnown\(item\)/, "activity certainty is represented independently from residency");
+assert.match(qml, /i18n\("Activity unknown"\)/, "a resident with unknown activity is never labelled idle");
+assert.match(qml, /text: root\.localModelActivityText\(modelData\)/, "both local surfaces use the same honest activity label");
+assert.match(qml, /function localModelCanUnmount\(item\)/, "uncertain activity disables unmount affordances before the safe backend rejects them");
 assert.match(qml, /function localModelOrder\(left, right\)/, "the QML inventory keeps residents globally before installed models");
 assert.match(qml, /localModels = payload\.models\.slice\(\)\.sort/, "the rendered inventory applies the resident-first order from the same payload");
 assert.match(qml, /i18n\("IN MEMORY"\)/, "resident models get a distinct top section");

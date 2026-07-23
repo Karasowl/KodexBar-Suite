@@ -171,6 +171,28 @@ def safe_name(value: Any) -> str:
     return str(value or "").strip()
 
 
+def canonical_model_location(value: Any) -> str:
+    """Return a strong model identity only for an absolute canonical path."""
+    text = safe_name(value)
+    if not text:
+        return ""
+    path = Path(text).expanduser()
+    if not path.is_absolute():
+        return ""
+    try:
+        return str(path.resolve(strict=False))
+    except OSError:
+        return ""
+
+
+def model_locations(model: dict[str, Any]) -> set[str]:
+    """Collect only strong location evidence from a normalized model record."""
+    evidence = model.get("evidence") if isinstance(model.get("evidence"), dict) else {}
+    locations = {canonical_model_location(model.get("location")), canonical_model_location(evidence.get("runtimeModelEvidence"))}
+    locations.discard("")
+    return locations
+
+
 def model_id(runtime: str, name: str, location: str = "") -> str:
     digest = hashlib.sha256((runtime + "\0" + name + "\0" + location).encode("utf-8")).hexdigest()[:12]
     return f"{runtime}:{digest}"
@@ -331,7 +353,7 @@ def discover_files(config: dict[str, Any], runtimes: Iterable[Runtime], issues: 
                     path = Path(directory) / filename
                     if path.suffix.lower() not in MODEL_SUFFIXES:
                         continue
-                    location = str(path)
+                    location = canonical_model_location(path) or str(path)
                     if location in seen:
                         continue
                     seen.add(location)
@@ -384,7 +406,8 @@ def observed_gpu_processes(config: dict[str, Any], run: Any = subprocess.run, pr
             model_evidence = next((item for item in files if Path(item).suffix.lower() in MODEL_SUFFIXES), "")
         if not model_evidence:
             continue
-        evidence = {"pid": int(pid), "runtimeExecutable": executable, "modelEvidence": model_evidence}
+        evidence = {"pid": int(pid), "runtimeExecutable": executable, "modelEvidence": model_evidence,
+                    "activityKnown": False}
         label = Path(model_evidence).name or model_evidence
         models.append(make_model("unknown_process", label, location=model_evidence, state="loaded",
             detail="GPU process observed, activity unknown", evidence=evidence,
@@ -403,37 +426,22 @@ GPU_RUNTIME_EXECUTABLES = {
 }
 
 
-def model_evidence_identity(value: Any) -> str:
-    """Normalize a model path or selector without treating arbitrary GPU work as AI."""
-    text = safe_name(value)
-    if not text:
-        return ""
-    leaf = Path(text).name
-    suffix = Path(leaf).suffix.lower()
-    if suffix in MODEL_SUFFIXES:
-        leaf = Path(leaf).stem
-    return re.sub(r"[^a-z0-9]+", "", leaf.lower())
-
-
 def coalesce_gpu_observations(models: list[dict[str, Any]], observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Drop only unknown GPU children that repeat a model from their known runtime.
 
-    A matching executable alone is not enough.  The process must also carry a
-    model selector that identifies a resident model already reported by that
-    same runtime. Runtime state is authoritative, including a sleeping model
-    normalized as installed. Everything else stays visible as an unknown,
-    no-control observation.
+    A matching executable or basename alone is not enough. The process must
+    carry the same absolute canonical model location reported by that runtime.
+    Runtime state is authoritative, including a sleeping model normalized as
+    installed. Relative aliases and every other uncertain observation stay
+    visible as unknown, no-control work.
     """
-    runtime_model_identities: dict[str, set[str]] = {}
+    runtime_model_locations: dict[str, set[str]] = {}
     for model in models:
         if model.get("runtime") == "unknown_process":
             continue
-        evidence = model.get("evidence") if isinstance(model.get("evidence"), dict) else {}
-        values = (model.get("location"), evidence.get("runtimeModelEvidence"), model.get("name"))
-        identities = {model_evidence_identity(value) for value in values}
-        identities.discard("")
-        if identities:
-            runtime_model_identities.setdefault(str(model.get("runtime")), set()).update(identities)
+        locations = model_locations(model)
+        if locations:
+            runtime_model_locations.setdefault(str(model.get("runtime")), set()).update(locations)
 
     retained = []
     for observation in observations:
@@ -443,8 +451,8 @@ def coalesce_gpu_observations(models: list[dict[str, Any]], observations: list[d
         evidence = observation.get("evidence") if isinstance(observation.get("evidence"), dict) else {}
         executable = Path(safe_name(evidence.get("runtimeExecutable"))).name.lower()
         runtime_id = GPU_RUNTIME_EXECUTABLES.get(executable)
-        identity = model_evidence_identity(evidence.get("modelEvidence"))
-        if runtime_id and identity and identity in runtime_model_identities.get(runtime_id, set()):
+        location = canonical_model_location(evidence.get("modelEvidence"))
+        if runtime_id and location and location in runtime_model_locations.get(runtime_id, set()):
             continue
         retained.append(observation)
     return retained
@@ -481,9 +489,10 @@ def inventory(config: dict[str, Any]) -> dict[str, Any]:
             runtime_states.append(state)
         except LocalAIError as error:
             runtime_states.append({"id": runtime.id, "state": "disconnected", "capabilities": {}, "detail": str(error)})
-    runtime_names = {re.sub(r"[^a-z0-9]+", "", item["name"].lower()) for item in models}
+    runtime_locations = set().union(*(model_locations(item) for item in models)) if models else set()
     for item in discover_files(config, runtimes, issues):
-        if re.sub(r"[^a-z0-9]+", "", item["name"].lower()) not in runtime_names:
+        location = canonical_model_location(item.get("location"))
+        if not location or location not in runtime_locations:
             models.append(item)
     models.extend(coalesce_gpu_observations(models, observed_gpu_processes(config)))
     # Residents must lead every local surface. The remaining type order keeps
@@ -559,6 +568,8 @@ def validated_user_service(runtime: Runtime) -> None:
 
 def action(config: dict[str, Any], command: str, runtime_id: str, model_key: str = "", confirmed: bool = False) -> dict[str, Any]:
     runtime = find_runtime(config, runtime_id)
+    if command == "unmount" and runtime.id == "llama_cpp" and not runtime_has_reliable_activity_probe(runtime):
+        raise LocalAIError("could not verify llama.cpp activity, refusing to unmount")
     runtime_model = ensure_not_active(runtime, model_key if command in {"mount", "unmount"} else "")
     if command == "mount" and runtime.id == "llama_cpp":
         request_json(runtime.endpoint + "/models/load", "POST", {"model": runtime_model})

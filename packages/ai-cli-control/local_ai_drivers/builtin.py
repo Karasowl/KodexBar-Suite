@@ -64,6 +64,7 @@ def builtin_drivers(api):
         if not isinstance(values, list):
             raise api["LocalAIError"]("runtime returned an invalid model catalog")
         models = []
+        activity_probe = True
         for item in values:
             item = item if isinstance(item, dict) else {"id": item}
             name = safe_text(item.get("id") or item.get("name") or item.get("model"))
@@ -82,27 +83,35 @@ def builtin_drivers(api):
             state = {"loaded": "loaded", "loading": "loading", "unloaded": "installed", "sleeping": "installed",
                      "slept": "installed", "unloading": "unloading", "active": "active"}.get(status, "unknown")
             metric_value = None
+            activity_known = state not in {"loaded", "active"}
             if state in {"loaded", "active"} and request_text is not None:
                 try:
                     gauges = llama_metrics(request_text(runtime.endpoint + "/metrics?model=" + quote(name, safe="")))
-                    if gauges.get("llamacpp:requests_processing", 0) > 0:
-                        active, state = True, "active"
-                    if state == "active":
-                        predicted = gauges.get("llamacpp:predicted_tokens_seconds")
-                        if predicted is not None and predicted >= 0:
-                            metric_value = predicted
+                    if "llamacpp:requests_processing" in gauges:
+                        activity_known = True
+                        if gauges["llamacpp:requests_processing"] > 0:
+                            active, state = True, "active"
+                        if state == "active":
+                            predicted = gauges.get("llamacpp:predicted_tokens_seconds")
+                            if predicted is not None and predicted >= 0:
+                                metric_value = predicted
                 except api["LocalAIError"]:
                     pass
+            if state in {"loaded", "active"} and not activity_known:
+                activity_probe = False
             if active and state == "loaded":
                 state = "active"
             detail = "sleeping" if status in {"sleeping", "slept"} else status
             runtime_model_evidence = model_argument(status_object.get("args") if status_object else None)
+            evidence = {"activityKnown": activity_known}
+            if runtime_model_evidence:
+                evidence["runtimeModelEvidence"] = runtime_model_evidence
             models.append(make_model("llama_cpp", name, state=state, declared_kind=safe_text(item.get("type")),
                 metric_value=metric_value, metric_unit="tok/s" if metric_value is not None else "", activity=state == "active",
                 memory={"vramMiB": item.get("vram_mib", item.get("vramMiB")), "ramMiB": item.get("ram_mib", item.get("ramMiB"))},
                 capabilities={"mount": True, "unmount": True, "releaseRuntime": False, "stopRuntime": False}, detail=detail,
-                evidence={"runtimeModelEvidence": runtime_model_evidence} if runtime_model_evidence else {}))
-        return models, {"id": "llama_cpp", "state": "connected", "activityProbe": True,
+                evidence=evidence))
+        return models, {"id": "llama_cpp", "state": "connected", "activityProbe": activity_probe,
             "capabilities": {"releaseRuntime": False, "stopRuntime": False}}
 
     def ollama(runtime):

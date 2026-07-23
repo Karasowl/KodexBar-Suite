@@ -536,6 +536,23 @@ PlasmoidItem {
         return !!(item && (item.state === "active" || item.state === "loaded"))
     }
 
+    function localModelActivityKnown(item) {
+        return !(item && item.evidence && item.evidence.activityKnown === false)
+    }
+
+    function localModelActivityText(item) {
+        if (!item) return i18n("State unknown")
+        if (item.state === "active") return localMetricText(item)
+        if (item.state === "loaded") return localModelActivityKnown(item) ? i18n("Idle") : i18n("Activity unknown")
+        if (item.state === "installed") return i18n("Unmounted")
+        return localStateText(item.state)
+    }
+
+    function localModelCanUnmount(item) {
+        return !!(item && item.state !== "active" && localModelActivityKnown(item)
+            && item.capabilities && item.capabilities.unmount)
+    }
+
     function localResidentCount() {
         return localModels.filter(function(item) { return localModelIsResident(item) }).length
     }
@@ -554,12 +571,13 @@ PlasmoidItem {
         var memory = item && item.memory ? item.memory : ({})
         var size = item && item.evidence && item.evidence.size ? item.evidence.size : i18n("size unknown")
         var quant = item && item.evidence && item.evidence.quant ? item.evidence.quant : i18n("quant unknown")
-        var vram = typeof memory.vramMiB === "number" && memory.vramMiB > 0
-            ? formatNumber(memory.vramMiB / 1024) + " GB"
-            : i18n("VRAM unknown")
+        var memoryParts = []
+        if (typeof memory.vramMiB === "number" && memory.vramMiB > 0) memoryParts.push("VRAM " + formatNumber(memory.vramMiB / 1024) + " GB")
+        if (typeof memory.ramMiB === "number" && memory.ramMiB > 0) memoryParts.push("RAM " + formatNumber(memory.ramMiB / 1024) + " GB")
+        var memoryText = memoryParts.length ? memoryParts.join(" · ") : i18n("memory unknown")
         var type = localModelIsResident(item) ? localKindText(item.kind) + " · " : ""
         var confidence = item && item.classificationConfidence === "heuristic" ? " · " + i18n("heuristic") : ""
-        return type + size + " · " + quant + " · " + vram + confidence
+        return type + size + " · " + quant + " · " + memoryText + confidence
     }
 
     function applyLocalInventory(payload) {
@@ -3062,10 +3080,7 @@ PlasmoidItem {
 
                                     PlasmaComponents.Label {
                                         Layout.preferredWidth: modelData.state === "installed" ? 130 : 58
-                                        text: modelData.state === "active" ? root.localMetricText(modelData)
-                                            : modelData.state === "loaded" ? i18n("Idle")
-                                                : modelData.state === "installed" ? i18n("Unmounted")
-                                                    : root.localStateText(modelData.state)
+                                        text: root.localModelActivityText(modelData)
                                         color: modelData.state === "active" ? root.textColor : root.quietColor
                                         font.family: root.designFont
                                         font.pixelSize: 10
@@ -3079,14 +3094,15 @@ PlasmoidItem {
                                         visible: !!(modelData.capabilities && (modelData.capabilities.unmount || modelData.capabilities.mount))
                                         enabled: !!(!root.localModelsLoading && modelData.state !== "active"
                                             && ((modelData.state === "installed" && modelData.capabilities.mount)
-                                                || (modelData.state !== "installed" && modelData.capabilities.unmount)))
+                                                || (modelData.state !== "installed" && root.localModelCanUnmount(modelData))))
                                         text: modelData.state === "installed" && modelData.capabilities.mount ? i18n("Mount") : i18n("Unmount")
                                         display: QQC2.AbstractButton.IconOnly
                                         Accessible.name: text
                                         onClicked: root.localModelAction(modelData.state === "installed" ? "mount" : "unmount",
                                             modelData.runtime, modelData.id, false)
                                         QQC2.ToolTip.visible: hovered
-                                        QQC2.ToolTip.text: modelData.state === "active" ? i18n("Unavailable while active") : text
+                                        QQC2.ToolTip.text: modelData.state === "active" ? i18n("Unavailable while active")
+                                            : !root.localModelActivityKnown(modelData) ? i18n("Unavailable until activity is known") : text
                                         contentItem: Kirigami.Icon {
                                             source: modelData.state === "installed" && modelData.capabilities.mount ? "go-up" : "media-eject"
                                             color: parent.enabled ? root.mutedColor : root.quietColor
@@ -3432,11 +3448,11 @@ PlasmoidItem {
                                     PlasmaComponents.Label { text: modelData.metric && modelData.metric.unit ? modelData.metric.unit : ""; color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
                                     PlasmaComponents.Label { text: modelData.metric && typeof modelData.metric.value === "number" ? root.formatNumber(modelData.metric.value) : "—"; color: root.textColor; font.family: root.designFont; font.pixelSize: 11; font.weight: Font.Bold; anchors.verticalCenter: parent.verticalCenter }
                                 }
-                                PlasmaComponents.Label { Layout.preferredWidth: modelData.state === "installed" ? 78 : 58; visible: modelData.state !== "active"; text: modelData.state === "loaded" ? i18n("Idle") : i18n("Unmounted"); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
+                                PlasmaComponents.Label { Layout.preferredWidth: modelData.state === "installed" ? 78 : 104; visible: modelData.state !== "active"; text: root.localModelActivityText(modelData); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
                                 QQC2.ToolButton {
                                     width: 26; height: 26
                                     visible: !!(modelData.capabilities && (modelData.capabilities.unmount || modelData.capabilities.mount))
-                                    enabled: !!(!root.localModelsLoading && modelData.state !== "active" && ((modelData.state === "installed" && modelData.capabilities.mount) || (modelData.state !== "installed" && modelData.capabilities.unmount)))
+                                    enabled: !!(!root.localModelsLoading && modelData.state !== "active" && ((modelData.state === "installed" && modelData.capabilities.mount) || (modelData.state !== "installed" && root.localModelCanUnmount(modelData))))
                                     text: modelData.state === "installed" ? i18n("Mount") : i18n("Unmount")
                                     display: QQC2.AbstractButton.IconOnly
                                     Accessible.name: text
