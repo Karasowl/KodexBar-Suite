@@ -47,10 +47,6 @@ Instala la suite desde AUR:
 paru -S kodexbar-suite
 ```
 
-### GitHub Releases
-
-GitHub Releases proporciona el archivo fuente correspondiente y los artefactos del lanzamiento.
-
 El mismo paquete también aparece en gestores gráficos de AUR en CachyOS como Shelly u Octopi. Las fuentes de empaquetado están en `packaging/aur/`.
 
 Qué instala el paquete bajo `/usr`:
@@ -63,6 +59,10 @@ Cómo funcionan las cuotas después de instalar:
 - **Claude, Codex y Grok** obtienen sus cuotas de forma nativa con `kodexbar-quotas` (Python stdlib). Claude necesita credenciales OAuth de Claude Code. Codex lee `~/.codex/auth.json`. Grok lee `~/.grok/auth.json`. Si las credenciales faltan o caducaron, se muestra un mensaje de re-login (sin refresco automático de OAuth).
 - **Antigravity** sigue necesitando la CLI compañera [`codexbar` de steipete](https://github.com/steipete/CodexBar). Esa misma CLI es un respaldo opcional para Codex y Grok cuando la ruta nativa falla por red o infraestructura reintentable. En Arch/CachyOS instálala como `codexbar-cli-bin` (no es el paquete AUR homónimo de otro proyecto).
 - Una configuración de CodexBar que ya exista no se sobrescribe. El widget **no** inventa números de cuota.
+
+### GitHub Releases
+
+GitHub Releases proporciona el archivo fuente correspondiente y los artefactos del lanzamiento.
 
 ### KDE Store (canal posible solo para el widget)
 

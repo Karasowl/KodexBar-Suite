@@ -47,10 +47,6 @@ Install the suite from the AUR:
 paru -S kodexbar-suite
 ```
 
-### GitHub Releases
-
-GitHub Releases provides the matching source archive and release artifacts.
-
 The same package also appears in graphical AUR helpers on CachyOS such as Shelly or Octopi. Packaging sources live in `packaging/aur/`.
 
 What the package installs under `/usr`:
@@ -63,6 +59,10 @@ How quotas work after install:
 - **Claude, Codex, and Grok** quotas are fetched natively by `kodexbar-quotas` (Python stdlib). Claude needs Claude Code OAuth credentials. Codex reads `~/.codex/auth.json`. Grok reads `~/.grok/auth.json`. Expired or missing credentials show a re-login message (no automatic OAuth refresh).
 - **Antigravity** still needs the companion CLI [`codexbar` by steipete](https://github.com/steipete/CodexBar). The same CLI is an optional fallback for Codex and Grok when the native path hits a retryable network or infrastructure failure. On Arch/CachyOS install it as `codexbar-cli-bin` (not the unrelated AUR package also named `codexbar`).
 - An existing CodexBar config is never overwritten. The widget does **not** invent placeholder quota numbers.
+
+### GitHub Releases
+
+GitHub Releases provides the matching source archive and release artifacts.
 
 ### KDE Store (possible widget-only channel)
 
