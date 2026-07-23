@@ -1679,21 +1679,28 @@ PlasmoidItem {
                 }
 
                 Column {
+                    id: headerIdentity
                     x: 56
                     y: 12
+                    width: Math.max(0, headerTabs.x - 64)
                     spacing: 1
 
                     Row {
+                        id: headerTitleRow
+                        width: headerIdentity.width
                         spacing: 8
                         PlasmaComponents.Label {
+                            id: headerTitleLabel
+                            width: Math.min(implicitWidth, headerTitleRow.width)
                             text: root.selectedPopupTab === "local" ? i18n("Local models") : (root.activeEntry.displayName || i18n("Provider"))
                             color: root.textColor
                             font.family: root.designFont
                             font.pixelSize: 16
                             font.weight: Font.ExtraBold
+                            elide: Text.ElideRight
                         }
                         PlasmaComponents.Label {
-                            width: Math.max(0, headerTabs.x - 8 - (parent.x + parent.width))
+                            width: Math.max(0, headerTitleRow.width - headerTitleLabel.width - headerTitleRow.spacing)
                             text: root.selectedPopupTab === "local"
                                 ? i18n("%1 in memory", root.localModels.filter(function(item) { return item.state === "active" || item.state === "loaded" }).length)
                                 : (root.activeEntry.plan || root.activeEntry.accountLabel || root.activeEntry.source || i18n("Usage"))

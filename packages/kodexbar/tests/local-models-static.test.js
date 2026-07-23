@@ -13,6 +13,10 @@ assert.match(qml, /id: aiControlButton/, "AI CLI Control remains a separate head
 assert.match(qml, /id: aiControlPopup/, "AI CLI Control opens the overlapping local inspector");
 assert.match(qml, /source: "utilities-terminal"/, "AI CLI Control uses the terminal affordance");
 assert.match(qml, /id: headerTabs/, "provider and local tabs live in the compact header");
+assert.match(qml, /id: headerIdentity[\s\S]{0,180}width: Math\.max\(0, headerTabs\.x - 64\)/, "the identity column has a width independent of its title row")
+assert.match(qml, /id: headerTitleRow/, "the header title row is explicitly identified")
+assert.match(qml, /width: Math\.max\(0, headerTitleRow\.width - headerTitleLabel\.width - headerTitleRow\.spacing\)/, "the plan width is derived from the explicit title row")
+assert.doesNotMatch(qml, /headerTabs\.x - 8 - \(parent\.x \+ parent\.width\)/, "header text never depends on its own row implicit width")
 assert.match(qml, /Layout\.preferredHeight: 1/, "the inherited wide tab band is replaced by a hairline divider");
 assert.doesNotMatch(qml, /text: "KodexBar Suite"/, "the inherited generic popup heading is not the visual target");
 assert.doesNotMatch(qml, /AI provider quotas/, "the inherited generic popup subtitle is not the visual target");
