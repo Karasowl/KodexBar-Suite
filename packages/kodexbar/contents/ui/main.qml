@@ -515,6 +515,32 @@ PlasmoidItem {
         return labels[kind] || labels.unknown
     }
 
+    function localKindGlyph(kind) {
+        var glyphs = { "llm": "{}", "vision": "◎", "image": "◈", "video": "▷", "audio": "♪", "embedding": "⋮⋮", "unknown": "?" }
+        return glyphs[kind] || glyphs.unknown
+    }
+
+    function localKindColor(kind) {
+        var colors = { "llm": "#8f7bff", "vision": "#5ac8fa", "image": "#f0b429", "video": "#f0b429", "audio": "#ffd166", "embedding": "#45d483", "unknown": "#6b7080" }
+        return colors[kind] || colors.unknown
+    }
+
+    function localKindCount(kind) {
+        var count = localModels.filter(function(item) { return item.kind === kind }).length
+        return i18n("%1 models", count)
+    }
+
+    function localModelMeta(item) {
+        var memory = item && item.memory ? item.memory : ({})
+        var size = item && item.evidence && item.evidence.size ? item.evidence.size : i18n("size unknown")
+        var quant = item && item.evidence && item.evidence.quant ? item.evidence.quant : i18n("quant unknown")
+        var vram = typeof memory.vramMiB === "number" && memory.vramMiB > 0
+            ? formatNumber(memory.vramMiB / 1024) + " GB"
+            : i18n("VRAM unknown")
+        var confidence = item && item.classificationConfidence === "heuristic" ? " · " + i18n("heuristic") : ""
+        return size + " · " + quant + " · " + vram + confidence
+    }
+
     function applyLocalInventory(payload) {
         if (!payload || !(payload.models instanceof Array)) {
             localModelsError = i18n("Invalid local model response")
@@ -1432,6 +1458,7 @@ PlasmoidItem {
         id: strip
         property var blocks: []
         property bool preview: false
+        property int activeLocalCount: 0
 
         implicitWidth: stripRow.implicitWidth
         implicitHeight: 28
@@ -1506,6 +1533,44 @@ PlasmoidItem {
                     }
                 }
             }
+
+            Row {
+                visible: strip.activeLocalCount > 0
+                height: stripRow.height
+                spacing: 7
+
+                Rectangle {
+                    width: visible ? 1 : 0
+                    height: 16
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: "#333844"
+                }
+
+                Rectangle {
+                    width: 6
+                    height: 6
+                    radius: 3
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: root.goodColor
+                }
+
+                Kirigami.Icon {
+                    width: 14
+                    height: 14
+                    anchors.verticalCenter: parent.verticalCenter
+                    source: "cpu"
+                    color: root.mutedColor
+                }
+
+                PlasmaComponents.Label {
+                    text: i18n("%1 mdl", strip.activeLocalCount)
+                    color: root.textColor
+                    font.family: root.designFont
+                    font.pixelSize: 12.5
+                    font.weight: Font.DemiBold
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
         }
     }
 
@@ -1539,6 +1604,7 @@ PlasmoidItem {
                 anchors.rightMargin: 9
                 anchors.verticalCenter: parent.verticalCenter
                 blocks: compact.compactState.blocks || []
+                activeLocalCount: root.localModels.filter(function(item) { return item.state === "active" }).length
             }
 
             PlasmaComponents.Label {
@@ -1569,9 +1635,8 @@ PlasmoidItem {
         Rectangle {
             id: popupCard
             anchors.fill: parent
-            anchors.margins: 8
-            radius: 20
-            color: root.cardColor
+            radius: 18
+            color: "#131419"
             border.color: root.lineColor
             border.width: 1
             clip: true
@@ -1583,20 +1648,20 @@ PlasmoidItem {
 
             Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 64
+                Layout.preferredHeight: 62
 
                 Rectangle {
-                    width: 30
-                    height: 30
-                    radius: 9
+                    width: 26
+                    height: 26
+                    radius: 0
                     x: 16
                     y: 15
-                    color: root.raisedColor
+                    color: "transparent"
 
                     Image {
                         anchors.centerIn: parent
-                        width: 19
-                        height: 19
+                        width: 26
+                        height: 26
                         source: root.selectedPopupTab === "local" ? Qt.resolvedUrl("../icons/kodexbar.svg") : root.providerIconSource(root.activeEntry.provider)
                         fillMode: Image.PreserveAspectFit
                         smooth: true
@@ -1608,31 +1673,56 @@ PlasmoidItem {
                     y: 12
                     spacing: 1
 
-                    PlasmaComponents.Label {
-                        text: root.selectedPopupTab === "local" ? i18n("Local models") : (root.activeEntry.displayName || i18n("Provider"))
-                        color: root.textColor
-                        font.family: root.designFont
-                        font.pixelSize: 16
-                        font.weight: Font.ExtraBold
+                    Row {
+                        spacing: 8
+                        PlasmaComponents.Label {
+                            text: root.selectedPopupTab === "local" ? i18n("Local models") : (root.activeEntry.displayName || i18n("Provider"))
+                            color: root.textColor
+                            font.family: root.designFont
+                            font.pixelSize: 16
+                            font.weight: Font.ExtraBold
+                        }
+                        PlasmaComponents.Label {
+                            width: Math.max(0, headerTabs.x - 8 - (parent.x + parent.width))
+                            text: root.selectedPopupTab === "local"
+                                ? i18n("%1 in memory", root.localModels.filter(function(item) { return item.state === "active" || item.state === "loaded" }).length)
+                                : (root.activeEntry.plan || root.activeEntry.accountLabel || root.activeEntry.source || i18n("Usage"))
+                            color: "#7a8093"
+                            font.family: root.designFont
+                            font.pixelSize: 12
+                            elide: Text.ElideRight
+                        }
                     }
 
-                    PlasmaComponents.Label {
-                        text: root.selectedPopupTab === "local" ? i18n("Local runtime inventory")
-                            : ((root.activeEntry.plan || root.activeEntry.accountLabel || root.activeEntry.source || i18n("Usage")))
-                        color: root.mutedColor
-                        font.family: root.designFont
-                        font.pixelSize: 12
+                    Row {
+                        spacing: 6
+                        Rectangle { width: 6; height: 6; radius: 3; color: root.selectedPopupTab === "local" ? root.goodColor : root.activeStatusColor(root.activeEntry) }
+                        PlasmaComponents.Label {
+                            text: root.selectedPopupTab === "local" ? i18n("Checked just now")
+                                : i18n("Updated %1", root.formatUpdatedTime(root.activeEntry.updatedAt))
+                            color: root.quietColor
+                            font.family: root.designFont
+                            font.pixelSize: 11
+                        }
+                        PlasmaComponents.Label { text: "·"; color: "#3a3f4d"; font.pixelSize: 11 }
+                        PlasmaComponents.Label {
+                            text: String(root.selectedPopupTab === "local" ? "local" : (root.activeEntry.source || root.activeSource || "")).toUpperCase()
+                            color: root.accentColor
+                            font.family: root.designFont
+                            font.pixelSize: 11
+                            font.letterSpacing: 0.5
+                        }
                     }
                 }
 
                 QQC2.ToolButton {
                     id: configureButton
                     visible: true
-                    width: 34
-                    height: 34
-                    anchors.right: aiControlButton.left
-                    anchors.rightMargin: 8
-                    y: 15
+                    width: 30
+                    height: 30
+                    anchors.right: parent.right
+                    anchors.rightMargin: 16
+                    y: 16
                     text: i18n("Configure")
                     display: QQC2.AbstractButton.IconOnly
                     Accessible.name: text
@@ -1655,24 +1745,22 @@ PlasmoidItem {
                     }
 
                     background: Rectangle {
-                        radius: 10
-                        color: root.raisedColor
-                        border.color: parent.hovered ? root.accentColor : "#2b303c"
-                        border.width: 1
+                        radius: 9
+                        color: parent.hovered ? "#20232d" : "transparent"
                     }
                 }
 
                 QQC2.ToolButton {
                     id: aiControlButton
-                    width: 34
-                    height: 34
+                    width: 30
+                    height: 30
                     anchors.right: refreshButton.left
-                    anchors.rightMargin: 8
-                    y: 15
+                    anchors.rightMargin: 2
+                    y: 16
                     text: i18n("AI CLI Control")
                     display: QQC2.AbstractButton.IconOnly
                     Accessible.name: text
-                    onClicked: aiControlMenu.open()
+                    onClicked: { root.refreshLocalModels(); aiControlPopup.open() }
 
                     QQC2.ToolTip.visible: hovered
                     QQC2.ToolTip.text: text
@@ -1685,16 +1773,14 @@ PlasmoidItem {
                             anchors.centerIn: parent
                             width: 16
                             height: 16
-                            source: "applications-development"
-                            color: aiControlButton.enabled ? root.mutedColor : root.quietColor
+                            source: "utilities-terminal"
+                            color: aiControlButton.enabled ? "#a898ff" : root.quietColor
                         }
                     }
 
                     background: Rectangle {
-                        radius: 10
-                        color: root.raisedColor
-                        border.color: parent.hovered ? root.accentColor : "#2b303c"
-                        border.width: 1
+                        radius: 9
+                        color: aiControlPopup.visible ? "#292343" : (parent.hovered ? "#20232d" : "transparent")
                     }
                 }
 
@@ -1716,11 +1802,11 @@ PlasmoidItem {
 
                 QQC2.ToolButton {
                     id: refreshButton
-                    width: 34
-                    height: 34
-                    anchors.right: parent.right
-                    anchors.rightMargin: 20
-                    y: 15
+                    width: 30
+                    height: 30
+                    anchors.right: configureButton.left
+                    anchors.rightMargin: 2
+                    y: 16
                     enabled: !root.loading
                     text: i18n("Refresh")
                     display: QQC2.AbstractButton.IconOnly
@@ -1744,19 +1830,97 @@ PlasmoidItem {
                     }
 
                     background: Rectangle {
-                        radius: 10
-                        color: root.raisedColor
-                        border.color: parent.hovered ? root.accentColor : "#2b303c"
-                        border.width: 1
+                        radius: 9
+                        color: parent.hovered ? "#20232d" : "transparent"
+                    }
+                }
+
+                Rectangle {
+                    id: headerToolsDivider
+                    width: 1
+                    height: 20
+                    anchors.right: aiControlButton.left
+                    anchors.rightMargin: 8
+                    y: 21
+                    color: "#282b34"
+                }
+
+                Row {
+                    id: headerTabs
+                    anchors.right: headerToolsDivider.left
+                    anchors.rightMargin: 8
+                    y: 16
+                    spacing: 2
+
+                    Repeater {
+                        model: root.popupTabs
+                        delegate: Item {
+                            readonly property bool selected: modelData.kind === "local"
+                                ? root.selectedPopupTab === "local"
+                                : root.selectedPopupTab === "provider" && modelData.entry.selectionKey === root.popupState.selectionKey
+                            width: modelData.kind === "local" && headerTabsRepeater.count > 1 ? 37 : 30
+                            height: 30
+
+                            Rectangle {
+                                visible: modelData.kind === "local" && headerTabsRepeater.count > 1
+                                width: 1
+                                height: 18
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: "#282b34"
+                            }
+
+                            QQC2.ToolButton {
+                                anchors.right: parent.right
+                                width: 30
+                                height: 30
+                                text: modelData.tabLabel
+                                display: QQC2.AbstractButton.IconOnly
+                                Accessible.name: text
+                                onClicked: {
+                                    if (modelData.kind === "local") { root.selectedPopupTab = "local"; root.refreshLocalModels() }
+                                    else { root.selectedPopupTab = "provider"; root.selectedEntryKey = modelData.entry.selectionKey }
+                                }
+                                contentItem: Item {
+                                    Image {
+                                        visible: modelData.kind !== "local"
+                                        anchors.centerIn: parent
+                                        width: 16; height: 16
+                                        source: root.providerIconSource(modelData.provider)
+                                        fillMode: Image.PreserveAspectFit
+                                        opacity: parent.parent.parent.selected ? 1 : 0.4
+                                    }
+                                    Kirigami.Icon {
+                                        visible: modelData.kind === "local"
+                                        anchors.centerIn: parent
+                                        width: 16; height: 16
+                                        source: "cpu"
+                                        color: parent.parent.parent.selected ? root.textColor : root.quietColor
+                                    }
+                                }
+                                background: Rectangle { radius: 9; color: parent.parent.selected ? "#262a35" : (parent.hovered ? "#20232d" : "transparent") }
+                            }
+                        }
+                        id: headerTabsRepeater
                     }
                 }
             }
 
             Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 42
+                Layout.preferredHeight: 1
 
                 Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 16
+                    anchors.rightMargin: 16
+                    height: 1
+                    color: "#20232b"
+                }
+
+                Rectangle {
+                    visible: false
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.leftMargin: 16
@@ -1863,15 +2027,16 @@ PlasmoidItem {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 20
-                    anchors.rightMargin: 20
-                    anchors.topMargin: 15
+                    anchors.leftMargin: 16
+                    anchors.rightMargin: 16
+                    anchors.topMargin: 16
                     anchors.bottomMargin: 6
                     spacing: 10
 
                     RowLayout {
+                        visible: false
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 34
+                        Layout.preferredHeight: 0
                         spacing: 10
 
                         Image {
@@ -2651,8 +2816,9 @@ PlasmoidItem {
                     spacing: 8
 
                     RowLayout {
+                        visible: false
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 30
+                        Layout.preferredHeight: 0
                         spacing: 9
 
                         Kirigami.Icon {
@@ -2712,6 +2878,7 @@ PlasmoidItem {
                         id: localModelsScroll
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        Layout.maximumHeight: 340
                         clip: true
                         QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
@@ -2730,11 +2897,10 @@ PlasmoidItem {
                                 readonly property bool groupStart: index === 0
                                     || root.localModels[index - 1].kind !== modelData.kind
                                 width: localModelsList.width
-                                height: groupStart ? 78 : 58
-                                radius: 9
-                                color: modelData.state === "installed" ? "#111319" : root.surfaceColor
-                                border.color: "#20242e"
-                                border.width: 1
+                                height: groupStart ? 72 : 52
+                                radius: 10
+                                color: "transparent"
+                                border.width: 0
                                 opacity: modelData.state === "installed" ? 0.58 : 1
 
                                 RowLayout {
@@ -2746,6 +2912,20 @@ PlasmoidItem {
                                     anchors.leftMargin: 10
                                     anchors.rightMargin: 10
                                     spacing: 7
+                                    Rectangle {
+                                        Layout.preferredWidth: 20
+                                        Layout.preferredHeight: 20
+                                        radius: 6
+                                        color: root.localKindColor(modelData.kind) + "1f"
+                                        PlasmaComponents.Label {
+                                            anchors.centerIn: parent
+                                            text: root.localKindGlyph(modelData.kind)
+                                            color: root.localKindColor(modelData.kind)
+                                            font.family: "monospace"
+                                            font.pixelSize: 10
+                                            font.weight: Font.Bold
+                                        }
+                                    }
                                     PlasmaComponents.Label {
                                         text: root.localKindText(modelData.kind).toUpperCase()
                                         color: root.quietColor
@@ -2760,8 +2940,7 @@ PlasmoidItem {
                                         color: "#20232d"
                                     }
                                     PlasmaComponents.Label {
-                                        text: modelData.classificationConfidence === "declared" ? i18n("runtime")
-                                            : modelData.classificationConfidence === "heuristic" ? i18n("heuristic") : i18n("unknown")
+                                        text: root.localKindCount(modelData.kind)
                                         color: "#565b68"
                                         font.family: root.designFont
                                         font.pixelSize: 9
@@ -2776,9 +2955,9 @@ PlasmoidItem {
                                     spacing: 8
 
                                     Rectangle {
-                                        Layout.preferredWidth: 6
-                                        Layout.preferredHeight: 6
-                                        radius: 3
+                                        Layout.preferredWidth: 7
+                                        Layout.preferredHeight: 7
+                                        radius: 4
                                         color: modelData.state === "active" ? root.goodColor
                                             : modelData.state === "loaded" ? root.mutedColor
                                             : modelData.state === "installed" ? root.quietColor : root.warningColor
@@ -2797,8 +2976,7 @@ PlasmoidItem {
                                             Layout.fillWidth: true
                                         }
                                         PlasmaComponents.Label {
-                                            text: root.localKindText(modelData.kind) + " · " + root.localStateText(modelData.state)
-                                                + (modelData.classificationConfidence === "heuristic" ? " · " + i18n("heuristic") : "")
+                                        text: root.localModelMeta(modelData)
                                             color: root.quietColor
                                             font.family: root.designFont
                                             font.pixelSize: 10
@@ -2822,6 +3000,7 @@ PlasmoidItem {
                                                 context.beginPath()
                                                 var values = root.localModelHistory[modelData.id] || []
                                                 if (modelData.state === "loaded" || values.length < 2) {
+                                                    context.setLineDash([2, 3])
                                                     context.moveTo(0, height / 2)
                                                     context.lineTo(width, height / 2)
                                                 } else {
@@ -2834,13 +3013,14 @@ PlasmoidItem {
                                                     }
                                                 }
                                                 context.stroke()
+                                                context.setLineDash([])
                                             }
                                             Connections { target: root; function onLocalModelHistoryChanged() { localSparkCanvas.requestPaint() } }
                                         }
                                     }
 
                                     PlasmaComponents.Label {
-                                        Layout.preferredWidth: 92
+                                        Layout.preferredWidth: modelData.state === "installed" ? 130 : 58
                                         text: modelData.state === "active" ? root.localMetricText(modelData)
                                             : modelData.state === "loaded" ? i18n("Idle")
                                                 : modelData.state === "installed" ? i18n("Unmounted")
@@ -2853,8 +3033,8 @@ PlasmoidItem {
                                     }
 
                                     QQC2.ToolButton {
-                                        width: 28
-                                        height: 28
+                                        width: 26
+                                        height: 26
                                         visible: modelData.capabilities && (modelData.capabilities.unmount || modelData.capabilities.mount)
                                         enabled: !root.localModelsLoading && modelData.state !== "active"
                                             && ((modelData.state === "installed" && modelData.capabilities.mount)
@@ -2975,17 +3155,17 @@ PlasmoidItem {
 
             Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 78
+                Layout.preferredHeight: 88
 
                 Rectangle {
                     anchors.fill: parent
-                    anchors.leftMargin: 14
-                    anchors.rightMargin: 14
-                    anchors.topMargin: 8
-                    anchors.bottomMargin: 14
-                    radius: 13
-                    color: "#0d0f14"
-                    border.color: "#23262f"
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    anchors.topMargin: 16
+                    anchors.bottomMargin: 12
+                    radius: 12
+                    color: "#0f1015"
+                    border.color: "#20232b"
                     border.width: 1
                     clip: true
 
@@ -3031,6 +3211,7 @@ PlasmoidItem {
                         anchors.bottomMargin: 4
                         blocks: root.compactResult().blocks || []
                         preview: true
+                        activeLocalCount: root.localModels.filter(function(item) { return item.state === "active" }).length
                     }
 
                     PlasmaComponents.Label {
@@ -3047,6 +3228,191 @@ PlasmoidItem {
                         font.pixelSize: 12
                         elide: Text.ElideRight
                     }
+                }
+            }
+        }
+
+        // The terminal control opens an overlapping local-model inspector. The
+        // provider view remains visible behind it, matching the dedicated AI
+        // CLI Control surface instead of turning the control into a menu only.
+        QQC2.Popup {
+            id: aiControlPopup
+            parent: full
+            x: Math.max(12, full.width - width - 22)
+            y: 58
+            width: 340
+            height: 390
+            padding: 0
+            modal: false
+            focus: true
+            closePolicy: QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside
+            onOpened: root.refreshLocalModels()
+
+            background: Rectangle {
+                radius: 14
+                color: "#131419"
+                border.color: "#2a2d37"
+                border.width: 1
+            }
+
+            contentItem: ColumnLayout {
+                spacing: 0
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 13
+                    Layout.rightMargin: 10
+                    Layout.topMargin: 10
+                    Layout.bottomMargin: 9
+                    spacing: 8
+                    PlasmaComponents.Label {
+                        text: i18n("Local models")
+                        color: root.textColor
+                        font.family: root.designFont
+                        font.pixelSize: 13
+                        font.weight: Font.Bold
+                    }
+                    Item { Layout.fillWidth: true }
+                    PlasmaComponents.Label {
+                        text: i18n("%1 in memory", root.localModels.filter(function(item) { return item.state === "active" || item.state === "loaded" }).length)
+                        color: root.quietColor
+                        font.family: root.designFont
+                        font.pixelSize: 10
+                    }
+                    QQC2.ToolButton {
+                        width: 26; height: 26
+                        text: i18n("AI CLI actions")
+                        display: QQC2.AbstractButton.IconOnly
+                        Accessible.name: text
+                        onClicked: aiControlMenu.open()
+                        contentItem: Kirigami.Icon { source: "application-menu"; color: root.mutedColor }
+                        background: Rectangle { radius: 8; color: parent.hovered ? "#20232d" : "transparent" }
+                    }
+                }
+
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#20232b" }
+
+                QQC2.ScrollView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.leftMargin: 10
+                    Layout.rightMargin: 6
+                    QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
+
+                    ListView {
+                        id: aiControlModelsList
+                        width: parent.width
+                        contentWidth: width
+                        model: root.localModels
+                        clip: true
+                        flickableDirection: Flickable.VerticalFlick
+                        boundsBehavior: Flickable.StopAtBounds
+                        delegate: Item {
+                            required property var modelData
+                            readonly property bool groupStart: index === 0 || root.localModels[index - 1].kind !== modelData.kind
+                            width: aiControlModelsList.width
+                            height: groupStart ? 70 : 50
+
+                            RowLayout {
+                                visible: parent.groupStart
+                                anchors.top: parent.top
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.leftMargin: 3
+                                anchors.rightMargin: 4
+                                anchors.topMargin: 8
+                                spacing: 6
+                                Rectangle {
+                                    Layout.preferredWidth: 18; Layout.preferredHeight: 18; radius: 5
+                                    color: root.localKindColor(modelData.kind) + "1f"
+                                    PlasmaComponents.Label { anchors.centerIn: parent; text: root.localKindGlyph(modelData.kind); color: root.localKindColor(modelData.kind); font.family: "monospace"; font.pixelSize: 9 }
+                                }
+                                PlasmaComponents.Label { text: root.localKindText(modelData.kind).toUpperCase(); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; font.weight: Font.Bold }
+                                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#20232d" }
+                                PlasmaComponents.Label { text: root.localKindCount(modelData.kind); color: "#565b68"; font.family: root.designFont; font.pixelSize: 9 }
+                            }
+
+                            RowLayout {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                anchors.leftMargin: 5
+                                anchors.rightMargin: 3
+                                anchors.bottomMargin: 6
+                                spacing: 7
+                                Rectangle { Layout.preferredWidth: 7; Layout.preferredHeight: 7; radius: 4; color: modelData.state === "active" ? root.goodColor : (modelData.state === "loaded" ? root.mutedColor : "transparent"); border.width: modelData.state === "installed" ? 1 : 0; border.color: "#33384d" }
+                                ColumnLayout {
+                                    Layout.fillWidth: true; spacing: 1
+                                    PlasmaComponents.Label { text: modelData.name; color: modelData.state === "installed" ? "#565b68" : root.textColor; font.family: "monospace"; font.pixelSize: 10; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
+                                    PlasmaComponents.Label { text: root.localModelMeta(modelData); color: root.quietColor; font.family: root.designFont; font.pixelSize: 8; elide: Text.ElideRight; Layout.fillWidth: true }
+                                }
+                                Item {
+                                    Layout.preferredWidth: 72; Layout.preferredHeight: 20
+                                    visible: modelData.state === "active" || modelData.state === "loaded"
+                                    Canvas {
+                                        id: aiControlSparkCanvas
+                                        anchors.fill: parent
+                                        onPaint: {
+                                            var context = getContext("2d")
+                                            context.clearRect(0, 0, width, height)
+                                            context.strokeStyle = modelData.state === "active" ? root.goodColor : "#2f333d"
+                                            context.lineWidth = 1.3
+                                            context.beginPath()
+                                            var values = root.localModelHistory[modelData.id] || []
+                                            if (modelData.state === "loaded" || values.length < 2) {
+                                                context.setLineDash([2, 3])
+                                                context.moveTo(0, height / 2)
+                                                context.lineTo(width, height / 2)
+                                            } else {
+                                                var maximum = Math.max.apply(Math, values.concat([1]))
+                                                for (var sample = 0; sample < values.length; sample++) {
+                                                    var x = width * sample / Math.max(1, values.length - 1)
+                                                    var y = height - 2 - ((height - 4) * values[sample] / maximum)
+                                                    if (sample === 0) context.moveTo(x, y)
+                                                    else context.lineTo(x, y)
+                                                }
+                                            }
+                                            context.stroke()
+                                            context.setLineDash([])
+                                        }
+                                        Connections { target: root; function onLocalModelHistoryChanged() { aiControlSparkCanvas.requestPaint() } }
+                                    }
+                                }
+                                Row {
+                                    Layout.preferredWidth: 58
+                                    Layout.preferredHeight: 20
+                                    visible: modelData.state === "active"
+                                    spacing: 2
+                                    layoutDirection: Qt.RightToLeft
+                                    PlasmaComponents.Label { text: modelData.metric && modelData.metric.unit ? modelData.metric.unit : ""; color: root.quietColor; font.family: root.designFont; font.pixelSize: 8.5; anchors.verticalCenter: parent.verticalCenter }
+                                    PlasmaComponents.Label { text: modelData.metric && typeof modelData.metric.value === "number" ? root.formatNumber(modelData.metric.value) : "—"; color: root.textColor; font.family: root.designFont; font.pixelSize: 11; font.weight: Font.Bold; anchors.verticalCenter: parent.verticalCenter }
+                                }
+                                PlasmaComponents.Label { Layout.preferredWidth: modelData.state === "installed" ? 78 : 58; visible: modelData.state !== "active"; text: modelData.state === "loaded" ? i18n("Idle") : i18n("Unmounted"); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
+                                QQC2.ToolButton {
+                                    width: 26; height: 26
+                                    visible: modelData.capabilities && (modelData.capabilities.unmount || modelData.capabilities.mount)
+                                    enabled: !root.localModelsLoading && modelData.state !== "active" && ((modelData.state === "installed" && modelData.capabilities.mount) || (modelData.state !== "installed" && modelData.capabilities.unmount))
+                                    text: modelData.state === "installed" ? i18n("Mount") : i18n("Unmount")
+                                    display: QQC2.AbstractButton.IconOnly
+                                    Accessible.name: text
+                                    onClicked: root.localModelAction(modelData.state === "installed" ? "mount" : "unmount", modelData.runtime, modelData.id, false)
+                                    contentItem: Kirigami.Icon { source: modelData.state === "installed" ? "go-up" : "media-eject"; color: parent.enabled ? root.mutedColor : root.quietColor }
+                                    background: Rectangle { radius: 8; color: parent.hovered ? "#20232d" : "transparent" }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#20232b" }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 12; Layout.rightMargin: 10
+                    Layout.topMargin: 7; Layout.bottomMargin: 7
+                    Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: root.goodColor }
+                    PlasmaComponents.Label { text: root.localModelsLoading ? i18n("Checking…") : i18n("Checked just now"); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9 }
+                    Item { Layout.fillWidth: true }
+                    QQC2.Button { text: i18n("Check now"); enabled: !root.localModelsLoading; onClicked: root.refreshLocalModels() }
                 }
             }
         }
