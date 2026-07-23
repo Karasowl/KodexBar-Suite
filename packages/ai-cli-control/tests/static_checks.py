@@ -16,6 +16,7 @@ QUOTAS = ROOT / "kodexbar-quotas"
 PANEL = ROOT / "kodexbar-panel"
 TRAY = ROOT / "kodexbar-tray"
 LOCAL_AI = ROOT / "local-ai"
+AUR_PKGBUILD = ROOT.parents[1] / "packaging" / "aur" / "PKGBUILD"
 FORBIDDEN = ("eval(", "shell=True", "shell = True", "os.system(")
 SECRET_PATTERNS = {
     "private key": re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"),
@@ -73,6 +74,13 @@ def main() -> int:
         return 1
     if not LOCAL_AI.is_file():
         print("Missing local-ai engine", file=sys.stderr)
+        return 1
+    aur_source = AUR_PKGBUILD.read_text(encoding="utf-8")
+    if "pkgver=0.9.4" not in aur_source or "Publication gate:" not in aur_source:
+        print("AUR publication gate or released version is missing", file=sys.stderr)
+        return 1
+    if "packages/ai-cli-control/local-ai" not in aur_source or "packages/ai-cli-control/local_ai_drivers" not in aur_source:
+        print("AUR publication gate does not cover the local-ai payload", file=sys.stderr)
         return 1
     recover_source = RECOVER.read_text(encoding="utf-8")
     quotas_source = QUOTAS.read_text(encoding="utf-8")

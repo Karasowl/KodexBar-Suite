@@ -11,11 +11,11 @@
   "agent": {
     "local-interactive": {
       "description": "Interactive local model with explicit permissions",
-      "permission": {"read": {"*": "allow", ".env": "deny", "*.env": "deny"}, "edit": "ask", "bash": {"*": "ask", "git push *": "deny", "git merge *": "deny", "npm publish *": "deny", "rm -rf *": "deny"}, "external_directory": "deny", "task": "ask"}
+      "permission": {"read": {"*": "allow", ".env": "deny", ".env.*": "deny", "*.env": "deny", ".git-credentials": "deny", ".npmrc": "deny", ".pypirc": "deny", ".netrc": "deny", ".aws/**": "deny", ".ssh/**": "deny", "*credentials*": "deny", "*.pem": "deny", "*.key": "deny", "*.p12": "deny"}, "edit": "ask", "bash": {"*": "ask", "git push": "deny", "git push *": "deny", "git merge": "deny", "git merge *": "deny", "git reset --hard *": "deny", "git clean *": "deny", "git rebase *": "deny", "git branch -D *": "deny", "git tag -d *": "deny", "npm publish *": "deny", "rm -rf *": "deny"}, "external_directory": "deny", "task": "ask"}
     },
     "local-worker": {
       "description": "Bounded worker. The orchestrator reviews its diff.",
-      "permission": {"read": {"*": "allow", ".env": "deny", "*.env": "deny"}, "edit": "allow", "bash": {"*": "ask", "git push *": "deny", "git merge *": "deny", "npm publish *": "deny", "rm -rf *": "deny"}, "external_directory": "deny", "task": "ask"}
+      "permission": {"read": {"*": "allow", ".env": "deny", ".env.*": "deny", "*.env": "deny", ".git-credentials": "deny", ".npmrc": "deny", ".pypirc": "deny", ".netrc": "deny", ".aws/**": "deny", ".ssh/**": "deny", "*credentials*": "deny", "*.pem": "deny", "*.key": "deny", "*.p12": "deny"}, "edit": "allow", "bash": {"*": "ask", "git push": "deny", "git push *": "deny", "git merge": "deny", "git merge *": "deny", "git reset --hard *": "deny", "git clean *": "deny", "git rebase *": "deny", "git branch -D *": "deny", "git tag -d *": "deny", "npm publish *": "deny", "rm -rf *": "deny"}, "external_directory": "deny", "task": "ask"}
     }
   }
 }

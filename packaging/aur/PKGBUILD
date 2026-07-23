@@ -8,6 +8,10 @@
 pkgname=kodexbar-suite
 pkgver=0.9.4
 pkgrel=1
+# Publication gate: do not bump this known 0.9.4 source/checksum until an
+# authorized release tarball contains both packages/ai-cli-control/local-ai
+# and packages/ai-cli-control/local_ai_drivers. This unreleased source tree is
+# intentionally not represented by a fictitious AUR version.
 pkgdesc='KodexBar Suite: Plasma widget, ai CLI, native Claude/Codex/Grok quotas (optional codexbar for Antigravity)'
 arch=('any')
 url='https://github.com/Karasowl/KodexBar-Suite'

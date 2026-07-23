@@ -26,7 +26,8 @@ def builtin_drivers(api):
                 metric_value=item.get("tokens_per_second", item.get("tokensPerSecond")), metric_unit="tok/s", activity=active,
                 memory={"vramMiB": item.get("vram_mib", item.get("vramMiB")), "ramMiB": item.get("ram_mib", item.get("ramMiB"))},
                 capabilities={"mount": True, "unmount": True, "releaseRuntime": False, "stopRuntime": False}, detail=status))
-        return models, {"id": "llama_cpp", "state": "connected", "capabilities": {"releaseRuntime": False, "stopRuntime": False}}
+        return models, {"id": "llama_cpp", "state": "connected", "activityProbe": True,
+            "capabilities": {"releaseRuntime": False, "stopRuntime": False}}
 
     def ollama(runtime):
         tags, running = request_json(runtime.endpoint + "/api/tags"), request_json(runtime.endpoint + "/api/ps")
@@ -57,6 +58,7 @@ def builtin_drivers(api):
         queue = request_json(runtime.endpoint + "/queue")
         busy = bool(queue.get("queue_running") or queue.get("queue_pending")) if isinstance(queue, dict) else False
         return [], {"id": "comfyui", "state": "connected", "queueActive": busy,
+            "activityProbe": True,
             "releaseWarning": "Affects every model resident in ComfyUI. Individual residency is not exposed.",
             "stopImpact": "Stops ComfyUI and every resident model after its queue is empty.",
             "capabilities": {"releaseRuntime": not busy, "stopRuntime": False}}

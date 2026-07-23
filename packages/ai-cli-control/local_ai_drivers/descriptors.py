@@ -9,15 +9,19 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 
 
 SYSTEM_DESCRIPTOR_DIR = Path("/usr/lib/kodexbar/local-ai-drivers")
+RUNTIME_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 def descriptor_paths(config):
     paths = []
-    if SYSTEM_DESCRIPTOR_DIR.is_dir() and not (SYSTEM_DESCRIPTOR_DIR.stat().st_mode & 0o022):
-        paths.extend(sorted(SYSTEM_DESCRIPTOR_DIR.glob("*.json")))
+    if SYSTEM_DESCRIPTOR_DIR.is_dir():
+        details = SYSTEM_DESCRIPTOR_DIR.stat()
+        if details.st_uid == 0 and not (details.st_mode & 0o022):
+            paths.extend(sorted(SYSTEM_DESCRIPTOR_DIR.glob("*.json")))
     for value in config.get("adapterDescriptors", []):
         if isinstance(value, str) and value.endswith(".json"):
             paths.append(Path(value).expanduser())
@@ -32,7 +36,8 @@ def descriptor_drivers(config, api):
         except (OSError, json.JSONDecodeError):
             continue
         runtime_id, kind, list_path = raw.get("id"), raw.get("kind"), raw.get("modelsPath", "/v1/models")
-        if not (isinstance(runtime_id, str) and isinstance(kind, str) and isinstance(list_path, str)
+        if not (isinstance(runtime_id, str) and RUNTIME_ID_PATTERN.fullmatch(runtime_id)
+                and isinstance(kind, str) and isinstance(list_path, str)
                 and kind == "openai-model-catalog" and list_path.startswith("/") and ":" not in list_path):
             continue
 

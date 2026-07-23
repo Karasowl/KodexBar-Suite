@@ -13,6 +13,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
+OPENCODE_TEMPLATE = ROOT / "examples" / "opencode.local.jsonc"
 loader = importlib.machinery.SourceFileLoader("local_ai", str(ROOT / "local-ai"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 local_ai = importlib.util.module_from_spec(spec)
@@ -29,6 +30,37 @@ class LocalAIContractTests(unittest.TestCase):
         self.assertEqual(local_ai.classify("qwen-video"), ("video", "heuristic"))
         self.assertEqual(local_ai.classify("opaque-weight"), ("unknown", "unknown"))
 
+    def test_classification_uses_structured_metadata_and_specific_model_rules(self) -> None:
+        self.assertEqual(local_ai.classify("opaque", metadata={"general.architecture": "ltxv"}), ("video", "metadata"))
+        self.assertEqual(local_ai.classify("opaque", metadata={"license": "video only"}), ("unknown", "unknown"))
+        cases = {
+            "/models/diffusion_models/ltx_transformer.safetensors": "video",
+            "/models/foo_video_vae.safetensors": "video",
+            "/models/foo_audio_vae.safetensors": "audio",
+            "/models/embeddings_connectors/clip.safetensors": "embedding",
+            "/models/mmproj-Qwen.gguf": "vision",
+            "/models/Devstral-Small.gguf": "llm",
+            "/models/GLM-4.gguf": "llm",
+            "/models/RealESRGAN_x4plus.pth": "image",
+            "/models/4x-UltraSharp.pth": "image",
+            "/models/lightx2v.safetensors": "video",
+            "/models/Chatterbox/s3gen.safetensors": "audio",
+            "/models/Chatterbox/t3_cfg.safetensors": "audio",
+        }
+        for location, expected in cases.items():
+            with self.subTest(location=location):
+                self.assertEqual(local_ai.classify(Path(location).stem, location=location)[0], expected)
+
+    def test_opencode_template_denies_sensitive_reads_and_destructive_git(self) -> None:
+        template = json.loads(OPENCODE_TEMPLATE.read_text(encoding="utf-8"))
+        sensitive = {".env", ".env.*", "*.env", ".git-credentials", ".npmrc", ".pypirc", ".netrc", ".aws/**", ".ssh/**", "*credentials*", "*.pem", "*.key", "*.p12"}
+        destructive = {"git push", "git push *", "git merge", "git merge *", "git reset --hard *", "git clean *", "git rebase *", "git branch -D *", "git tag -d *", "npm publish *", "rm -rf *"}
+        for agent in template["agent"].values():
+            read, bash = agent["permission"]["read"], agent["permission"]["bash"]
+            self.assertEqual(read["*"], "allow")
+            self.assertTrue(all(read[item] == "deny" for item in sensitive))
+            self.assertTrue(all(bash[item] == "deny" for item in destructive))
+
     def test_inventory_normalizes_common_runtime_fixtures(self) -> None:
         responses = {
             "/models": self.fixture("local-ai-llama-models.json"),
@@ -43,6 +75,8 @@ class LocalAIContractTests(unittest.TestCase):
         try:
             config = local_ai.default_config()
             config["knownRoots"] = []
+            for runtime in config["runtimes"].values():
+                runtime["service"] = "local-ai.service"
             data = local_ai.inventory(config)
         finally:
             local_ai.request_json = original
@@ -53,6 +87,22 @@ class LocalAIContractTests(unittest.TestCase):
         self.assertEqual(next(item for item in data["models"] if item["runtime"] == "ollama" and item["state"] == "installed")["metric"], None)
         comfy = next(item for item in data["runtimes"] if item["id"] == "comfyui")
         self.assertTrue(comfy["capabilities"]["releaseRuntime"])
+        stoppable = {item["id"] for item in data["runtimes"] if item["capabilities"].get("stopRuntime")}
+        self.assertEqual(stoppable, {"llama_cpp", "comfyui"})
+
+    def test_inventory_builds_driver_registry_once(self) -> None:
+        original = local_ai.driver_registry
+        calls = []
+        local_ai.driver_registry = lambda config: (calls.append(config) or original(config))
+        try:
+            config = local_ai.default_config()
+            config["knownRoots"] = []
+            config["observeGpuProcesses"] = False
+            for runtime in config["runtimes"].values(): runtime["enabled"] = False
+            local_ai.inventory(config)
+        finally:
+            local_ai.driver_registry = original
+        self.assertEqual(len(calls), 1)
 
     def test_configured_scan_never_needs_a_home_wide_walk(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -189,6 +239,17 @@ class LocalAIContractTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertIn(("http://127.0.0.1:8188/free", "POST", {"unload_models": True, "free_memory": True}), calls)
 
+    def test_comfy_release_rejects_unknown_queue_shape(self) -> None:
+        original = local_ai.request_json
+        local_ai.request_json = lambda *args, **kwargs: []
+        try:
+            config = local_ai.default_config()
+            for key, runtime in config["runtimes"].items(): runtime["enabled"] = key == "comfyui"
+            with self.assertRaisesRegex(local_ai.LocalAIError, "could not verify"):
+                local_ai.action(config, "release", "comfyui", confirmed=True)
+        finally:
+            local_ai.request_json = original
+
     def test_stop_rechecks_comfy_queue_before_systemd(self) -> None:
         original_request, original_run = local_ai.request_json, local_ai.subprocess.run
         local_ai.request_json = lambda url, **kwargs: self.fixture("local-ai-comfyui-queue-active.json") if url.endswith("/queue") else self.fixture("local-ai-comfyui-system-stats.json")
@@ -200,6 +261,19 @@ class LocalAIContractTests(unittest.TestCase):
             config["runtimes"]["comfyui"]["service"] = "comfyui.service"
             with self.assertRaisesRegex(local_ai.LocalAIError, "running or pending"):
                 local_ai.action(config, "stop", "comfyui", confirmed=True)
+        finally:
+            local_ai.request_json, local_ai.subprocess.run = original_request, original_run
+
+    def test_stop_rejects_runtime_without_reliable_probe_even_with_service(self) -> None:
+        original_request, original_run = local_ai.request_json, local_ai.subprocess.run
+        local_ai.request_json = lambda url, **kwargs: self.fixture("local-ai-ollama-ps.json") if url.endswith("/api/ps") else self.fixture("local-ai-ollama-tags.json")
+        local_ai.subprocess.run = lambda *args, **kwargs: self.fail("unprobed runtime must not reach systemd")
+        try:
+            config = local_ai.default_config()
+            for key, runtime in config["runtimes"].items(): runtime["enabled"] = key == "ollama"
+            config["runtimes"]["ollama"]["service"] = "ollama.service"
+            with self.assertRaisesRegex(local_ai.LocalAIError, "reliable activity probe"):
+                local_ai.action(config, "stop", "ollama", confirmed=True)
         finally:
             local_ai.request_json, local_ai.subprocess.run = original_request, original_run
 
@@ -217,8 +291,11 @@ class LocalAIContractTests(unittest.TestCase):
         ollama = next(item for item in data["runtimes"] if item["id"] == "ollama")
         self.assertEqual(ollama["state"], "disconnected")
 
-    def test_gpu_observer_is_best_effort_and_never_exposes_controls(self) -> None:
+    def test_gpu_observer_ignores_generic_apps_and_never_exposes_controls(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
+            chrome = Path(temporary) / "4311"
+            (chrome / "fd").mkdir(parents=True)
+            (chrome / "cmdline").write_bytes(b"/usr/bin/chrome\0--gpu-process")
             proc = Path(temporary) / "4312"
             (proc / "fd").mkdir(parents=True)
             (proc / "cmdline").write_bytes(b"custom-server\0--model\0weights.gguf")
@@ -226,7 +303,7 @@ class LocalAIContractTests(unittest.TestCase):
 
             class Result:
                 returncode = 0
-                stdout = "4312\n"
+                stdout = "4311\n4312\n"
 
             models = local_ai.observed_gpu_processes({}, run=lambda *args, **kwargs: Result(), proc_root=Path(temporary))
         self.assertEqual(len(models), 1)
@@ -234,7 +311,8 @@ class LocalAIContractTests(unittest.TestCase):
         self.assertEqual(models[0]["state"], "loaded")
         self.assertEqual(models[0]["metric"], None)
         self.assertFalse(any(models[0]["capabilities"].values()))
-        self.assertEqual(models[0]["evidence"]["pid"], 4312)
+        self.assertEqual(models[0]["name"], "weights.gguf")
+        self.assertEqual(models[0]["evidence"], {"pid": 4312, "runtimeExecutable": "custom-server", "modelEvidence": "weights.gguf"})
 
     def test_gpu_observer_tolerates_missing_nvidia_tools(self) -> None:
         self.assertEqual(local_ai.observed_gpu_processes({}, run=lambda *args, **kwargs: (_ for _ in ()).throw(OSError("missing"))), [])
@@ -251,12 +329,25 @@ class LocalAIContractTests(unittest.TestCase):
                 config["observeGpuProcesses"] = False
                 for runtime in config["runtimes"].values(): runtime["enabled"] = False
                 config["runtimes"]["custom"] = {"enabled": True, "endpoint": "http://127.0.0.1:9999"}
+                config["runtimes"]["not-safe"] = {"enabled": True, "endpoint": "http://127.0.0.1:9998"}
                 config["adapterDescriptors"] = [str(descriptor)]
                 data = local_ai.inventory(config)
             finally:
                 local_ai.request_json = original
         self.assertEqual(data["models"][0]["runtime"], "custom")
         self.assertEqual(data["models"][0]["kind"], "embedding")
+
+    def test_user_owned_system_descriptor_directory_is_not_loaded(self) -> None:
+        from local_ai_drivers import descriptors
+        with tempfile.TemporaryDirectory() as temporary:
+            descriptor = Path(temporary) / "unsafe.json"
+            descriptor.write_text(json.dumps({"id": "unsafe", "kind": "openai-model-catalog"}), encoding="utf-8")
+            original = descriptors.SYSTEM_DESCRIPTOR_DIR
+            descriptors.SYSTEM_DESCRIPTOR_DIR = Path(temporary)
+            try:
+                self.assertEqual(descriptors.descriptor_paths({}), [])
+            finally:
+                descriptors.SYSTEM_DESCRIPTOR_DIR = original
 
     def test_safetensors_and_gguf_headers_supply_classification_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

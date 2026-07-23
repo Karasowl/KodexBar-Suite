@@ -213,23 +213,28 @@ def classify(name: str, declared: str = "", metadata: dict[str, str] | None = No
     }
     if value in aliases:
         return aliases[value], "declared"
-    meta = " ".join(str(value).lower() for value in (metadata or {}).values())
-    meta_patterns = (("audio", ("text-to-speech", "tts", "audio", "vocoder")),
-        ("video", ("video", "diffusion transformer video")), ("image", ("image", "diffusion transformer image")),
-        ("embedding", ("embedding", "text encoder", "rerank")), ("vision", ("vision", "multimodal")),
-        ("llm", ("language model", "llama", "qwen")))
+    # GGUF metadata also contains licenses, chat templates, paths and arbitrary
+    # auxiliary config. Only architecture-shaped keys are classification proof.
+    structured = " ".join(str(item).lower() for key, item in (metadata or {}).items()
+        if str(key).lower() in {"general.architecture", "architecture", "model.architecture", "model_type", "model.type"})
+    meta_patterns = (("audio", ("text-to-speech", "qwen-tts", "chatterbox", "audio", "vocoder")),
+        ("video", ("ltxv", "video", "wan", "hunyuanvideo")),
+        ("image", ("image", "stable-diffusion", "flux")),
+        ("embedding", ("embedding", "text encoder", "rerank")),
+        ("vision", ("vision", "multimodal", "clip")),
+        ("llm", ("language model", "llama", "qwen", "devstral", "glm")))
     for kind, words in meta_patterns:
-        if any(word in meta for word in words):
+        if any(word in structured for word in words):
             return kind, "metadata"
     text = (name + " " + location).lower()
     patterns = (
-        ("embedding", ("embed", "bge-", "e5-", "rerank", "umt5", "text_encoder", "text-encoder")),
-        ("audio", ("qwen-tts", "qwen_tts", "audio_vae", "audio-vae", "whisper", "tts", "audio", "music", "bark", "parler", "wav2vec")),
-        ("image", ("qwen-image", "qwen_image", "stable-diffusion", "sdxl", "flux", "controlnet")),
-        ("video", ("video", "wan", "ltx", "hunyuanvideo", "vace")),
+        ("embedding", ("embed", "bge-", "e5-", "rerank", "umt5", "text_encoder", "text-encoder", "embeddings_connectors")),
+        ("audio", ("qwen-tts", "qwen_tts", "_audio_vae", "audio-vae", "s3gen", "t3_", "whisper", "tts", "audio", "music", "bark", "parler", "wav2vec")),
+        ("video", ("_video_vae", "diffusion_models/ltx", "diffusion_models\\ltx", "lightx2v", "video", "wan", "ltx", "hunyuanvideo", "vace")),
+        ("image", ("qwen-image", "qwen_image", "stable-diffusion", "sdxl", "flux", "controlnet", "realesrgan", "4x-ultrasharp")),
         ("image", ("unet", "vae", "diffusion_models")),
-        ("vision", ("vision", "vl", "llava", "clip")),
-        ("llm", ("llama", "qwen", "mistral", "gemma", "gpt", "deepseek", "coder", "phi", "mixtral")),
+        ("vision", ("mmproj", "vision", "vl", "llava", "clip")),
+        ("llm", ("llama", "qwen", "mistral", "gemma", "gpt", "deepseek", "coder", "phi", "mixtral", "devstral", "glm")),
     )
     for kind, words in patterns:
         if any(word in text for word in words):
@@ -344,13 +349,24 @@ def observed_gpu_processes(config: dict[str, Any], run: Any = subprocess.run, pr
             continue
         process = proc_root / pid
         try:
-            command = (process / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", errors="replace").strip()
+            arguments = [item for item in (process / "cmdline").read_bytes().decode("utf-8", errors="replace").split("\0") if item]
             files = [str(link.resolve()) for link in (process / "fd").iterdir() if link.is_symlink()]
         except (OSError, PermissionError):
             continue
-        evidence = {"pid": int(pid), "cmdline": command[:500], "openFiles": files[:12]}
-        label = Path(command.split()[0]).name if command else f"GPU process {pid}"
-        models.append(make_model("unknown_process", label or f"GPU process {pid}", location=" ".join(files), state="loaded",
+        executable = Path(arguments[0]).name if arguments else ""
+        model_evidence = ""
+        for index, argument in enumerate(arguments[:-1]):
+            if argument in {"--model", "-m", "--model-path"} and arguments[index + 1]:
+                model_evidence = arguments[index + 1]
+                break
+        runtime_hint = " ".join(arguments).lower()
+        if not model_evidence and any(word in runtime_hint for word in ("llama", "ollama", "vllm", "comfy", "lm-studio", "lmstudio", "inference")):
+            model_evidence = next((item for item in files if Path(item).suffix.lower() in MODEL_SUFFIXES), "")
+        if not model_evidence:
+            continue
+        evidence = {"pid": int(pid), "runtimeExecutable": executable, "modelEvidence": model_evidence}
+        label = Path(model_evidence).name or model_evidence
+        models.append(make_model("unknown_process", label, location=model_evidence, state="loaded",
             detail="GPU process observed, activity unknown", evidence=evidence,
             capabilities={"mount": False, "unmount": False, "releaseRuntime": False, "stopRuntime": False}))
     return models
@@ -358,18 +374,20 @@ def observed_gpu_processes(config: dict[str, Any], run: Any = subprocess.run, pr
 
 def inventory(config: dict[str, Any]) -> dict[str, Any]:
     runtimes, models, issues = runtime_list(config), [], []
+    registry = driver_registry(config)
     runtime_states = []
     for runtime in runtimes:
         if not runtime.enabled:
             runtime_states.append({"id": runtime.id, "state": "disabled", "capabilities": {}})
             continue
-        driver = driver_registry(config).get(runtime.id)
+        driver = registry.get(runtime.id)
         if driver is None:
             runtime_states.append({"id": runtime.id, "state": "unknown", "capabilities": {}, "detail": "no driver"})
             continue
         try:
             items, state = driver(runtime)
-            state.setdefault("capabilities", {})["stopRuntime"] = bool(re.fullmatch(r"[A-Za-z0-9@_.-]+\.service", runtime.service))
+            has_probe = state.pop("activityProbe", False) is True
+            state.setdefault("capabilities", {})["stopRuntime"] = bool(has_probe and re.fullmatch(r"[A-Za-z0-9@_.-]+\.service", runtime.service))
             if state["capabilities"]["stopRuntime"]:
                 state.setdefault("stopImpact", "Stops the configured user service after its runtime is idle.")
             models.extend(items)
@@ -420,10 +438,23 @@ def ensure_runtime_idle(runtime: Runtime) -> None:
     """Run each runtime's truthful activity probe before global control."""
     if runtime.id == "comfyui":
         queue = request_json(runtime.endpoint + "/queue")
-        if isinstance(queue, dict) and (queue.get("queue_running") or queue.get("queue_pending")):
+        if not isinstance(queue, dict):
+            raise LocalAIError("could not verify ComfyUI queue activity")
+        if queue.get("queue_running") or queue.get("queue_pending"):
             raise LocalAIError("action rejected while ComfyUI has running or pending work")
         return
     ensure_not_active(runtime)
+
+
+def runtime_has_reliable_activity_probe(runtime: Runtime) -> bool:
+    driver = DRIVERS.get(runtime.id)
+    if driver is None:
+        return False
+    try:
+        _, state = driver(runtime)
+    except LocalAIError:
+        return False
+    return state.get("activityProbe") is True
 
 
 def validated_user_service(runtime: Runtime) -> None:
@@ -451,12 +482,16 @@ def action(config: dict[str, Any], command: str, runtime_id: str, model_key: str
         if not confirmed:
             raise LocalAIError("release affects every ComfyUI resident model and requires --confirm")
         queue = request_json(runtime.endpoint + "/queue")
+        if not isinstance(queue, dict):
+            raise LocalAIError("could not verify ComfyUI queue activity")
         if queue.get("queue_running") or queue.get("queue_pending"):
             raise LocalAIError("action rejected while ComfyUI has running or pending work")
         request_json(runtime.endpoint + "/free", "POST", {"unload_models": True, "free_memory": True})
     elif command == "stop":
         if not confirmed:
             raise LocalAIError("stop requires --confirm")
+        if not runtime_has_reliable_activity_probe(runtime):
+            raise LocalAIError("this runtime has no reliable activity probe for stopping")
         ensure_runtime_idle(runtime)
         validated_user_service(runtime)
         completed = subprocess.run(["systemctl", "--user", "stop", runtime.service], text=True, capture_output=True, check=False)

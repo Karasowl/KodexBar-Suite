@@ -2,7 +2,7 @@
 
 Los adaptadores Python ejecutables se incluyen únicamente en este paquete. No se cargan módulos Python desde la configuración de un usuario.
 
-Un descriptor JSON puede vivir en `/usr/lib/kodexbar/local-ai-drivers` si el directorio no es escribible por usuarios normales, o indicarse mediante `adapterDescriptors` en la configuración. Solo se acepta este esquema:
+Un descriptor JSON puede vivir en `/usr/lib/kodexbar/local-ai-drivers` si el directorio pertenece a `root` y no es escribible por grupo ni otros usuarios, o indicarse mediante `adapterDescriptors` en la configuración. Solo se acepta este esquema:
 
 ```json
 {"id":"mi-runtime","kind":"openai-model-catalog","modelsPath":"/v1/models"}
