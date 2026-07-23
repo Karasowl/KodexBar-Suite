@@ -12,6 +12,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Install and remove the owned `local-ai` executable with the other user-local tools.
+- Keep the published AUR 0.9.4 payload unchanged. Local model monitoring remains an unreleased source and manual-install feature until a versioned package release includes it.
 
 ## 0.9.4, 2026-07-22
 

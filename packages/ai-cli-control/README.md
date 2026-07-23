@@ -140,6 +140,8 @@ Individual unload is available only when a runtime offers it. ComfyUI exposes **
 
 Use `examples/local-ai.json` as the portable configuration template. `examples/` also contains optional llama.cpp router and OpenCode templates. They are not installed, and no OpenCode package or model is downloaded by this release.
 
+Run `local-ai opencode-catalog` to print the current llama.cpp catalog as an OpenCode `@ai-sdk/openai-compatible` provider block. Review and merge that output manually. The command never writes or replaces an existing OpenCode configuration.
+
 ## Quotas engine
 
 `kodexbar-quotas` is the widget's default local command. It reads the enabled providers from `~/.config/codexbar/config.json`. Claude, Codex, and Grok are fetched natively with stdlib HTTP:

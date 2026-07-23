@@ -91,11 +91,12 @@ PlasmoidItem {
     readonly property var popupEntries: popupState.entries || []
     readonly property var activeEntry: popupState.entry || ({})
     readonly property var popupTabs: {
-        var tabs = [{ kind: "local", id: "local", tabLabel: i18n("Local models"), icon: "cpu" }]
+        var tabs = []
         for (var i = 0; i < popupEntries.length; i++) {
             tabs.push({ kind: "provider", entry: popupEntries[i], id: popupEntries[i].selectionKey,
                 tabLabel: popupEntries[i].tabLabel, provider: popupEntries[i].provider })
         }
+        tabs.push({ kind: "local", id: "local", tabLabel: i18n("Local models"), icon: "cpu" })
         return tabs
     }
 
@@ -463,7 +464,7 @@ PlasmoidItem {
         localAiExecutable.connectSource(localAiCommandLine(["status"]))
     }
 
-    function localModelAction(action, runtime, model) {
+    function localModelAction(action, runtime, model, confirmed) {
         if (localModelsLoading) {
             return
         }
@@ -471,10 +472,14 @@ PlasmoidItem {
         if (model && model.length > 0) {
             arguments.push(model)
         }
+        if (confirmed === true) {
+            arguments.push("--confirm")
+        }
         localModelsLoading = true
         localModelsError = ""
         localAiExecutable.connectedSources = []
         localAiExecutable.connectSource(localAiCommandLine(arguments))
+        localModelsWatchdog.restart()
     }
 
     function localMetricText(item) {
@@ -513,6 +518,12 @@ PlasmoidItem {
             var sample = item.metric && typeof item.metric.value === "number" ? item.metric.value : 0
             var history = histories[item.id] || []
             histories[item.id] = history.concat([sample]).slice(-24)
+        }
+        localModelHistory = histories
+        for (var key in histories) {
+            if (!localModels.some(function(item) { return item.id === key })) {
+                delete histories[key]
+            }
         }
         localModelHistory = histories
     }
@@ -1562,33 +1573,33 @@ PlasmoidItem {
 
             Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 74
+                Layout.preferredHeight: 64
 
                 Rectangle {
-                    width: 38
-                    height: 38
-                    radius: 11
-                    x: 20
-                    y: 18
-                    color: root.accentColor
+                    width: 30
+                    height: 30
+                    radius: 9
+                    x: 16
+                    y: 15
+                    color: root.raisedColor
 
                     Image {
                         anchors.centerIn: parent
-                        width: 22
-                        height: 22
-                        source: Qt.resolvedUrl("../icons/kodexbar.svg")
+                        width: 19
+                        height: 19
+                        source: root.selectedPopupTab === "local" ? Qt.resolvedUrl("../icons/kodexbar.svg") : root.providerIconSource(root.activeEntry.provider)
                         fillMode: Image.PreserveAspectFit
                         smooth: true
                     }
                 }
 
                 Column {
-                    x: 70
-                    y: 19
+                    x: 56
+                    y: 12
                     spacing: 1
 
                     PlasmaComponents.Label {
-                        text: "KodexBar Suite"
+                        text: root.selectedPopupTab === "local" ? i18n("Local models") : (root.activeEntry.displayName || i18n("Provider"))
                         color: root.textColor
                         font.family: root.designFont
                         font.pixelSize: 16
@@ -1596,7 +1607,8 @@ PlasmoidItem {
                     }
 
                     PlasmaComponents.Label {
-                        text: i18n("AI provider quotas")
+                        text: root.selectedPopupTab === "local" ? i18n("Local runtime inventory")
+                            : ((root.activeEntry.plan || root.activeEntry.accountLabel || root.activeEntry.source || i18n("Usage")))
                         color: root.mutedColor
                         font.family: root.designFont
                         font.pixelSize: 12
@@ -1610,7 +1622,7 @@ PlasmoidItem {
                     height: 34
                     anchors.right: aiControlButton.left
                     anchors.rightMargin: 8
-                    y: 19
+                    y: 15
                     text: i18n("Configure")
                     display: QQC2.AbstractButton.IconOnly
                     Accessible.name: text
@@ -1646,7 +1658,7 @@ PlasmoidItem {
                     height: 34
                     anchors.right: refreshButton.left
                     anchors.rightMargin: 8
-                    y: 19
+                    y: 15
                     text: i18n("AI CLI Control")
                     display: QQC2.AbstractButton.IconOnly
                     Accessible.name: text
@@ -1698,7 +1710,7 @@ PlasmoidItem {
                     height: 34
                     anchors.right: parent.right
                     anchors.rightMargin: 20
-                    y: 19
+                    y: 15
                     enabled: !root.loading
                     text: i18n("Refresh")
                     display: QQC2.AbstractButton.IconOnly
@@ -1732,25 +1744,24 @@ PlasmoidItem {
 
             Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 48
+                Layout.preferredHeight: 42
 
                 Rectangle {
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.leftMargin: 20
-                    anchors.rightMargin: 20
-                    height: 44
-                    radius: 13
-                    color: root.surfaceColor
-                    border.color: "#23262f"
-                    border.width: 1
+                    anchors.leftMargin: 16
+                    anchors.rightMargin: 16
+                    height: 38
+                    radius: 0
+                    color: "transparent"
+                    border.width: 0
 
                     ListView {
                         id: providerTabs
                         anchors.fill: parent
                         anchors.margins: 4
                         orientation: ListView.Horizontal
-                        spacing: 3
+                        spacing: 2
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         interactive: contentWidth > width
@@ -1761,9 +1772,8 @@ PlasmoidItem {
                                 ? root.selectedPopupTab === "local"
                                 : root.selectedPopupTab === "provider"
                                     && modelData.entry.selectionKey === root.popupState.selectionKey
-                            width: modelData.kind === "local" ? 38
-                                : Math.max(104, Math.floor((providerTabs.width - 42) / Math.min(4, Math.max(1, providerTabs.count - 1))))
-                            height: 36
+                            width: 32
+                            height: 32
                             flat: true
                             text: modelData.tabLabel
                             onClicked: {
@@ -1778,6 +1788,13 @@ PlasmoidItem {
 
                             contentItem: RowLayout {
                                 spacing: 7
+
+                                Rectangle {
+                                    visible: modelData.kind === "local" && providerTabs.count > 1
+                                    Layout.preferredWidth: visible ? 1 : 0
+                                    Layout.preferredHeight: 18
+                                    color: "#282b34"
+                                }
 
                                 Item {
                                     Layout.fillWidth: true
@@ -1802,7 +1819,7 @@ PlasmoidItem {
                                 }
 
                                 PlasmaComponents.Label {
-                                    visible: modelData.kind !== "local"
+                                    visible: false
                                     text: modelData.tabLabel
                                     color: parent.parent.selected ? "#f2f3f8" : root.mutedColor
                                     font.family: root.designFont
@@ -2823,15 +2840,17 @@ PlasmoidItem {
                                         height: 28
                                         visible: modelData.capabilities && (modelData.capabilities.unmount || modelData.capabilities.mount)
                                         enabled: !root.localModelsLoading && modelData.state !== "active"
-                                        text: modelData.state === "installed" ? i18n("Mount") : i18n("Unmount")
+                                            && ((modelData.state === "installed" && modelData.capabilities.mount)
+                                                || (modelData.state !== "installed" && modelData.capabilities.unmount))
+                                        text: modelData.state === "installed" && modelData.capabilities.mount ? i18n("Mount") : i18n("Unmount")
                                         display: QQC2.AbstractButton.IconOnly
                                         Accessible.name: text
                                         onClicked: root.localModelAction(modelData.state === "installed" ? "mount" : "unmount",
-                                            modelData.runtime, modelData.id)
+                                            modelData.runtime, modelData.id, false)
                                         QQC2.ToolTip.visible: hovered
                                         QQC2.ToolTip.text: modelData.state === "active" ? i18n("Unavailable while active") : text
                                         contentItem: Kirigami.Icon {
-                                            source: modelData.state === "installed" ? "go-up" : "media-eject"
+                                            source: modelData.state === "installed" && modelData.capabilities.mount ? "go-up" : "media-eject"
                                             color: parent.enabled ? root.mutedColor : root.quietColor
                                         }
                                     }
@@ -2849,7 +2868,7 @@ PlasmoidItem {
                                         width: localModelsList.width
                                         visible: modelData.capabilities && modelData.capabilities.releaseRuntime
                                         PlasmaComponents.Label {
-                                            text: modelData.id + " · " + i18n("runtime-wide control")
+                                            text: modelData.releaseWarning || (modelData.id + " · " + i18n("runtime-wide control"))
                                             color: root.quietColor
                                             font.family: root.designFont
                                             font.pixelSize: 10
@@ -2858,7 +2877,7 @@ PlasmoidItem {
                                         QQC2.Button {
                                             text: i18n("Release runtime")
                                             enabled: !root.localModelsLoading
-                                            onClicked: root.localModelAction("release", modelData.id, "")
+                                            onClicked: { localReleaseDialog.runtime = modelData.id; localReleaseDialog.warning = modelData.releaseWarning || ""; localReleaseDialog.open() }
                                         }
                                     }
                                 }
@@ -2875,6 +2894,22 @@ PlasmoidItem {
                         font.pixelSize: 12
                         horizontalAlignment: Text.AlignHCenter
                     }
+                }
+            }
+
+            QQC2.Dialog {
+                id: localReleaseDialog
+                property string runtime: ""
+                property string warning: ""
+                modal: true
+                title: i18n("Release runtime memory?")
+                standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
+                onAccepted: root.localModelAction("release", runtime, "", true)
+                contentItem: PlasmaComponents.Label {
+                    text: localReleaseDialog.warning.length > 0 ? localReleaseDialog.warning : i18n("This affects every resident model in this runtime.")
+                    wrapMode: Text.WordWrap
+                    color: root.mutedColor
+                    width: 300
                 }
             }
 
@@ -3102,6 +3137,7 @@ PlasmoidItem {
         onNewData: function(sourceName, data) {
             disconnectSource(sourceName)
             root.localModelsLoading = false
+            localModelsWatchdog.stop()
             var text = String(data.stdout || "").trim()
             if (text.length === 0) {
                 root.localModelsError = String(data.stderr || i18n("No output from local model monitor")).trim()
@@ -3159,8 +3195,18 @@ PlasmoidItem {
         id: localModelsRefreshTimer
         interval: root.localModelsRefreshSeconds * 1000
         repeat: true
-        running: root.selectedPopupTab === "local"
+        running: root.expanded && root.selectedPopupTab === "local"
         onTriggered: root.refreshLocalModels()
+    }
+
+    Timer {
+        id: localModelsWatchdog
+        interval: 12000
+        repeat: false
+        onTriggered: {
+            root.localModelsLoading = false
+            root.localModelsError = i18n("Local model monitor timed out. Try refresh again.")
+        }
     }
 
     onRefreshSecondsChanged: {

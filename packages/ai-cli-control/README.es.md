@@ -140,6 +140,8 @@ La descarga individual existe solo cuando el runtime la expone. ComfyUI muestra 
 
 Usa `examples/local-ai.json` como plantilla portable de configuración. `examples/` incluye también plantillas opcionales para router llama.cpp y OpenCode. No se instalan, y este cambio no descarga modelos ni instala OpenCode.
 
+Ejecuta `local-ai opencode-catalog` para imprimir el catálogo actual de llama.cpp como bloque de proveedor OpenCode con `@ai-sdk/openai-compatible`. Revísalo e intégralo manualmente. El comando nunca escribe ni reemplaza una configuración existente de OpenCode.
+
 ## Motor de cuotas
 
 `kodexbar-quotas` es el comando local predeterminado del widget. Lee los proveedores habilitados desde `~/.config/codexbar/config.json`. Claude, Codex y Grok se consultan de forma nativa con HTTP de la biblioteca estándar:

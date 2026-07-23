@@ -36,6 +36,7 @@ class LocalAIContractTests(unittest.TestCase):
             "/api/ps": self.fixture("local-ai-ollama-ps.json"),
             "/v1/models": self.fixture("local-ai-lmstudio-models.json"),
             "/system_stats": self.fixture("local-ai-comfyui-system-stats.json"),
+            "/queue": self.fixture("local-ai-comfyui-queue-empty.json"),
         }
         original = local_ai.request_json
         local_ai.request_json = lambda url, **kwargs: next(value for suffix, value in responses.items() if url.endswith(suffix))
@@ -67,6 +68,60 @@ class LocalAIContractTests(unittest.TestCase):
         self.assertEqual(len(data["models"]), 1)
         self.assertEqual(data["models"][0]["kind"], "llm")
         self.assertEqual(data["models"][0]["state"], "installed")
+
+    def test_metadata_and_path_classification_prevent_known_false_llms(self) -> None:
+        self.assertEqual(local_ai.classify("qwen-image-Q4", location="/weights/qwen-image.gguf"), ("image", "heuristic"))
+        self.assertEqual(local_ai.classify("umt5-xxl-encoder", location="/models/text_encoders/umt5.gguf"), ("embedding", "heuristic"))
+        self.assertEqual(local_ai.classify("ltx_audio_vae", location="/models/vae/ltx_audio_vae.safetensors"), ("audio", "heuristic"))
+        self.assertEqual(local_ai.classify("opaque", metadata={"general.architecture": "text-to-speech"}), ("audio", "metadata"))
+
+    def test_endpoint_rejects_file_scheme_and_oversized_responses(self) -> None:
+        with self.assertRaisesRegex(local_ai.LocalAIError, "http or https"):
+            local_ai.request_json("file:///tmp/models")
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def read(self, size): return b"x" * size
+        original = local_ai.urlopen
+        local_ai.urlopen = lambda *args, **kwargs: Response()
+        try:
+            with self.assertRaisesRegex(local_ai.LocalAIError, "size limit"):
+                local_ai.request_json("http://127.0.0.1:9/models")
+        finally:
+            local_ai.urlopen = original
+
+    def test_opencode_catalog_reads_current_llama_catalog_without_writing(self) -> None:
+        original = local_ai.request_json
+        local_ai.request_json = lambda *args, **kwargs: {"data": [{"id": "qwen-worker", "status": "unloaded"}]}
+        try:
+            payload = local_ai.opencode_catalog(local_ai.default_config())
+        finally:
+            local_ai.request_json = original
+        provider = payload["provider"]["local-router"]
+        self.assertEqual(provider["npm"], "@ai-sdk/openai-compatible")
+        self.assertIn("qwen-worker", provider["models"])
+
+    def test_ollama_resident_model_is_loaded_not_active(self) -> None:
+        original = local_ai.request_json
+        local_ai.request_json = lambda url, **kwargs: self.fixture("local-ai-ollama-ps.json") if url.endswith("/api/ps") else self.fixture("local-ai-ollama-tags.json")
+        try:
+            models, _ = local_ai.models_from_ollama(local_ai.Runtime("ollama", "ollama", "http://127.0.0.1:11434"))
+        finally:
+            local_ai.request_json = original
+        resident = next(item for item in models if item["name"] == "llama3.2")
+        self.assertEqual(resident["state"], "loaded")
+        self.assertFalse(resident["activity"])
+
+    def test_comfy_queue_blocks_global_release(self) -> None:
+        original = local_ai.request_json
+        local_ai.request_json = lambda url, **kwargs: self.fixture("local-ai-comfyui-queue-active.json") if url.endswith("/queue") else self.fixture("local-ai-comfyui-system-stats.json")
+        try:
+            config = local_ai.default_config()
+            for key, runtime in config["runtimes"].items(): runtime["enabled"] = key == "comfyui"
+            with self.assertRaisesRegex(local_ai.LocalAIError, "running or pending"):
+                local_ai.action(config, "release", "comfyui", confirmed=True)
+        finally:
+            local_ai.request_json = original
 
     def test_active_requests_block_unmount_and_global_release(self) -> None:
         original = local_ai.request_json
@@ -117,7 +172,7 @@ class LocalAIContractTests(unittest.TestCase):
             config = local_ai.default_config()
             for key, runtime in config["runtimes"].items():
                 runtime["enabled"] = key == "comfyui"
-            result = local_ai.action(config, "release", "comfyui")
+            result = local_ai.action(config, "release", "comfyui", confirmed=True)
         finally:
             local_ai.request_json = original
         self.assertTrue(result["ok"])
