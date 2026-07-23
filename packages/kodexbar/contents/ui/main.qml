@@ -2911,6 +2911,7 @@ PlasmoidItem {
 
                             delegate: Rectangle {
                                 required property var modelData
+                                required property int index
                                 readonly property bool groupStart: index === 0
                                     || root.localModels[index - 1].kind !== modelData.kind
                                 width: localModelsList.width
@@ -3326,6 +3327,7 @@ PlasmoidItem {
                         boundsBehavior: Flickable.StopAtBounds
                         delegate: Item {
                             required property var modelData
+                            required property int index
                             readonly property bool groupStart: index === 0 || root.localModels[index - 1].kind !== modelData.kind
                             width: aiControlModelsList.width
                             height: groupStart ? 70 : 50
