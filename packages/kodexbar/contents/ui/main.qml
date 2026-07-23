@@ -2935,11 +2935,17 @@ PlasmoidItem {
                 title: i18n("Release runtime memory?")
                 standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
                 onAccepted: root.localModelAction("release", runtime, "", true)
-                contentItem: PlasmaComponents.Label {
-                    text: localReleaseDialog.warning.length > 0 ? localReleaseDialog.warning : i18n("This affects every resident model in this runtime.")
-                    wrapMode: Text.WordWrap
-                    color: root.mutedColor
+                contentItem: Item {
                     implicitWidth: 300
+                    implicitHeight: localReleaseWarning.implicitHeight
+
+                    PlasmaComponents.Label {
+                        id: localReleaseWarning
+                        width: parent.width
+                        text: localReleaseDialog.warning.length > 0 ? localReleaseDialog.warning : i18n("This affects every resident model in this runtime.")
+                        wrapMode: Text.WordWrap
+                        color: root.mutedColor
+                    }
                 }
             }
 
@@ -2951,13 +2957,19 @@ PlasmoidItem {
                 title: i18n("Stop local runtime?")
                 standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
                 onAccepted: root.localModelAction("stop", runtime, "", true)
-                contentItem: PlasmaComponents.Label {
-                    text: localStopDialog.impact.length > 0
-                        ? localStopDialog.impact
-                        : i18n("This stops the configured local service and releases all of its runtime memory.")
-                    wrapMode: Text.WordWrap
-                    color: root.mutedColor
+                contentItem: Item {
                     implicitWidth: 300
+                    implicitHeight: localStopImpact.implicitHeight
+
+                    PlasmaComponents.Label {
+                        id: localStopImpact
+                        width: parent.width
+                        text: localStopDialog.impact.length > 0
+                            ? localStopDialog.impact
+                            : i18n("This stops the configured local service and releases all of its runtime memory.")
+                        wrapMode: Text.WordWrap
+                        color: root.mutedColor
+                    }
                 }
             }
 

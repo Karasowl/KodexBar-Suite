@@ -27,11 +27,12 @@ assert.match(localList, /contentWidth: width/, "local list width cannot exceed i
 assert.match(localList, /flickableDirection: Flickable\.VerticalFlick/, "local list only scrolls vertically");
 assert.doesNotMatch(localList, /ScrollBar\./, "local list never dereferences a nullable scrollbar attachment");
 const localReleaseDialog = qml.slice(qml.indexOf("id: localReleaseDialog"), qml.indexOf("id: localStopDialog"));
-const localStopDialog = qml.slice(qml.indexOf("id: localStopDialog"), qml.indexOf("Item {", qml.indexOf("id: localStopDialog")));
+const localStopDialog = qml.slice(qml.indexOf("id: localStopDialog"), qml.indexOf("Layout.preferredHeight: 78", qml.indexOf("id: localStopDialog")));
 assert.match(localReleaseDialog, /implicitWidth: 300/, "release dialog has a fixed intrinsic content width");
 assert.match(localStopDialog, /implicitWidth: 300/, "stop dialog has a fixed intrinsic content width");
 assert.doesNotMatch(localReleaseDialog, /\n\s*width: 300/, "release dialog avoids a dialog width binding loop");
 assert.doesNotMatch(localStopDialog, /\n\s*width: 300/, "stop dialog avoids a dialog width binding loop");
+assert.doesNotMatch(qml, /PlasmaComponents\.Label\s*\{[\s\S]{0,400}\n\s*implicit(?:Width|Height)\s*:/, "labels do not assign read-only intrinsic dimensions");
 assert.match(qml, /classificationConfidence/, "classification confidence is rendered");
 assert.match(qml, /localMetricText/, "missing throughput has an honest label");
 assert.match(qml, /state === "installed"/, "installed but unmounted rows are preserved");
