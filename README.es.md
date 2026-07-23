@@ -37,15 +37,19 @@ El popup también tiene un tab de icono **Modelos locales**. Lee su inventario m
 
 ## Canales de instalación
 
-KodexBar Suite se distribuirá por tres canales. Este repositorio ya incluye las fuentes de empaquetado. Las entradas de AUR y de KDE Store solo serán utilizables cuando se publique la versión correspondiente.
+La suite completa de KodexBar se publica por AUR y GitHub Releases.
 
 ### AUR (Arch y CachyOS)
 
-Cuando el paquete esté publicado, instala la suite desde AUR:
+Instala la suite desde AUR:
 
 ```bash
 paru -S kodexbar-suite
 ```
+
+### GitHub Releases
+
+GitHub Releases proporciona el archivo fuente correspondiente y los artefactos del lanzamiento.
 
 El mismo paquete también aparece en gestores gráficos de AUR en CachyOS como Shelly u Octopi. Las fuentes de empaquetado están en `packaging/aur/`.
 
@@ -60,9 +64,9 @@ Cómo funcionan las cuotas después de instalar:
 - **Antigravity** sigue necesitando la CLI compañera [`codexbar` de steipete](https://github.com/steipete/CodexBar). Esa misma CLI es un respaldo opcional para Codex y Grok cuando la ruta nativa falla por red o infraestructura reintentable. En Arch/CachyOS instálala como `codexbar-cli-bin` (no es el paquete AUR homónimo de otro proyecto).
 - Una configuración de CodexBar que ya exista no se sobrescribe. El widget **no** inventa números de cuota.
 
-### KDE Store (solo el widget)
+### KDE Store (canal posible solo para el widget)
 
-El widget de Plasma se puede publicar en [store.kde.org](https://store.kde.org) como un `.plasmoid` generado por `packaging/kde-store/build-plasmoid.sh`. Ese canal entrega solo la interfaz del applet. El motor de datos (`kodexbar-quotas` y herramientas relacionadas) sigue viniendo del paquete AUR o del `install.sh` del repositorio que se describe abajo. Si el widget se instala sin el motor, el popup muestra una tarjeta de guía con `paru -S kodexbar-suite` y el enlace al repositorio. Cuando la suite ya está instalada, el siguiente refresco detecta tus CLI y muestra sus cuotas sin configurar proveedores a mano.
+KDE Store es un canal de distribución separado y posible solo para el widget de Plasma. No forma parte de este lanzamiento. Si allí se publica un `.plasmoid` solo para el widget, se genera con `packaging/kde-store/build-plasmoid.sh`. Ese canal entrega solo la interfaz del applet. El motor de datos (`kodexbar-quotas` y herramientas relacionadas) sigue viniendo del paquete AUR o del `install.sh` del repositorio que se describe abajo. Si el widget se instala sin el motor, el popup muestra una tarjeta de guía con `paru -S kodexbar-suite` y el enlace al repositorio. Cuando la suite ya está instalada, el siguiente refresco detecta tus CLI y muestra sus cuotas sin configurar proveedores a mano.
 
 ### Instalación manual desde este repositorio
 
