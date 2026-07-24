@@ -1442,13 +1442,18 @@ assert.match(
 )
 assert.match(
     mainQml,
-    /id: costRefreshTimer[\s\S]*interval: root\.costRefreshSeconds \* 1000[\s\S]*running: root\.showCostSummary/,
+    /id: costRefreshTimer[\s\S]*interval: root\.costRefreshSeconds \* 1000[\s\S]*running: root\.showCostSummary[\s\S]*onTriggered: root\.refreshCost\(\)/,
     "cost has its own timer that only runs while its summary is enabled"
 )
 assert.match(
     mainQml,
     /onExpandedChanged: \{\s*if \(expanded\) \{\s*refreshCostIfDue\(showCostSummary\)/,
     "opening the popup consults the cost TTL"
+)
+assert.match(
+    mainQml,
+    /onShowCostSummaryChanged: \{[\s\S]*else if \(expanded\) \{\s*refreshCostIfDue\(showCostSummary\)/,
+    "enabling cost while the popup is open consults the cost TTL"
 )
 assert.doesNotMatch(
     mainQml.match(/function refresh\(\)[\s\S]*?function knownProviderIds/)[0],

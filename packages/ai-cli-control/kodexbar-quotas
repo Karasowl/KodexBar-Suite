@@ -30,6 +30,7 @@ VERSION = "0.10.1"
 TIMEOUT_SECONDS = 15
 COST_CACHE_TTL_SECONDS = 15 * 60
 COST_UPSTREAM_TIMEOUT_SECONDS = 10 * 60
+SYSTEMD_SCOPE_AVAILABLE: bool | None = None
 HTTP_MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MiB: enough for quota JSON / gRPC-web billing
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 CODEX_DEFAULT_BASE = "https://chatgpt.com/backend-api"
@@ -1942,44 +1943,74 @@ def _nice_cost_process() -> None:
         pass
 
 
+def systemd_scope_is_available(systemd_run: str) -> bool:
+    """Probe transient user scopes once before sending an expensive scan to one."""
+    global SYSTEMD_SCOPE_AVAILABLE
+    if SYSTEMD_SCOPE_AVAILABLE is not None:
+        return SYSTEMD_SCOPE_AVAILABLE
+    true_command = "/bin/true" if os.path.isfile("/bin/true") else shutil.which("true")
+    if true_command is None:
+        SYSTEMD_SCOPE_AVAILABLE = False
+        return False
+    probe_command = [
+        systemd_run,
+        "--user",
+        "--scope",
+        "--quiet",
+        "--collect",
+        "-p",
+        "MemoryHigh=512M",
+        "-p",
+        "MemoryMax=2G",
+        "-p",
+        "IOWeight=20",
+        "--",
+        true_command,
+    ]
+    try:
+        probe = subprocess.run(
+            probe_command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=TIMEOUT_SECONDS,
+            check=False,
+            preexec_fn=_nice_cost_process,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        SYSTEMD_SCOPE_AVAILABLE = False
+        return False
+    SYSTEMD_SCOPE_AVAILABLE = probe.returncode == 0
+    return SYSTEMD_SCOPE_AVAILABLE
+
+
 def run_cost_upstream(executable: str) -> subprocess.CompletedProcess[str]:
     """Run the costly scanner in a low-priority transient scope when possible."""
     upstream_command = [executable, "cost", "--format", "json", "--json-only"]
     systemd_run = shutil.which("systemd-run")
-    if systemd_run is not None:
+    if systemd_run is not None and systemd_scope_is_available(systemd_run):
         scope_command = [
             systemd_run,
             "--user",
             "--scope",
             "--quiet",
             "--collect",
-            "--wait",
-            "--pipe",
             "-p",
             "MemoryHigh=512M",
             "-p",
             "MemoryMax=2G",
             "-p",
             "IOWeight=20",
-            "-p",
-            "Nice=10",
             "--",
             *upstream_command,
         ]
-        try:
-            completed = subprocess.run(
-                scope_command,
-                capture_output=True,
-                text=True,
-                timeout=COST_UPSTREAM_TIMEOUT_SECONDS,
-                check=False,
-            )
-            # A scope setup error has no payload. Retry directly with nice so a
-            # missing user manager never turns an otherwise valid cost scan off.
-            if completed.returncode == 0 or completed.stdout:
-                return completed
-        except (OSError, subprocess.TimeoutExpired):
-            pass
+        return subprocess.run(
+            scope_command,
+            capture_output=True,
+            text=True,
+            timeout=COST_UPSTREAM_TIMEOUT_SECONDS,
+            check=False,
+            preexec_fn=_nice_cost_process,
+        )
     return subprocess.run(
         upstream_command,
         capture_output=True,
@@ -2005,6 +2036,14 @@ def print_completed_output(completed: subprocess.CompletedProcess[str]) -> int:
     if completed.stderr:
         sys.stderr.write(completed.stderr)
     return completed.returncode
+
+
+def serve_any_cached_cost(cache_path: Path) -> bool:
+    cached = load_cost_cache(cache_path)
+    if cached is None:
+        return False
+    print_json(cached[1], False)
+    return True
 
 
 def refresh_cost_cache_nonblocking() -> int:
@@ -2075,7 +2114,15 @@ def cost_json_response() -> int:
             return 0
         try:
             completed = run_cost_upstream(executable)
-        except (OSError, subprocess.TimeoutExpired):
+        except subprocess.TimeoutExpired:
+            if serve_any_cached_cost(cache_path):
+                return 0
+            print("kodexbar-quotas: upstream cost scan timed out", file=sys.stderr)
+            return 1
+        except OSError:
+            if serve_any_cached_cost(cache_path):
+                return 0
+            print("kodexbar-quotas: upstream cost scan could not start", file=sys.stderr)
             return 1
         payload = parsed_cost_payload(completed)
         if payload is None:
@@ -2083,6 +2130,8 @@ def cost_json_response() -> int:
             if fallback is not None:
                 print_json(fallback[1], False)
                 return 0
+            if completed.returncode != 0:
+                print("kodexbar-quotas: upstream cost scan failed", file=sys.stderr)
             return print_completed_output(completed)
         write_cost_cache_atomic(cache_path, time.time(), payload)
         print_json(payload, False)

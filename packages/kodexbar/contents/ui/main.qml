@@ -3691,7 +3691,7 @@ PlasmoidItem {
         interval: root.costRefreshSeconds * 1000
         repeat: true
         running: root.showCostSummary
-        onTriggered: root.refreshCostIfDue(root.showCostSummary)
+        onTriggered: root.refreshCost()
     }
 
     Timer {
@@ -3740,6 +3740,8 @@ PlasmoidItem {
             costLoading = false
             costSummaries = ({})
             applyCostSummaries()
+        } else if (expanded) {
+            refreshCostIfDue(showCostSummary)
         }
     }
     onExpandedChanged: {

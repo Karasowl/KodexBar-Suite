@@ -563,6 +563,8 @@ class QuotasEngineTests(unittest.TestCase):
         payload: object,
         delay_seconds: float = 0,
         fail: bool = False,
+        with_systemd_run: bool = False,
+        systemd_probe_fails: bool = False,
     ) -> tuple[dict[str, str], Path, Path]:
         """Create an upstream that records exact invocations outside the real home."""
         bin_dir = root / "bin"
@@ -583,6 +585,25 @@ class QuotasEngineTests(unittest.TestCase):
             encoding="utf-8",
         )
         upstream.chmod(0o755)
+        if with_systemd_run:
+            systemd_run = bin_dir / "systemd-run"
+            systemd_run.write_text(
+                "#!" + os.sys.executable + "\n"
+                "import os, subprocess, sys\n"
+                "arguments = sys.argv[1:]\n"
+                "with open(os.environ['SYSTEMD_CALLS'], 'a', encoding='utf-8') as handle:\n"
+                "    handle.write(__import__('json').dumps(arguments) + '\\n')\n"
+                "separator = arguments.index('--')\n"
+                "command = arguments[separator + 1:]\n"
+                "if command[0].endswith('/true') or command[0] == 'true':\n"
+                "    raise SystemExit(1 if os.environ.get('SYSTEMD_PROBE_FAIL') == '1' else 0)\n"
+                "completed = subprocess.run(command, text=True, capture_output=True, check=False)\n"
+                "sys.stdout.write(completed.stdout)\n"
+                "sys.stderr.write(completed.stderr)\n"
+                "raise SystemExit(completed.returncode)\n",
+                encoding="utf-8",
+            )
+            systemd_run.chmod(0o755)
         env = os.environ.copy()
         env.update({
             "HOME": str(root / "home"),
@@ -591,11 +612,16 @@ class QuotasEngineTests(unittest.TestCase):
             "COST_CALLS": str(calls_path),
             "COST_PAYLOAD": json.dumps(payload),
             "COST_DELAY_SECONDS": str(delay_seconds),
+            "SYSTEMD_CALLS": str(root / "systemd-calls.jsonl"),
         })
         if fail:
             env["COST_FAIL"] = "1"
         else:
             env.pop("COST_FAIL", None)
+        if systemd_probe_fails:
+            env["SYSTEMD_PROBE_FAIL"] = "1"
+        else:
+            env.pop("SYSTEMD_PROBE_FAIL", None)
         return env, cache_root / "kodexbar-suite" / "cost.json", calls_path
 
     def _run_cost(self, env: dict[str, str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -617,6 +643,18 @@ class QuotasEngineTests(unittest.TestCase):
                 return calls
             time.sleep(0.05)
         self.fail(f"timed out waiting for {expected} upstream cost calls")
+
+    def _wait_for_systemd_calls(self, root: Path, expected: int) -> list[list[str]]:
+        calls_path = root / "systemd-calls.jsonl"
+        deadline = time.monotonic() + 5
+        calls: list[list[str]] = []
+        while time.monotonic() < deadline:
+            if calls_path.exists():
+                calls = [json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()]
+            if len(calls) >= expected:
+                return calls
+            time.sleep(0.05)
+        self.fail(f"timed out waiting for {expected} systemd-run calls")
 
     def test_cost_fresh_cache_skips_upstream(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -714,6 +752,63 @@ class QuotasEngineTests(unittest.TestCase):
             calls = self._wait_for_cost_calls(calls_path, 1)
         self.assertEqual(json.loads(result.stdout), payload)
         self.assertEqual(calls, [["cost", "--format", "json", "--json-only"]])
+
+    def test_cost_uses_viable_systemd_scope_with_exact_properties(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = [{"provider": "scoped"}]
+            env, _cache_path, calls_path = self._cost_test_environment(
+                root, payload=payload, with_systemd_run=True,
+            )
+            result = self._run_cost(env)
+            cost_calls = self._wait_for_cost_calls(calls_path, 1)
+            scope_calls = self._wait_for_systemd_calls(root, 2)
+        true_command = "/bin/true" if os.path.isfile("/bin/true") else "true"
+        expected_prefix = [
+            "--user", "--scope", "--quiet", "--collect",
+            "-p", "MemoryHigh=512M",
+            "-p", "MemoryMax=2G",
+            "-p", "IOWeight=20",
+            "--",
+        ]
+        self.assertEqual(json.loads(result.stdout), payload)
+        self.assertEqual(scope_calls[0], [*expected_prefix, true_command])
+        self.assertEqual(
+            scope_calls[1],
+            [*expected_prefix, str(root / "bin" / "codexbar"), "cost", "--format", "json", "--json-only"],
+        )
+        self.assertNotIn("--pipe", scope_calls[1])
+        self.assertNotIn("--wait", scope_calls[1])
+        self.assertFalse(any(argument == "Nice=10" for argument in scope_calls[1]))
+        self.assertEqual(cost_calls, [["cost", "--format", "json", "--json-only"]])
+
+    def test_cost_uses_direct_once_when_systemd_scope_probe_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = [{"provider": "direct-after-probe"}]
+            env, _cache_path, calls_path = self._cost_test_environment(
+                root, payload=payload, with_systemd_run=True, systemd_probe_fails=True,
+            )
+            result = self._run_cost(env)
+            cost_calls = self._wait_for_cost_calls(calls_path, 1)
+            scope_calls = self._wait_for_systemd_calls(root, 1)
+        self.assertEqual(json.loads(result.stdout), payload)
+        self.assertEqual(len(scope_calls), 1)
+        self.assertEqual(cost_calls, [["cost", "--format", "json", "--json-only"]])
+
+    def test_cost_scope_failure_never_retries_upstream_directly(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, _cache_path, calls_path = self._cost_test_environment(
+                root, payload=[], fail=True, with_systemd_run=True,
+            )
+            result = self._run_cost(env, check=False)
+            cost_calls = self._wait_for_cost_calls(calls_path, 1)
+            scope_calls = self._wait_for_systemd_calls(root, 2)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("upstream cost scan failed", result.stderr)
+        self.assertEqual(len(scope_calls), 2)
+        self.assertEqual(cost_calls, [["cost", "--format", "json", "--json-only"]])
 
     def test_noncanonical_cost_arguments_delegate_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
