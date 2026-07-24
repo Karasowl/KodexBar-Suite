@@ -167,7 +167,7 @@ El popup usa `Gemini (Antigravity)` para Antigravity y `Gemini` para el proveedo
 
 ## Datos y privacidad
 
-El widget ejecuta localmente `kodexbar-quotas usage --format json --json-only` de forma predeterminada y presenta el JSON devuelto. El motor usa `codexbar` upstream como respaldo por proveedor. Los resúmenes opcionales de costos vienen de `codexbar cost` upstream. Este repositorio no agrega un backend de proveedor, almacén de credenciales, servicio de telemetría ni servicio remoto de cuentas.
+El widget ejecuta localmente `kodexbar-quotas usage --format json --json-only` de forma predeterminada y presenta el JSON devuelto. El motor usa `codexbar` upstream como respaldo por proveedor. Los resúmenes opcionales de costos vienen de `codexbar cost` upstream, pero son independientes del ciclo normal de uso de 60 segundos. Se actualizan como máximo cada 15 minutos y al abrir el popup cuando superaron ese TTL. Este repositorio no agrega un backend de proveedor, almacén de credenciales, servicio de telemetría ni servicio remoto de cuentas.
 
 CodexBar administra autenticación, configuración de proveedores, llamadas API y consultas de CLI. Revisa el [proyecto CodexBar](https://github.com/steipete/CodexBar) para conocer sus proveedores compatibles y el manejo de datos.
 

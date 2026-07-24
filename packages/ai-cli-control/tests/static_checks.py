@@ -19,7 +19,8 @@ TRAY = ROOT / "kodexbar-tray"
 LOCAL_AI = ROOT / "local-ai"
 AUR_PKGBUILD = ROOT.parents[1] / "packaging" / "aur" / "PKGBUILD"
 PLASMOID_METADATA = ROOT.parent / "kodexbar" / "metadata.json"
-RELEASE_VERSION = "0.10.0"
+RELEASE_VERSION = "0.10.1"
+AUR_RELEASE_VERSION = "0.10.0"
 FORBIDDEN = ("eval(", "shell=True", "shell = True", "os.system(")
 SECRET_PATTERNS = {
     "private key": re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"),
@@ -96,8 +97,8 @@ def main() -> int:
     if metadata_version.get("Website") != "https://github.com/Karasowl/KodexBar-Suite":
         print("Plasmoid metadata does not point to the maintained suite repository", file=sys.stderr)
         return 1
-    if f"pkgver={RELEASE_VERSION}" not in package_statements:
-        print("AUR package version does not match the release", file=sys.stderr)
+    if f"pkgver={AUR_RELEASE_VERSION}" not in package_statements:
+        print("AUR package version does not match its pinned release", file=sys.stderr)
         return 1
     required_payload_statements = (
         r"(?m)^\s*packages/ai-cli-control/local-ai\s+\\$",

@@ -150,6 +150,31 @@ assert.deepEqual(
     ["cost", "--format", "json", "--json-only"],
     "cost acquisition also avoids the slow all-provider override"
 )
+assert.equal(
+    context.shouldRefreshCost(1000000, 0, 900, false, true),
+    true,
+    "cost refreshes when no successful result exists"
+)
+assert.equal(
+    context.shouldRefreshCost(1000000, 999999, 900, true, true),
+    false,
+    "a loading cost query never overlaps another query"
+)
+assert.equal(
+    context.shouldRefreshCost(1000000, 0, 900, false, false),
+    false,
+    "a hidden cost summary never starts a query"
+)
+assert.equal(
+    context.shouldRefreshCost(1000000, 100001, 900, false, true),
+    false,
+    "a successful result stays valid until its exact TTL"
+)
+assert.equal(
+    context.shouldRefreshCost(1000000, 100000, 900, false, true),
+    true,
+    "cost refreshes exactly at the configured TTL"
+)
 
 assert.deepEqual(
     Array.from(context.normalizeQuotaSelection(fixture.quotaSelection)),
@@ -969,7 +994,7 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.10.0", "package metadata uses version 0.10.0")
+assert.equal(metadata.KPlugin.Version, "0.10.1", "package metadata uses version 0.10.1")
 assert.equal(metadata.KPlugin.Website, "https://github.com/Karasowl/KodexBar-Suite", "package metadata links to the maintained suite repository")
 assert.match(mainQml, /var antigravityWindows = antigravity && Array\.isArray\(usage\.antigravityRateWindows\)/, "popup consumes the engine's Antigravity model windows")
 assert.match(mainQml, /compactLabel: antigravityKey === "gemini-weekly" \? "W"/, "compact Antigravity weekly uses W like other providers")
@@ -1409,6 +1434,31 @@ assert.match(
     mainQml,
     /function refreshCost\(\) \{[\s\S]*pendingCostCommands = ProviderLogic\.commandCandidates\(configuredCodexbarCommand\)[\s\S]*startNextCostCandidate\(\)/,
     "cost acquisition starts with the same command candidate chain"
+)
+assert.match(
+    configXml,
+    /<entry name="costRefreshSeconds" type="Int">\s*<default>900<\/default>/,
+    "cost refresh defaults to fifteen minutes"
+)
+assert.match(
+    mainQml,
+    /id: costRefreshTimer[\s\S]*interval: root\.costRefreshSeconds \* 1000[\s\S]*running: root\.showCostSummary/,
+    "cost has its own timer that only runs while its summary is enabled"
+)
+assert.match(
+    mainQml,
+    /onExpandedChanged: \{\s*if \(expanded\) \{\s*refreshCostIfDue\(showCostSummary\)/,
+    "opening the popup consults the cost TTL"
+)
+assert.doesNotMatch(
+    mainQml.match(/function refresh\(\)[\s\S]*?function knownProviderIds/)[0],
+    /refreshCost\(/,
+    "the sixty-second usage refresh does not call cost"
+)
+assert.doesNotMatch(
+    mainQml.match(/function refreshOtherProviders\(\)[\s\S]*?function refreshClaude/)[0],
+    /refreshCost\(/,
+    "provider-only usage refreshes do not call cost"
 )
 assert.match(
     mainQml,

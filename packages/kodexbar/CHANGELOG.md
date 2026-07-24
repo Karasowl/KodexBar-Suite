@@ -2,6 +2,12 @@
 
 All notable fork-specific changes are documented here.
 
+## 0.10.1, 2026-07-24
+
+### Fixed
+
+- Separate cost-summary refreshes from the 60-second quota cycle. Cost refreshes at most every 15 minutes and when the popup opens after that TTL.
+
 ## 0.10.0, 2026-07-23
 
 ### Added

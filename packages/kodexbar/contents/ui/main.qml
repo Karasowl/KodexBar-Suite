@@ -27,6 +27,7 @@ PlasmoidItem {
     property bool costLoading: false
     property string costErrorMessage: ""
     property var costSummaries: ({})
+    property double lastCostFetchedAt: 0
     property string configuredCodexbarCommand: String(Plasmoid.configuration.codexbarCommand || "")
     property string codexbarCommand: configuredCodexbarCommand.trim() || "codexbar"
     property string aiControlCommand: Plasmoid.configuration.aiControlCommand || "ai"
@@ -63,6 +64,7 @@ PlasmoidItem {
     property bool showEmailInWidget: Plasmoid.configuration.showEmailInWidget === undefined ? false : Plasmoid.configuration.showEmailInWidget
     property bool includeStatus: Plasmoid.configuration.includeStatus === undefined ? false : Plasmoid.configuration.includeStatus
     property bool showCostSummary: Plasmoid.configuration.showCostSummary === undefined ? true : Plasmoid.configuration.showCostSummary
+    property int costRefreshSeconds: Math.max(1, Plasmoid.configuration.costRefreshSeconds || 900)
     readonly property string defaultCompactProviderOrder: "codex,claude,grok,antigravity"
     property string compactProviderOrder: Plasmoid.configuration.compactProviderOrder === undefined
         ? defaultCompactProviderOrder
@@ -620,7 +622,7 @@ PlasmoidItem {
         if (initialUsageSeedPending || (fastRefreshCyclesSinceSeed >= 10
                 && Date.now() - lastSuccessfulSeedAt >= claudeRefreshSeconds * 1000)) {
             initialUsageSeedPending = false
-            beginUsageRefresh(commandCandidatesForSeed(), true)
+            beginUsageRefresh(commandCandidatesForSeed())
             return
         }
         fastRefreshCyclesSinceSeed += 1
@@ -652,20 +654,17 @@ PlasmoidItem {
             if (knownProviderIds(true).length === 0) {
                 initialUsageSeedPending = true
                 refresh()
-            } else {
-                refreshCost()
             }
             return
         }
-        refreshCost()
-        beginUsageRefresh(providerCandidates(providers), false)
+        beginUsageRefresh(providerCandidates(providers))
     }
 
     function refreshClaude() {
         if (loading || knownProviderIds(true).indexOf("claude") === -1) {
             return
         }
-        beginUsageRefresh(providerCandidates(["claude"]), false)
+        beginUsageRefresh(providerCandidates(["claude"]))
     }
 
     function providerCandidates(providers, startupRetry) {
@@ -696,19 +695,19 @@ PlasmoidItem {
         }]
     }
 
-    function beginUsageRefresh(candidates, refreshCosts) {
+    function beginUsageRefresh(candidates) {
         loading = true
         errorMessage = ""
         errorDetail = ""
         pendingCandidates = candidates
         executable.connectedSources = []
-        if (refreshCosts) {
-            refreshCost()
-        }
         tryNextCandidate()
     }
 
     function refreshCost() {
+        if (costLoading) {
+            return
+        }
         costErrorMessage = ""
         if (!showCostSummary) {
             costLoading = false
@@ -720,6 +719,13 @@ PlasmoidItem {
         costExecutable.connectedSources = []
         pendingCostCommands = ProviderLogic.commandCandidates(configuredCodexbarCommand)
         startNextCostCandidate()
+    }
+
+    function refreshCostIfDue(visible) {
+        if (ProviderLogic.shouldRefreshCost(Date.now(), lastCostFetchedAt,
+                costRefreshSeconds, costLoading, visible)) {
+            refreshCost()
+        }
     }
 
     function startNextCostCandidate() {
@@ -3600,6 +3606,7 @@ PlasmoidItem {
             }
             root.costErrorMessage = ""
             root.costSummaries = result.summaries
+            root.lastCostFetchedAt = Date.now()
             root.applyCostSummaries()
         }
     }
@@ -3658,7 +3665,7 @@ PlasmoidItem {
         repeat: false
         onTriggered: {
             root.startupRetryPending = false
-            root.beginUsageRefresh(root.pendingCandidates, false)
+            root.beginUsageRefresh(root.pendingCandidates)
         }
     }
 
@@ -3677,6 +3684,14 @@ PlasmoidItem {
         repeat: true
         running: true
         onTriggered: root.refreshClaude()
+    }
+
+    Timer {
+        id: costRefreshTimer
+        interval: root.costRefreshSeconds * 1000
+        repeat: true
+        running: root.showCostSummary
+        onTriggered: root.refreshCostIfDue(root.showCostSummary)
     }
 
     Timer {
@@ -3703,6 +3718,7 @@ PlasmoidItem {
     }
 
     onClaudeRefreshSecondsChanged: claudeRefreshTimer.restart()
+    onCostRefreshSecondsChanged: costRefreshTimer.restart()
     onLocalModelsRefreshSecondsChanged: localModelsRefreshTimer.restart()
 
     onCodexbarCommandChanged: {
@@ -3716,7 +3732,21 @@ PlasmoidItem {
         initialUsageSeedPending = true
         refresh()
     }
-    onShowCostSummaryChanged: refreshCost()
+    onShowCostSummaryChanged: {
+        costRefreshTimer.restart()
+        if (!showCostSummary) {
+            costExecutable.connectedSources = []
+            pendingCostCommands = []
+            costLoading = false
+            costSummaries = ({})
+            applyCostSummaries()
+        }
+    }
+    onExpandedChanged: {
+        if (expanded) {
+            refreshCostIfDue(showCostSummary)
+        }
+    }
     onShowCreditsInPanelChanged: panelText()
     onShowUsedPercentInPanelChanged: panelText()
     onShowProviderInPanelChanged: panelText()

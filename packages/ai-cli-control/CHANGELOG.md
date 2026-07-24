@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.10.1, 2026-07-24
+
+### Fixed
+
+- Cache the exact widget cost command for 15 minutes, return stale cached cost data immediately, and allow only one detached refresh at a time.
+- Run expensive upstream cost scans in a constrained low-priority user scope when available, with a niced direct-process fallback.
+
 ## 0.10.0, 2026-07-23
 
 ### Added

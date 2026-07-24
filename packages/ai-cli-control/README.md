@@ -152,7 +152,7 @@ Run `local-ai opencode-catalog` to print the current llama.cpp catalog as an Ope
 - Codex: OAuth usage at the ChatGPT backend (`/wham/usage` or `/api/codex/usage`) using `~/.codex/auth.json`. No automatic token refresh. Auth failures ask the user to run `codex` to log in.
 - Grok: cookie-free gRPC-web billing at Grok's credits endpoint using `~/.grok/auth.json`. Auth failures ask the user to run `grok login`.
 
-Antigravity and any unknown provider still use upstream `codexbar` per provider. Codex and Grok may fall back to that companion only for retryable network or infrastructure failures, never for authentication errors. Provider errors retain their exact cause and structured retry category. Claude HTTP 429 remains a non-retryable provider error so the widget can retain its cached reading. `cost --format json --json-only` is an upstream passthrough, or `[]` when upstream is absent.
+Antigravity and any unknown provider still use upstream `codexbar` per provider. Codex and Grok may fall back to that companion only for retryable network or infrastructure failures, never for authentication errors. Provider errors retain their exact cause and structured retry category. Claude HTTP 429 remains a non-retryable provider error so the widget can retain its cached reading. The exact `cost --format json --json-only` command has a 15-minute on-disk cache. A stale payload returns immediately while one low-priority background refresh updates it. Other `cost` argument variants remain upstream passthroughs. When upstream is absent, the exact command returns `[]`.
 
 Usage invocations with flags the engine does not implement, such as `--status`, are delegated wholly to upstream `codexbar`.
 

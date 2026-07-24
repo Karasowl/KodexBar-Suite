@@ -54,6 +54,18 @@ function costArguments() {
     return ["cost", "--format", "json", "--json-only"]
 }
 
+function shouldRefreshCost(now, lastFetchedAt, ttlSeconds, loading, visible) {
+    if (loading === true || visible !== true) {
+        return false
+    }
+    var timestamp = Number(lastFetchedAt)
+    var ttlMilliseconds = Number(ttlSeconds) * 1000
+    if (!isFinite(timestamp) || timestamp <= 0 || !isFinite(ttlMilliseconds) || ttlMilliseconds <= 0) {
+        return true
+    }
+    return Number(now) - timestamp >= ttlMilliseconds
+}
+
 function normalizeCodexResetCredits(value) {
     var credits = value && typeof value === "object" ? value : {}
     var list = Array.isArray(credits.credits) ? credits.credits : []

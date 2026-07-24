@@ -59,6 +59,9 @@
     <entry name="showCostSummary" type="Bool">
       <default>true</default>
     </entry>
+    <entry name="costRefreshSeconds" type="Int">
+      <default>900</default>
+    </entry>
     <entry name="compactProviderOrder" type="String">
       <default>codex,claude,grok,antigravity</default>
     </entry>
