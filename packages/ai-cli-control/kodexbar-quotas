@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover - Python < 3.11
 VERSION = "0.11.0"
 TIMEOUT_SECONDS = 15
 COST_CACHE_TTL_SECONDS = 15 * 60
-COST_ANCHOR_TTL_SECONDS = 24 * 60 * 60
+COST_ANCHOR_TTL_SECONDS = 6 * 60 * 60
 COST_UPSTREAM_TIMEOUT_SECONDS = 10 * 60
 COST_INCREMENTAL_STATE_VERSION = 1
 COST_INCREMENTAL_FINGERPRINT_BYTES = 2048
@@ -2157,45 +2157,42 @@ def _handle_incremental_record(
             _add_incremental_usage(contributions, provider, day, model, usage)
         return
     previous = rows.get(key)
-    current_row = {"day": day, "model": model, "usage": usage, "counted": not seed_only}
+    baseline: dict[str, int] | None = None
+    if isinstance(previous, dict):
+        previous_baseline = previous.get("baselineUsage")
+        previous_raw = previous.get("rawUsage")
+        if isinstance(previous_baseline, dict):
+            baseline = previous_baseline
+        elif previous.get("counted") is False and isinstance(previous_raw, dict):
+            baseline = previous_raw
+        elif previous.get("counted") is False and isinstance(previous.get("usage"), dict):
+            baseline = previous["usage"]
+    incremental_usage = usage
+    if baseline is not None:
+        incremental_usage = {
+            token_key: max(0, usage[token_key] - _incremental_token(baseline.get(token_key)))
+            for token_key in (
+                "inputTokens",
+                "cacheReadTokens",
+                "cacheCreationTokens",
+                "outputTokens",
+            )
+        }
+    current_row = {
+        "day": day,
+        "model": model,
+        "usage": incremental_usage,
+        "rawUsage": usage,
+        "baselineUsage": baseline,
+        "timestamp": timestamp,
+        "counted": not seed_only,
+    }
     if seed_only or timestamp <= anchor_fetched_at:
         current_row["counted"] = False
+        current_row["usage"] = usage
+        current_row["baselineUsage"] = usage
         rows[key] = current_row
         return
-    if isinstance(previous, dict):
-        previous_usage = previous.get("usage")
-        previous_day = previous.get("day")
-        previous_model = previous.get("model")
-        if (
-            previous.get("counted") is True
-            and isinstance(previous_usage, dict)
-            and isinstance(previous_day, str)
-            and isinstance(previous_model, str)
-        ):
-            _add_incremental_usage(
-                contributions,
-                provider,
-                previous_day,
-                previous_model,
-                previous_usage,
-                multiplier=-1,
-            )
-            _add_incremental_usage(contributions, provider, day, model, usage)
-        elif isinstance(previous_usage, dict):
-            delta = {
-                token_key: max(0, usage[token_key] - _incremental_token(previous_usage.get(token_key)))
-                for token_key in (
-                    "inputTokens",
-                    "cacheReadTokens",
-                    "cacheCreationTokens",
-                    "outputTokens",
-                )
-            }
-            _add_incremental_usage(contributions, provider, day, model, delta)
-        else:
-            _add_incremental_usage(contributions, provider, day, model, usage)
-    else:
-        _add_incremental_usage(contributions, provider, day, model, usage)
     rows[key] = current_row
 
 
@@ -2394,6 +2391,53 @@ def write_cost_incremental_state_atomic(state_path: Path, state: dict[str, Any])
             pass
 
 
+def _global_claude_rows(files: dict[str, Any]) -> dict[str, Any]:
+    rows: dict[str, Any] = {}
+    for file_state in files.values():
+        if not isinstance(file_state, dict) or file_state.get("provider") != "claude":
+            continue
+        parser = file_state.get("parser")
+        file_rows = parser.get("claudeRows") if isinstance(parser, dict) else None
+        if not isinstance(file_rows, dict):
+            continue
+        for key, row in file_rows.items():
+            if not isinstance(key, str) or not isinstance(row, dict) or row.get("counted") is not True:
+                continue
+            timestamp = _incremental_number(row.get("timestamp"))
+            usage = row.get("usage")
+            day = row.get("day")
+            model = row.get("model")
+            if (
+                timestamp is None
+                or not isinstance(usage, dict)
+                or not isinstance(day, str)
+                or not isinstance(model, str)
+            ):
+                continue
+            previous = rows.get(key)
+            previous_timestamp = (
+                _incremental_number(previous.get("timestamp"))
+                if isinstance(previous, dict)
+                else None
+            )
+            if previous_timestamp is None or timestamp >= previous_timestamp:
+                rows[key] = {
+                    "day": day,
+                    "model": model,
+                    "usage": {
+                        token_key: _incremental_token(usage.get(token_key))
+                        for token_key in (
+                            "inputTokens",
+                            "cacheReadTokens",
+                            "cacheCreationTokens",
+                            "outputTokens",
+                        )
+                    },
+                    "timestamp": timestamp,
+                }
+    return rows
+
+
 def refresh_cost_incremental_state(
     anchor_fetched_at: float,
     previous_state: dict[str, Any] | None,
@@ -2407,6 +2451,7 @@ def refresh_cost_incremental_state(
         previous_state.get("files", {})
         if isinstance(previous_state, dict)
         and previous_state.get("anchorFetchedAt") == anchor_fetched_at
+        and previous_state.get("claudeGlobalDedupe") is True
         else {}
     )
     bytes_read = 0
@@ -2497,6 +2542,8 @@ def refresh_cost_incremental_state(
         "refreshedAt": refreshed_at,
         "bytesRead": bytes_read,
         "unreadableLines": unreadable_lines,
+        "claudeGlobalDedupe": True,
+        "claudeRows": _global_claude_rows(files),
         "files": files,
     }
 
@@ -2536,6 +2583,34 @@ def _solve_normal_equations(rows: list[tuple[list[float], float]]) -> list[float
     return [max(0.0, value) for value in solution]
 
 
+def _solve_nonnegative_least_squares(
+    rows: list[tuple[list[float], float]],
+) -> list[float] | None:
+    if not rows:
+        return None
+    width = len(rows[0][0])
+    best: tuple[float, list[float]] | None = None
+    for mask in range(1, 1 << width):
+        columns = [index for index in range(width) if mask & (1 << index)]
+        reduced_rows = [
+            ([features[index] for index in columns], target)
+            for features, target in rows
+        ]
+        solution = _solve_normal_equations(reduced_rows)
+        if solution is None:
+            continue
+        expanded = [0.0] * width
+        for index, value in zip(columns, solution):
+            expanded[index] = value
+        error = sum(
+            (sum(feature * rate for feature, rate in zip(features, expanded)) - target) ** 2
+            for features, target in rows
+        )
+        if best is None or error < best[0]:
+            best = error, expanded
+    return best[1] if best is not None else None
+
+
 def _cost_features(provider: str, usage: dict[str, int]) -> list[float]:
     input_tokens = float(_incremental_token(usage.get("inputTokens")))
     cache_read = float(_incremental_token(usage.get("cacheReadTokens")))
@@ -2561,7 +2636,7 @@ def fit_cost_rates_from_anchor(payload: Any) -> dict[str, dict[str, dict[str, An
         daily = provider_payload.get("daily")
         if provider not in ("codex", "claude") or not isinstance(daily, list):
             continue
-        component_rows: dict[str, list[tuple[list[float], float]]] = {}
+        day_rows: list[dict[str, Any]] = []
         scalar_rows: dict[str, list[tuple[float, float]]] = {}
         for day in daily:
             if not isinstance(day, dict):
@@ -2569,52 +2644,102 @@ def fit_cost_rates_from_anchor(payload: Any) -> dict[str, dict[str, dict[str, An
             breakdowns = day.get("modelBreakdowns")
             if not isinstance(breakdowns, list):
                 continue
+            day_cost = _incremental_number(day.get("totalCost"))
+            day_tokens = _incremental_token(day.get("totalTokens"))
+            features = _cost_features(provider, day)
+            usable_breakdowns: list[dict[str, Any]] = []
             for breakdown in breakdowns:
                 if not isinstance(breakdown, dict):
                     continue
                 model = _incremental_model(breakdown.get("modelName"))
                 cost = _incremental_number(breakdown.get("cost"))
                 total_tokens = _incremental_token(breakdown.get("totalTokens"))
-                if model is None or cost is None or cost < 0:
+                if model is None or cost is None or cost < 0 or total_tokens <= 0:
                     continue
-                usage_source: dict[str, Any] | None = None
-                if any(
-                    key in breakdown
-                    for key in (
-                        "inputTokens",
-                        "outputTokens",
-                        "cacheReadTokens",
-                        "cacheCreationTokens",
-                    )
-                ):
-                    usage_source = breakdown
-                elif len(breakdowns) == 1:
-                    usage_source = day
-                if usage_source is not None:
-                    features = _cost_features(provider, usage_source)
-                    if any(features):
-                        component_rows.setdefault(model, []).append((features, cost))
-                if total_tokens > 0:
-                    scalar_rows.setdefault(model, []).append((float(total_tokens), cost))
+                usable_breakdowns.append({
+                    "model": model,
+                    "cost": cost,
+                    "totalTokens": total_tokens,
+                })
+                scalar_rows.setdefault(model, []).append((float(total_tokens), cost))
+            if (
+                day_cost is not None
+                and day_cost >= 0
+                and day_tokens > 0
+                and any(features)
+                and usable_breakdowns
+            ):
+                day_rows.append({
+                    "features": features,
+                    "cost": day_cost,
+                    "totalTokens": day_tokens,
+                    "breakdowns": usable_breakdowns,
+                })
         provider_rates: dict[str, dict[str, Any]] = {}
-        for model in set(component_rows) | set(scalar_rows):
-            solution = _solve_normal_equations(component_rows.get(model, []))
-            if solution is not None:
-                provider_rates[model] = {
-                    "kind": "components",
-                    "input": solution[0],
-                    "output": solution[1],
-                    "cacheRead": solution[2],
-                    "cacheCreation": solution[3],
-                }
-                continue
-            rows = scalar_rows.get(model, [])
+        solution = _solve_nonnegative_least_squares([
+            (row["features"], row["cost"])
+            for row in day_rows
+        ])
+        model_scales: dict[str, float] = {}
+        if solution is not None:
+            # Alternate global component prices with per-model scales until both fit the real anchor.
+            for _iteration in range(12):
+                base_rows: dict[str, list[tuple[float, float]]] = {}
+                for row in day_rows:
+                    day_component_cost = sum(
+                        feature * rate
+                        for feature, rate in zip(row["features"], solution)
+                    )
+                    unit_cost = day_component_cost / row["totalTokens"]
+                    for breakdown in row["breakdowns"]:
+                        base_rows.setdefault(breakdown["model"], []).append((
+                            unit_cost * breakdown["totalTokens"],
+                            breakdown["cost"],
+                        ))
+                model_scales = {}
+                for model, rows in base_rows.items():
+                    denominator = sum(base * base for base, _cost in rows)
+                    numerator = sum(base * cost for base, cost in rows)
+                    if denominator <= 0:
+                        continue
+                    scale = numerator / denominator
+                    if math.isfinite(scale) and scale > 0:
+                        model_scales[model] = scale
+                component_rows: list[tuple[list[float], float]] = []
+                for row in day_rows:
+                    for breakdown in row["breakdowns"]:
+                        scale = model_scales.get(breakdown["model"])
+                        if scale is None:
+                            continue
+                        share = breakdown["totalTokens"] / row["totalTokens"]
+                        component_rows.append((
+                            [feature * share for feature in row["features"]],
+                            breakdown["cost"] / scale,
+                        ))
+                refined = _solve_nonnegative_least_squares(component_rows)
+                if refined is None:
+                    break
+                solution = refined
+            provider_rates["__global__"] = {
+                "kind": "components",
+                "input": solution[0],
+                "output": solution[1],
+                "cacheRead": solution[2],
+                "cacheCreation": solution[3],
+            }
+        for model, rows in scalar_rows.items():
             denominator = sum(tokens * tokens for tokens, _cost in rows)
             numerator = sum(tokens * cost for tokens, cost in rows)
-            if denominator > 0:
-                rate = numerator / denominator
-                if math.isfinite(rate) and rate >= 0:
-                    provider_rates[model] = {"kind": "effective", "total": rate}
+            effective = numerator / denominator if denominator > 0 else None
+            scale = model_scales.get(model)
+            if scale is not None and effective is not None and math.isfinite(effective):
+                provider_rates[model] = {
+                    "kind": "scaled-components",
+                    "scale": scale,
+                    "total": effective,
+                }
+            elif effective is not None and math.isfinite(effective) and effective >= 0:
+                provider_rates[model] = {"kind": "effective", "total": effective}
         rates[provider] = provider_rates
     return rates
 
@@ -2643,6 +2768,18 @@ def incremental_usage_cost(
     if resolved_model is None:
         return model, None
     rate = provider_rates[resolved_model]
+    if rate.get("kind") == "scaled-components":
+        global_rate = provider_rates.get("__global__", {})
+        scale = _incremental_number(rate.get("scale"))
+        if global_rate.get("kind") == "components" and scale is not None and scale >= 0:
+            features = _cost_features(provider, usage)
+            cost = scale * (
+                features[0] * float(global_rate["input"])
+                + features[1] * float(global_rate["output"])
+                + features[2] * float(global_rate["cacheRead"])
+                + features[3] * float(global_rate["cacheCreation"])
+            )
+            return resolved_model, cost if math.isfinite(cost) and cost >= 0 else None
     if rate.get("kind") == "components":
         features = _cost_features(provider, usage)
         cost = (
@@ -2685,6 +2822,32 @@ def _aggregate_incremental_contributions(state: dict[str, Any]) -> dict[str, Any
                         "cacheCreationTokens",
                     )
                 })
+    claude_rows = state.get("claudeRows", {})
+    if not isinstance(claude_rows, dict):
+        raise ValueError("incremental Claude rows are invalid")
+    for row in claude_rows.values():
+        if not isinstance(row, dict):
+            raise ValueError("incremental Claude row is invalid")
+        day = row.get("day")
+        model = row.get("model")
+        usage = row.get("usage")
+        if not isinstance(day, str) or not isinstance(model, str) or not isinstance(usage, dict):
+            raise ValueError("incremental Claude row is invalid")
+        _add_incremental_usage(
+            aggregated["claude"],
+            "claude",
+            day,
+            model,
+            {
+                key: _incremental_token(usage.get(key))
+                for key in (
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheReadTokens",
+                    "cacheCreationTokens",
+                )
+            },
+        )
     return aggregated
 
 
@@ -2710,6 +2873,10 @@ def compose_incremental_cost_payload(
         daily = provider_payload.get("daily")
         if not isinstance(daily, list):
             raise ValueError("provider daily cost is invalid")
+        daily_has_cache_creation = provider != "codex" or any(
+            isinstance(item, dict) and "cacheCreationTokens" in item
+            for item in daily
+        )
         by_day = {
             entry.get("date"): entry
             for entry in daily
@@ -2725,12 +2892,13 @@ def compose_incremental_cost_payload(
                     "inputTokens": 0,
                     "outputTokens": 0,
                     "cacheReadTokens": 0,
-                    "cacheCreationTokens": 0,
                     "totalTokens": 0,
                     "totalCost": 0.0,
                     "modelsUsed": [],
                     "modelBreakdowns": [],
                 }
+                if daily_has_cache_creation:
+                    entry["cacheCreationTokens"] = 0
                 daily.append(entry)
                 by_day[day] = entry
             breakdowns = entry.setdefault("modelBreakdowns", [])
@@ -2764,13 +2932,15 @@ def compose_incremental_cost_payload(
                     added_cost += model_cost
                 if display_model not in models_used:
                     models_used.append(display_model)
-                for key in (
+                token_keys = [
                     "inputTokens",
                     "outputTokens",
                     "cacheReadTokens",
-                    "cacheCreationTokens",
                     "totalTokens",
-                ):
+                ]
+                if daily_has_cache_creation:
+                    token_keys.insert(3, "cacheCreationTokens")
+                for key in token_keys:
                     entry[key] = _incremental_token(entry.get(key)) + usage[key]
             entry["totalCost"] = float(entry.get("totalCost", 0.0) or 0.0) + added_cost
             models_used.sort()
@@ -2781,6 +2951,9 @@ def compose_incremental_cost_payload(
                 )
             )
         daily.sort(key=lambda entry: str(entry.get("date", "")) if isinstance(entry, dict) else "")
+        history_days = _incremental_token(provider_payload.get("historyDays"))
+        if history_days > 0 and len(daily) > history_days:
+            del daily[:-history_days]
         totals = {
             "inputTokens": 0,
             "outputTokens": 0,
@@ -2804,7 +2977,11 @@ def compose_incremental_cost_payload(
             if cost is not None:
                 totals["totalCost"] += cost
         previous_totals = provider_payload.get("totals")
-        if isinstance(previous_totals, dict) and "cacheCreationTokens" not in previous_totals and totals["cacheCreationTokens"] == 0:
+        if (
+            isinstance(previous_totals, dict)
+            and "cacheCreationTokens" not in previous_totals
+            and not daily_has_cache_creation
+        ):
             totals.pop("cacheCreationTokens")
         provider_payload["totals"] = totals
         provider_payload["last30DaysTokens"] = totals["totalTokens"]
@@ -2841,17 +3018,24 @@ def incremental_cost_payload(
     if refresh and (
         status == "missing"
         or state is None
+        or state.get("claudeGlobalDedupe") is not True
         or time.time() - float(state["refreshedAt"]) >= COST_CACHE_TTL_SECONDS
     ):
-        try:
-            state = refresh_cost_incremental_state(
-                anchor_fetched_at,
-                state,
-                home=home,
-            )
-            write_cost_incremental_state_atomic(state_path, state)
-        except (OSError, ValueError, TypeError, OverflowError):
-            return None
+        _cache_path, lock_path = cost_cache_paths(home)
+        lock = acquire_cost_lock(lock_path, blocking=False)
+        if lock is not None:
+            try:
+                try:
+                    state = refresh_cost_incremental_state(
+                        anchor_fetched_at,
+                        state,
+                        home=home,
+                    )
+                    write_cost_incremental_state_atomic(state_path, state)
+                except (OSError, ValueError, TypeError, OverflowError):
+                    return None
+            finally:
+                release_cost_lock(lock)
     if state is None:
         return None
     try:
@@ -3055,6 +3239,7 @@ def refresh_cost_cache_nonblocking() -> int:
             return 0
         payload = parsed_cost_payload(completed)
         if payload is not None:
+            # Timestamp after the scan to avoid double counting, accepting its bounded undercount.
             write_cost_cache_atomic(cache_path, time.time(), payload)
     finally:
         release_cost_lock(lock)
@@ -3081,7 +3266,7 @@ def cached_cost_is_fresh(cached: tuple[float, Any]) -> bool:
 
 
 def cost_json_response() -> int:
-    """Serve an upstream anchor plus native increments, refreshing the anchor daily."""
+    """Serve an upstream anchor plus native increments, refreshing it every six hours."""
     executable = upstream_path()
     if executable is None:
         print_json([], False)
@@ -3128,6 +3313,7 @@ def cost_json_response() -> int:
             if completed.returncode != 0:
                 print("kodexbar-quotas: upstream cost scan failed", file=sys.stderr)
             return print_completed_output(completed)
+        # Timestamp after the scan to avoid double counting, accepting its bounded undercount.
         write_cost_cache_atomic(cache_path, time.time(), payload)
         print_json(payload, False)
         return 0

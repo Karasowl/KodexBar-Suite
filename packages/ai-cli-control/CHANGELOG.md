@@ -7,11 +7,11 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Add a native incremental cost scanner for Codex and Claude JSONL histories, with atomic per-file offsets, prefix fingerprints, UTC daily and model aggregates, truncation recovery, and unreadable-line accounting.
-- Derive model pricing only from the daily model costs in the upstream anchor. Models without a resolvable fitted rate still contribute tokens without an invented cost.
+- Fit global component prices from the anchor's daily aggregates, then scale them to its observed per-model effective rates. Models without a resolvable fitted rate still contribute tokens without an invented cost.
 
 ### Changed
 
-- Keep the exact upstream cost payload as a 24-hour anchor and satisfy the existing 15-minute refresh with appended JSONL bytes only.
+- Keep the exact upstream cost payload as a 6-hour anchor and satisfy the existing 15-minute refresh with appended JSONL bytes only.
 - Merge native increments into the anchor day and later days while recalculating daily, session, and last-30-days totals. Any corrupt incremental state or inconsistent payload falls back to the unchanged anchor.
 
 ## 0.10.1, 2026-07-24

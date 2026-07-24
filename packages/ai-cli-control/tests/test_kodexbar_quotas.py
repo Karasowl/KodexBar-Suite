@@ -740,6 +740,21 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(usage["outputTokens"], 35)
         self.assertLess(second["bytesRead"], 64 * 1024)
 
+    def test_incremental_scanner_deduplicates_claude_rows_across_files(self) -> None:
+        anchor = quotas._incremental_timestamp("2026-07-24T07:59:00Z")
+        assert anchor is not None
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home, _codex, claude_path = self._incremental_fixture_home(root)
+            duplicate = claude_path.with_name("claude-copy.jsonl")
+            duplicate.write_text(claude_path.read_text(encoding="utf-8"), encoding="utf-8")
+            state = quotas.refresh_cost_incremental_state(anchor, None, home=home, now=anchor + 600)
+        aggregate = quotas._aggregate_incremental_contributions(state)
+        claude = aggregate["claude"]["2026-07-24"]
+        self.assertEqual(claude["claude-synthetic"]["totalTokens"], 120)
+        self.assertEqual(claude["claude-unknown"]["totalTokens"], 10)
+        self.assertEqual(len(state["claudeRows"]), 2)
+
     def test_incremental_scanner_detects_truncation_and_replaces_file_contribution(self) -> None:
         anchor = quotas._incremental_timestamp("2026-07-24T07:59:00Z")
         assert anchor is not None
@@ -779,37 +794,75 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertNotIn("gpt-synthetic", models)
         self.assertEqual(models["gpt-replaced"]["totalTokens"], 10)
 
-    def test_incremental_rate_fit_recovers_known_component_prices(self) -> None:
-        known = [0.01, 0.02, 0.003, 0.015]
+    def test_incremental_rate_fit_uses_real_anchor_shape(self) -> None:
+        known = [0.00001, 0.00002, 0.000003, 0.000015]
         usages = [
-            {"inputTokens": 1000, "outputTokens": 0, "cacheReadTokens": 0, "cacheCreationTokens": 0},
-            {"inputTokens": 0, "outputTokens": 1000, "cacheReadTokens": 0, "cacheCreationTokens": 0},
-            {"inputTokens": 1000, "outputTokens": 0, "cacheReadTokens": 1000, "cacheCreationTokens": 0},
-            {"inputTokens": 1000, "outputTokens": 0, "cacheReadTokens": 0, "cacheCreationTokens": 1000},
+            (5000, 1000, 2000, 500),
+            (4000, 2000, 3000, 100),
+            (8000, 500, 1000, 2000),
+            (3000, 3000, 4000, 600),
+            (7000, 1500, 500, 1000),
+            (2500, 2500, 6000, 300),
+            (9000, 800, 1200, 700),
+            (4500, 1800, 3500, 1200),
         ]
         daily = []
-        for index, usage in enumerate(usages, 1):
-            cost = sum(
-                feature * rate
-                for feature, rate in zip(quotas._cost_features("codex", usage), known)
-            )
+        for index, components in enumerate(usages, 1):
+            usage = dict(zip(
+                ("inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens"),
+                components,
+            ))
+            total_tokens = sum(components)
+            model_a_tokens = int(total_tokens * (0.35 + 0.05 * (index % 4)))
+            model_b_tokens = total_tokens - model_a_tokens
+            component_cost = sum(feature * rate for feature, rate in zip(components, known))
+            unit_cost = component_cost / total_tokens
+            breakdowns = [
+                {
+                    "modelName": "model-a",
+                    "cost": unit_cost * model_a_tokens * 1.4,
+                    "totalTokens": model_a_tokens,
+                },
+                {
+                    "modelName": "model-b",
+                    "cost": unit_cost * model_b_tokens * 0.7,
+                    "totalTokens": model_b_tokens,
+                },
+            ]
             daily.append({
                 "date": f"2026-07-{index:02d}",
                 **usage,
-                "totalTokens": usage["inputTokens"] + usage["outputTokens"],
-                "totalCost": cost,
-                "modelBreakdowns": [{
-                    "modelName": "gpt-known",
-                    "cost": cost,
-                    "totalTokens": usage["inputTokens"] + usage["outputTokens"],
-                    **usage,
-                }],
+                "totalTokens": total_tokens,
+                "totalCost": sum(item["cost"] for item in breakdowns),
+                "modelBreakdowns": breakdowns,
             })
-        rates = quotas.fit_cost_rates_from_anchor([{"provider": "codex", "daily": daily}])
-        fitted = rates["codex"]["gpt-known"]
-        self.assertEqual(fitted["kind"], "components")
-        for key, expected in zip(("input", "output", "cacheRead", "cacheCreation"), known):
-            self.assertAlmostEqual(fitted[key], expected, places=12)
+        rates = quotas.fit_cost_rates_from_anchor([{"provider": "claude", "daily": daily}])
+        self.assertEqual(rates["claude"]["__global__"]["kind"], "components")
+        self.assertEqual(rates["claude"]["model-a"]["kind"], "scaled-components")
+        self.assertEqual(rates["claude"]["model-b"]["kind"], "scaled-components")
+        errors = []
+        for day in daily:
+            for breakdown in day["modelBreakdowns"]:
+                share = breakdown["totalTokens"] / day["totalTokens"]
+                usage = {
+                    key: round(day[key] * share)
+                    for key in (
+                        "inputTokens",
+                        "outputTokens",
+                        "cacheReadTokens",
+                        "cacheCreationTokens",
+                    )
+                }
+                usage["totalTokens"] = sum(usage.values())
+                _model, cost = quotas.incremental_usage_cost(
+                    "claude",
+                    breakdown["modelName"],
+                    usage,
+                    rates,
+                )
+                assert cost is not None
+                errors.append(abs(cost - breakdown["cost"]) / breakdown["cost"])
+        self.assertLess(max(errors), 0.001)
 
     def test_unknown_incremental_model_contributes_tokens_without_cost(self) -> None:
         usage = {
@@ -893,6 +946,89 @@ class QuotasEngineTests(unittest.TestCase):
         unknown = next(item for item in today["modelBreakdowns"] if item["modelName"] == "gpt-unknown")
         self.assertNotIn("cost", unknown)
 
+    def test_incremental_composition_trims_history_and_preserves_codex_day_shape(self) -> None:
+        anchor_time = quotas._incremental_timestamp("2026-07-24T07:59:00Z")
+        assert anchor_time is not None
+        old_day = {
+            "date": "2026-07-23",
+            "inputTokens": 10,
+            "outputTokens": 2,
+            "cacheReadTokens": 3,
+            "totalTokens": 12,
+            "totalCost": 0.1,
+            "modelsUsed": ["gpt-known"],
+            "modelBreakdowns": [{"modelName": "gpt-known", "totalTokens": 12, "cost": 0.1}],
+        }
+        anchor = [{
+            "provider": "codex",
+            "historyDays": 1,
+            "daily": [old_day],
+            "totals": {
+                "inputTokens": 10,
+                "outputTokens": 2,
+                "cacheReadTokens": 3,
+                "totalTokens": 12,
+                "totalCost": 0.1,
+            },
+        }]
+        state = {
+            "version": quotas.COST_INCREMENTAL_STATE_VERSION,
+            "anchorFetchedAt": anchor_time,
+            "refreshedAt": anchor_time + 900,
+            "files": {
+                "/synthetic": {
+                    "provider": "codex",
+                    "contributions": {
+                        "2026-07-24": {
+                            "gpt-known": {
+                                "inputTokens": 20,
+                                "outputTokens": 5,
+                                "cacheReadTokens": 8,
+                                "cacheCreationTokens": 4,
+                                "totalTokens": 25,
+                            },
+                        },
+                    },
+                },
+            },
+        }
+        composed = quotas.compose_incremental_cost_payload(anchor, anchor_time, state)[0]
+        self.assertEqual(len(composed["daily"]), 1)
+        self.assertEqual(composed["daily"][0]["date"], "2026-07-24")
+        self.assertNotIn("cacheCreationTokens", composed["daily"][0])
+        self.assertEqual(composed["last30DaysTokens"], 25)
+        self.assertEqual(composed["totals"]["totalTokens"], 25)
+
+    def test_incremental_refresh_uses_persisted_state_while_cost_lock_is_taken(self) -> None:
+        anchor_time = quotas._incremental_timestamp("2026-07-24T07:59:00Z")
+        assert anchor_time is not None
+        anchor = [{"provider": "codex", "daily": [], "totals": {}}]
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            state_path = quotas.cost_incremental_state_path(home)
+            state = {
+                "version": quotas.COST_INCREMENTAL_STATE_VERSION,
+                "anchorFetchedAt": anchor_time,
+                "refreshedAt": anchor_time,
+                "files": {},
+            }
+            quotas.write_cost_incremental_state_atomic(state_path, state)
+            _cache_path, lock_path = quotas.cost_cache_paths(home)
+            lock = quotas.acquire_cost_lock(lock_path, blocking=False)
+            assert lock is not None
+            try:
+                with patch.object(
+                    quotas,
+                    "refresh_cost_incremental_state",
+                    side_effect=AssertionError("incremental scan must not run"),
+                ):
+                    composed = quotas.incremental_cost_payload(anchor, anchor_time, home=home)
+            finally:
+                quotas.release_cost_lock(lock)
+        assert composed is not None
+        self.assertEqual(composed[0]["daily"], [])
+        self.assertEqual(composed[0]["updatedAt"], "2026-07-24T07:59:00Z")
+
     def test_corrupt_incremental_state_degrades_to_exact_anchor(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -937,7 +1073,7 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout), [{"provider": "cached"}])
         self.assertFalse(calls_path.exists())
 
-    def test_cost_anchor_younger_than_24_hours_never_runs_upstream(self) -> None:
+    def test_cost_anchor_younger_than_6_hours_never_runs_upstream(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             env, cache_path, calls_path = self._cost_test_environment(root, payload=[{"provider": "new"}])
