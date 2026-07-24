@@ -656,6 +656,271 @@ class QuotasEngineTests(unittest.TestCase):
             time.sleep(0.05)
         self.fail(f"timed out waiting for {expected} systemd-run calls")
 
+    def _incremental_fixture_home(self, root: Path) -> tuple[Path, Path, Path]:
+        home = root / "home"
+        codex = home / ".codex" / "sessions" / "2026" / "07" / "24" / "codex.jsonl"
+        claude = home / ".claude" / "projects" / "synthetic" / "claude.jsonl"
+        codex.parent.mkdir(parents=True)
+        claude.parent.mkdir(parents=True)
+        codex.write_text(
+            (FIXTURES / "cost-incremental-codex.jsonl").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        claude.write_text(
+            (FIXTURES / "cost-incremental-claude.jsonl").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        return home, codex, claude
+
+    def test_incremental_scanner_extracts_real_codex_and_claude_shapes(self) -> None:
+        anchor = quotas._incremental_timestamp("2026-07-24T07:59:00Z")
+        assert anchor is not None
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home, _codex, _claude = self._incremental_fixture_home(root)
+            state = quotas.refresh_cost_incremental_state(anchor, None, home=home, now=anchor + 600)
+        aggregate = quotas._aggregate_incremental_contributions(state)
+        codex = aggregate["codex"]["2026-07-24"]["gpt-synthetic"]
+        claude = aggregate["claude"]["2026-07-24"]["claude-synthetic"]
+        unknown = aggregate["claude"]["2026-07-24"]["claude-unknown"]
+        self.assertEqual(
+            codex,
+            {
+                "inputTokens": 160,
+                "outputTokens": 30,
+                "cacheReadTokens": 60,
+                "cacheCreationTokens": 10,
+                "totalTokens": 190,
+            },
+        )
+        self.assertEqual(claude["totalTokens"], 120, "the final cumulative Claude chunk replaces the first")
+        self.assertEqual(unknown["totalTokens"], 10)
+        self.assertEqual(state["unreadableLines"], 0)
+
+    def test_incremental_scanner_resumes_from_saved_offset(self) -> None:
+        anchor = quotas._incremental_timestamp("2026-07-24T07:59:00Z")
+        assert anchor is not None
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home, codex_path, _claude = self._incremental_fixture_home(root)
+            first = quotas.refresh_cost_incremental_state(anchor, None, home=home, now=anchor + 600)
+            first_offset = first["files"][str(codex_path)]["offset"]
+            appended = json.dumps({
+                "timestamp": "2026-07-24T08:04:00Z",
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {
+                        "total_token_usage": {
+                            "input_tokens": 170,
+                            "cached_input_tokens": 65,
+                            "output_tokens": 35,
+                        },
+                        "last_token_usage": {
+                            "input_tokens": 10,
+                            "cached_input_tokens": 5,
+                            "output_tokens": 5,
+                        },
+                    },
+                },
+            }) + "\n"
+            with codex_path.open("a", encoding="utf-8") as handle:
+                handle.write(appended)
+            second = quotas.refresh_cost_incremental_state(anchor, first, home=home, now=anchor + 1200)
+        file_state = second["files"][str(codex_path)]
+        usage = quotas._aggregate_incremental_contributions(second)["codex"]["2026-07-24"]["gpt-synthetic"]
+        self.assertEqual(first_offset + len(appended.encode()), file_state["offset"])
+        self.assertEqual(usage["inputTokens"], 170)
+        self.assertEqual(usage["outputTokens"], 35)
+        self.assertLess(second["bytesRead"], 64 * 1024)
+
+    def test_incremental_scanner_detects_truncation_and_replaces_file_contribution(self) -> None:
+        anchor = quotas._incremental_timestamp("2026-07-24T07:59:00Z")
+        assert anchor is not None
+        replacement = "\n".join([
+            json.dumps({
+                "timestamp": "2026-07-24T08:05:00Z",
+                "type": "turn_context",
+                "payload": {"model": "gpt-replaced"},
+            }),
+            json.dumps({
+                "timestamp": "2026-07-24T08:05:01Z",
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {
+                        "total_token_usage": {
+                            "input_tokens": 7,
+                            "cached_input_tokens": 2,
+                            "output_tokens": 3,
+                        },
+                        "last_token_usage": {
+                            "input_tokens": 7,
+                            "cached_input_tokens": 2,
+                            "output_tokens": 3,
+                        },
+                    },
+                },
+            }),
+        ]) + "\n"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home, codex_path, _claude = self._incremental_fixture_home(root)
+            first = quotas.refresh_cost_incremental_state(anchor, None, home=home, now=anchor + 600)
+            codex_path.write_text(replacement, encoding="utf-8")
+            second = quotas.refresh_cost_incremental_state(anchor, first, home=home, now=anchor + 1200)
+        models = quotas._aggregate_incremental_contributions(second)["codex"]["2026-07-24"]
+        self.assertNotIn("gpt-synthetic", models)
+        self.assertEqual(models["gpt-replaced"]["totalTokens"], 10)
+
+    def test_incremental_rate_fit_recovers_known_component_prices(self) -> None:
+        known = [0.01, 0.02, 0.003, 0.015]
+        usages = [
+            {"inputTokens": 1000, "outputTokens": 0, "cacheReadTokens": 0, "cacheCreationTokens": 0},
+            {"inputTokens": 0, "outputTokens": 1000, "cacheReadTokens": 0, "cacheCreationTokens": 0},
+            {"inputTokens": 1000, "outputTokens": 0, "cacheReadTokens": 1000, "cacheCreationTokens": 0},
+            {"inputTokens": 1000, "outputTokens": 0, "cacheReadTokens": 0, "cacheCreationTokens": 1000},
+        ]
+        daily = []
+        for index, usage in enumerate(usages, 1):
+            cost = sum(
+                feature * rate
+                for feature, rate in zip(quotas._cost_features("codex", usage), known)
+            )
+            daily.append({
+                "date": f"2026-07-{index:02d}",
+                **usage,
+                "totalTokens": usage["inputTokens"] + usage["outputTokens"],
+                "totalCost": cost,
+                "modelBreakdowns": [{
+                    "modelName": "gpt-known",
+                    "cost": cost,
+                    "totalTokens": usage["inputTokens"] + usage["outputTokens"],
+                    **usage,
+                }],
+            })
+        rates = quotas.fit_cost_rates_from_anchor([{"provider": "codex", "daily": daily}])
+        fitted = rates["codex"]["gpt-known"]
+        self.assertEqual(fitted["kind"], "components")
+        for key, expected in zip(("input", "output", "cacheRead", "cacheCreation"), known):
+            self.assertAlmostEqual(fitted[key], expected, places=12)
+
+    def test_unknown_incremental_model_contributes_tokens_without_cost(self) -> None:
+        usage = {
+            "inputTokens": 10,
+            "outputTokens": 5,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0,
+            "totalTokens": 15,
+        }
+        model, cost = quotas.incremental_usage_cost(
+            "codex",
+            "gpt-unknown",
+            usage,
+            {"codex": {"gpt-known": {"kind": "effective", "total": 0.01}}},
+        )
+        self.assertEqual(model, "gpt-unknown")
+        self.assertIsNone(cost)
+
+    def test_incremental_composition_merges_anchor_day_and_recalculates_totals(self) -> None:
+        anchor_time = quotas._incremental_timestamp("2026-07-24T07:59:00Z")
+        assert anchor_time is not None
+        anchor = [{
+            "provider": "codex",
+            "updatedAt": "2026-07-24T07:59:00Z",
+            "daily": [{
+                "date": "2026-07-24",
+                "inputTokens": 100,
+                "outputTokens": 10,
+                "cacheReadTokens": 50,
+                "totalTokens": 110,
+                "totalCost": 1.0,
+                "modelsUsed": ["gpt-known"],
+                "modelBreakdowns": [{"modelName": "gpt-known", "totalTokens": 110, "cost": 1.0}],
+            }],
+            "totals": {
+                "inputTokens": 100,
+                "outputTokens": 10,
+                "cacheReadTokens": 50,
+                "totalTokens": 110,
+                "totalCost": 1.0,
+            },
+            "sessionTokens": 110,
+            "sessionCostUSD": 1.0,
+            "last30DaysTokens": 110,
+            "last30DaysCostUSD": 1.0,
+        }]
+        state = {
+            "version": quotas.COST_INCREMENTAL_STATE_VERSION,
+            "anchorFetchedAt": anchor_time,
+            "refreshedAt": anchor_time + 900,
+            "files": {
+                "/synthetic": {
+                    "provider": "codex",
+                    "contributions": {
+                        "2026-07-24": {
+                            "gpt-known": {
+                                "inputTokens": 40,
+                                "outputTokens": 10,
+                                "cacheReadTokens": 20,
+                                "cacheCreationTokens": 0,
+                                "totalTokens": 50,
+                            },
+                            "gpt-unknown": {
+                                "inputTokens": 20,
+                                "outputTokens": 0,
+                                "cacheReadTokens": 0,
+                                "cacheCreationTokens": 0,
+                                "totalTokens": 20,
+                            },
+                        }
+                    },
+                }
+            },
+        }
+        composed = quotas.compose_incremental_cost_payload(anchor, anchor_time, state)[0]
+        today = composed["daily"][0]
+        self.assertEqual(today["totalTokens"], 180)
+        self.assertEqual(composed["sessionTokens"], 180)
+        self.assertEqual(composed["last30DaysTokens"], 180)
+        self.assertGreater(composed["sessionCostUSD"], 1.0)
+        unknown = next(item for item in today["modelBreakdowns"] if item["modelName"] == "gpt-unknown")
+        self.assertNotIn("cost", unknown)
+
+    def test_corrupt_incremental_state_degrades_to_exact_anchor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, cache_path, calls_path = self._cost_test_environment(
+                root,
+                payload=[{"provider": "unused"}],
+            )
+            anchor = [{"provider": "codex", "daily": [], "totals": {}}]
+            cache_path.parent.mkdir(parents=True)
+            cache_path.write_text(
+                json.dumps({"fetchedAt": time.time(), "payload": anchor}),
+                encoding="utf-8",
+            )
+            (cache_path.parent / "cost-incremental.json").write_text("{broken", encoding="utf-8")
+            result = self._run_cost(env)
+        self.assertEqual(json.loads(result.stdout), anchor)
+        self.assertFalse(calls_path.exists())
+
+    def test_first_incremental_start_records_old_file_at_end_without_history_scan(self) -> None:
+        anchor = quotas._incremental_timestamp("2026-07-24T07:59:00Z")
+        assert anchor is not None
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home, codex_path, _claude = self._incremental_fixture_home(root)
+            old = anchor - 1
+            os.utime(codex_path, (old, old))
+            state = quotas.refresh_cost_incremental_state(anchor, None, home=home, now=anchor + 600)
+            file_size = codex_path.stat().st_size
+        file_state = state["files"][str(codex_path)]
+        self.assertEqual(file_state["offset"], file_size)
+        self.assertEqual(file_state["contributions"], {})
+        self.assertFalse(file_state["parser"]["seeded"])
+        self.assertLessEqual(state["bytesRead"], 32 * 1024)
+
     def test_cost_fresh_cache_skips_upstream(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -666,7 +931,7 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout), [{"provider": "cached"}])
         self.assertFalse(calls_path.exists())
 
-    def test_cost_stale_cache_returns_immediately_and_refreshes_in_background(self) -> None:
+    def test_cost_day_old_anchor_returns_immediately_and_refreshes_in_background(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             env, cache_path, calls_path = self._cost_test_environment(
@@ -674,7 +939,7 @@ class QuotasEngineTests(unittest.TestCase):
             )
             cache_path.parent.mkdir(parents=True)
             cache_path.write_text(
-                json.dumps({"fetchedAt": time.time() - quotas.COST_CACHE_TTL_SECONDS - 1, "payload": [{"provider": "old"}]}),
+                json.dumps({"fetchedAt": time.time() - quotas.COST_ANCHOR_TTL_SECONDS - 1, "payload": [{"provider": "old"}]}),
                 encoding="utf-8",
             )
             started = time.monotonic()
@@ -714,7 +979,7 @@ class QuotasEngineTests(unittest.TestCase):
             old_payload = [{"provider": "old"}]
             cache_path.parent.mkdir(parents=True)
             cache_path.write_text(
-                json.dumps({"fetchedAt": time.time() - quotas.COST_CACHE_TTL_SECONDS - 1, "payload": old_payload}),
+                json.dumps({"fetchedAt": time.time() - quotas.COST_ANCHOR_TTL_SECONDS - 1, "payload": old_payload}),
                 encoding="utf-8",
             )
             result = self._run_cost(env)
@@ -732,7 +997,7 @@ class QuotasEngineTests(unittest.TestCase):
             )
             cache_path.parent.mkdir(parents=True)
             cache_path.write_text(
-                json.dumps({"fetchedAt": time.time() - quotas.COST_CACHE_TTL_SECONDS - 1, "payload": [{"provider": "old"}]}),
+                json.dumps({"fetchedAt": time.time() - quotas.COST_ANCHOR_TTL_SECONDS - 1, "payload": [{"provider": "old"}]}),
                 encoding="utf-8",
             )
             self._run_cost(env)

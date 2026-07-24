@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -29,7 +30,12 @@ except ImportError:  # pragma: no cover - Python < 3.11
 VERSION = "0.10.1"
 TIMEOUT_SECONDS = 15
 COST_CACHE_TTL_SECONDS = 15 * 60
+COST_ANCHOR_TTL_SECONDS = 24 * 60 * 60
 COST_UPSTREAM_TIMEOUT_SECONDS = 10 * 60
+COST_INCREMENTAL_STATE_VERSION = 1
+COST_INCREMENTAL_FINGERPRINT_BYTES = 2048
+COST_INCREMENTAL_SEED_BYTES = 512 * 1024
+COST_INCREMENTAL_MAX_LINE_BYTES = 1024 * 1024
 SYSTEMD_SCOPE_AVAILABLE: bool | None = None
 HTTP_MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MiB: enough for quota JSON / gRPC-web billing
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -1867,6 +1873,992 @@ def cost_cache_paths(home: Path | None = None) -> tuple[Path, Path]:
     return directory / "cost.json", directory / "cost.lock"
 
 
+def cost_incremental_state_path(home: Path | None = None) -> Path:
+    return cost_cache_directory(home) / "cost-incremental.json"
+
+
+def cost_session_roots(home: Path | None = None) -> tuple[tuple[str, Path], ...]:
+    root = home or home_directory()
+    return (
+        ("codex", root / ".codex" / "sessions"),
+        ("claude", root / ".claude" / "projects"),
+    )
+
+
+def _incremental_number(value: Any) -> float | None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _incremental_token(value: Any) -> int:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return 0
+    number = float(value)
+    if not math.isfinite(number):
+        return 0
+    return max(0, int(number))
+
+
+def _incremental_timestamp(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        number = float(value)
+        if not math.isfinite(number):
+            return None
+        return number / 1000 if number > 10_000_000_000 else number
+    if not isinstance(value, str) or not value:
+        return None
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def _incremental_day(value: Any) -> str | None:
+    timestamp = _incremental_timestamp(value)
+    if timestamp is None:
+        return None
+    return datetime.fromtimestamp(timestamp, timezone.utc).strftime("%Y-%m-%d")
+
+
+def _incremental_record_timestamp(record: Any) -> float | None:
+    if not isinstance(record, dict):
+        return None
+    return _incremental_timestamp(record.get("timestamp"))
+
+
+def _incremental_json_line(raw: bytes) -> dict[str, Any] | None:
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _incremental_model(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    model = value.strip()
+    return model if model else None
+
+
+def _codex_context_model(record: dict[str, Any]) -> str | None:
+    payload = record.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    info = payload.get("info")
+    candidates = (
+        payload.get("model"),
+        payload.get("model_name"),
+        info.get("model") if isinstance(info, dict) else None,
+        info.get("model_name") if isinstance(info, dict) else None,
+    )
+    for candidate in candidates:
+        model = _incremental_model(candidate)
+        if model is not None:
+            return model
+    return None
+
+
+def _codex_totals(value: Any) -> dict[str, int] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        "inputTokens": _incremental_token(value.get("input_tokens")),
+        "cacheReadTokens": _incremental_token(
+            value.get("cached_input_tokens", value.get("cache_read_input_tokens"))
+        ),
+        "cacheCreationTokens": _incremental_token(value.get("cache_write_input_tokens")),
+        "outputTokens": _incremental_token(value.get("output_tokens")),
+    }
+
+
+def _usage_total(provider: str, usage: dict[str, int]) -> int:
+    if provider == "codex":
+        return usage["inputTokens"] + usage["outputTokens"]
+    return (
+        usage["inputTokens"]
+        + usage["cacheReadTokens"]
+        + usage["cacheCreationTokens"]
+        + usage["outputTokens"]
+    )
+
+
+def _empty_incremental_usage() -> dict[str, int]:
+    return {
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cacheReadTokens": 0,
+        "cacheCreationTokens": 0,
+        "totalTokens": 0,
+    }
+
+
+def _add_incremental_usage(
+    contributions: dict[str, Any],
+    provider: str,
+    day: str,
+    model: str,
+    usage: dict[str, int],
+    *,
+    multiplier: int = 1,
+) -> None:
+    day_models = contributions.setdefault(day, {})
+    current = day_models.setdefault(model, _empty_incremental_usage())
+    for key in ("inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens"):
+        current[key] = max(0, int(current.get(key, 0)) + multiplier * int(usage.get(key, 0)))
+    current["totalTokens"] = (
+        current["inputTokens"] + current["outputTokens"]
+        if provider == "codex"
+        else current["inputTokens"]
+        + current["outputTokens"]
+        + current["cacheReadTokens"]
+        + current["cacheCreationTokens"]
+    )
+    if current["totalTokens"] == 0:
+        day_models.pop(model, None)
+    if not day_models:
+        contributions.pop(day, None)
+
+
+def _claude_usage_record(record: dict[str, Any]) -> tuple[str, str, dict[str, int], str | None] | None:
+    if record.get("type") != "assistant":
+        return None
+    message = record.get("message")
+    if not isinstance(message, dict):
+        return None
+    model = _incremental_model(message.get("model"))
+    usage = message.get("usage")
+    day = _incremental_day(record.get("timestamp"))
+    if model is None or day is None or not isinstance(usage, dict):
+        return None
+    tokens = {
+        "inputTokens": _incremental_token(usage.get("input_tokens")),
+        "cacheReadTokens": _incremental_token(usage.get("cache_read_input_tokens")),
+        "cacheCreationTokens": _incremental_token(usage.get("cache_creation_input_tokens")),
+        "outputTokens": _incremental_token(usage.get("output_tokens")),
+    }
+    if _usage_total("claude", tokens) == 0:
+        return None
+    message_id = _incremental_model(message.get("id"))
+    request_id = _incremental_model(record.get("requestId"))
+    key = f"{message_id}:{request_id}" if message_id is not None and request_id is not None else None
+    return day, model, tokens, key
+
+
+def _incremental_parser_seed(provider: str) -> dict[str, Any]:
+    if provider == "codex":
+        return {"seeded": False, "lastModel": None, "lastTotals": None, "seenTotals": []}
+    return {"seeded": False, "claudeRows": {}}
+
+
+def _remember_codex_total(parser: dict[str, Any], total: dict[str, int]) -> bool:
+    signature = [
+        total["inputTokens"],
+        total["cacheReadTokens"],
+        total["cacheCreationTokens"],
+        total["outputTokens"],
+    ]
+    seen = parser.setdefault("seenTotals", [])
+    if signature in seen:
+        parser["lastTotals"] = total
+        return False
+    seen.append(signature)
+    if len(seen) > 128:
+        del seen[:-128]
+    parser["lastTotals"] = total
+    return True
+
+
+def _handle_incremental_record(
+    provider: str,
+    record: dict[str, Any],
+    parser: dict[str, Any],
+    contributions: dict[str, Any],
+    anchor_fetched_at: float,
+    *,
+    seed_only: bool = False,
+) -> None:
+    if provider == "codex":
+        payload = record.get("payload")
+        if record.get("type") == "turn_context":
+            model = _codex_context_model(record)
+            if model is not None:
+                parser["lastModel"] = model
+            return
+        if (
+            record.get("type") == "event_msg"
+            and isinstance(payload, dict)
+            and payload.get("type") == "thread_settings_applied"
+        ):
+            settings = payload.get("thread_settings")
+            if isinstance(settings, dict):
+                model = _incremental_model(settings.get("model"))
+                if model is not None:
+                    parser["lastModel"] = model
+            return
+        if (
+            record.get("type") != "event_msg"
+            or not isinstance(payload, dict)
+            or payload.get("type") != "token_count"
+        ):
+            return
+        info = payload.get("info")
+        if not isinstance(info, dict):
+            return
+        timestamp = _incremental_record_timestamp(record)
+        day = _incremental_day(record.get("timestamp"))
+        if timestamp is None or day is None:
+            return
+        total = _codex_totals(info.get("total_token_usage"))
+        last = _codex_totals(info.get("last_token_usage"))
+        previous_total = parser.get("lastTotals")
+        is_new_total = total is None or _remember_codex_total(parser, total)
+        if seed_only or timestamp <= anchor_fetched_at or not is_new_total:
+            return
+        usage = last
+        if usage is None and total is not None:
+            if isinstance(previous_total, dict):
+                usage = {
+                    key: max(0, total[key] - _incremental_token(previous_total.get(key)))
+                    for key in (
+                        "inputTokens",
+                        "cacheReadTokens",
+                        "cacheCreationTokens",
+                        "outputTokens",
+                    )
+                }
+        if usage is None or _usage_total("codex", usage) == 0:
+            return
+        model = (
+            _incremental_model(parser.get("lastModel"))
+            or _incremental_model(payload.get("model"))
+            or _incremental_model(info.get("model"))
+            or "unknown"
+        )
+        _add_incremental_usage(contributions, provider, day, model, usage)
+        return
+
+    parsed = _claude_usage_record(record)
+    if parsed is None:
+        return
+    day, model, usage, key = parsed
+    timestamp = _incremental_record_timestamp(record)
+    if timestamp is None:
+        return
+    rows = parser.setdefault("claudeRows", {})
+    if key is None:
+        if not seed_only and timestamp > anchor_fetched_at:
+            _add_incremental_usage(contributions, provider, day, model, usage)
+        return
+    previous = rows.get(key)
+    current_row = {"day": day, "model": model, "usage": usage, "counted": not seed_only}
+    if seed_only or timestamp <= anchor_fetched_at:
+        current_row["counted"] = False
+        rows[key] = current_row
+        return
+    if isinstance(previous, dict):
+        previous_usage = previous.get("usage")
+        previous_day = previous.get("day")
+        previous_model = previous.get("model")
+        if (
+            previous.get("counted") is True
+            and isinstance(previous_usage, dict)
+            and isinstance(previous_day, str)
+            and isinstance(previous_model, str)
+        ):
+            _add_incremental_usage(
+                contributions,
+                provider,
+                previous_day,
+                previous_model,
+                previous_usage,
+                multiplier=-1,
+            )
+            _add_incremental_usage(contributions, provider, day, model, usage)
+        elif isinstance(previous_usage, dict):
+            delta = {
+                token_key: max(0, usage[token_key] - _incremental_token(previous_usage.get(token_key)))
+                for token_key in (
+                    "inputTokens",
+                    "cacheReadTokens",
+                    "cacheCreationTokens",
+                    "outputTokens",
+                )
+            }
+            _add_incremental_usage(contributions, provider, day, model, delta)
+        else:
+            _add_incremental_usage(contributions, provider, day, model, usage)
+    else:
+        _add_incremental_usage(contributions, provider, day, model, usage)
+    rows[key] = current_row
+
+
+def _line_at_or_after(handle: Any, position: int, size: int) -> tuple[int, int, bytes] | None:
+    handle.seek(max(0, position))
+    if position > 0:
+        handle.readline(COST_INCREMENTAL_MAX_LINE_BYTES + 1)
+    for _ in range(64):
+        start = handle.tell()
+        if start >= size:
+            return None
+        raw = handle.readline(COST_INCREMENTAL_MAX_LINE_BYTES + 1)
+        end = handle.tell()
+        if len(raw) > COST_INCREMENTAL_MAX_LINE_BYTES and not raw.endswith(b"\n"):
+            while raw and not raw.endswith(b"\n") and handle.tell() < size:
+                raw = handle.readline(COST_INCREMENTAL_MAX_LINE_BYTES + 1)
+            continue
+        record = _incremental_json_line(raw)
+        if record is not None and _incremental_record_timestamp(record) is not None:
+            return start, end, raw
+    return None
+
+
+def _find_incremental_start(path: Path, anchor_fetched_at: float) -> tuple[int, int]:
+    size = path.stat().st_size
+    if size == 0:
+        return 0, 0
+    bytes_read = 0
+    low = 0
+    high = size
+    with path.open("rb") as handle:
+        for _ in range(24):
+            if high - low <= COST_INCREMENTAL_MAX_LINE_BYTES:
+                break
+            candidate = _line_at_or_after(handle, (low + high) // 2, size)
+            if candidate is None:
+                high = (low + high) // 2
+                continue
+            start, end, raw = candidate
+            bytes_read += len(raw)
+            record = _incremental_json_line(raw)
+            timestamp = _incremental_record_timestamp(record)
+            if timestamp is None:
+                low = end
+            elif timestamp <= anchor_fetched_at:
+                low = end
+            else:
+                high = start
+        handle.seek(low)
+        if low > 0:
+            handle.readline(COST_INCREMENTAL_MAX_LINE_BYTES + 1)
+        while handle.tell() < size:
+            start = handle.tell()
+            raw = handle.readline(COST_INCREMENTAL_MAX_LINE_BYTES + 1)
+            bytes_read += len(raw)
+            if len(raw) > COST_INCREMENTAL_MAX_LINE_BYTES and not raw.endswith(b"\n"):
+                continue
+            record = _incremental_json_line(raw)
+            timestamp = _incremental_record_timestamp(record)
+            if timestamp is not None and timestamp > anchor_fetched_at:
+                return start, bytes_read
+    return size, bytes_read
+
+
+def _seed_incremental_parser(path: Path, provider: str, offset: int) -> tuple[dict[str, Any], int]:
+    parser = _incremental_parser_seed(provider)
+    parser["seeded"] = True
+    if offset <= 0:
+        return parser, 0
+    start = max(0, offset - COST_INCREMENTAL_SEED_BYTES)
+    bytes_read = 0
+    with path.open("rb") as handle:
+        handle.seek(start)
+        if start > 0:
+            skipped = handle.readline(COST_INCREMENTAL_MAX_LINE_BYTES + 1)
+            bytes_read += len(skipped)
+        while handle.tell() < offset:
+            raw = handle.readline(COST_INCREMENTAL_MAX_LINE_BYTES + 1)
+            bytes_read += len(raw)
+            if handle.tell() > offset:
+                break
+            record = _incremental_json_line(raw)
+            if record is not None:
+                _handle_incremental_record(provider, record, parser, {}, math.inf, seed_only=True)
+    return parser, bytes_read
+
+
+def _incremental_prefix_fingerprint(path: Path, offset: int) -> tuple[dict[str, Any], int]:
+    length = min(max(0, offset), COST_INCREMENTAL_FINGERPRINT_BYTES)
+    start = max(0, offset - length)
+    with path.open("rb") as handle:
+        handle.seek(start)
+        data = handle.read(length)
+    return {
+        "start": start,
+        "length": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }, len(data)
+
+
+def _incremental_prefix_matches(path: Path, fingerprint: Any) -> tuple[bool, int]:
+    if not isinstance(fingerprint, dict):
+        return False, 0
+    start = _incremental_token(fingerprint.get("start"))
+    length = _incremental_token(fingerprint.get("length"))
+    expected = fingerprint.get("sha256")
+    if not isinstance(expected, str):
+        return False, 0
+    with path.open("rb") as handle:
+        handle.seek(start)
+        data = handle.read(length)
+    return len(data) == length and hashlib.sha256(data).hexdigest() == expected, len(data)
+
+
+def _scan_incremental_suffix(
+    path: Path,
+    provider: str,
+    offset: int,
+    parser: dict[str, Any],
+    contributions: dict[str, Any],
+    anchor_fetched_at: float,
+) -> tuple[int, int, int]:
+    bytes_read = 0
+    unreadable = 0
+    committed_offset = offset
+    size = path.stat().st_size
+    with path.open("rb") as handle:
+        handle.seek(offset)
+        while handle.tell() < size:
+            start = handle.tell()
+            raw = handle.readline(COST_INCREMENTAL_MAX_LINE_BYTES + 1)
+            bytes_read += len(raw)
+            if not raw.endswith(b"\n") and handle.tell() >= size:
+                break
+            if len(raw) > COST_INCREMENTAL_MAX_LINE_BYTES and not raw.endswith(b"\n"):
+                unreadable += 1
+                while handle.tell() < size:
+                    continuation = handle.readline(COST_INCREMENTAL_MAX_LINE_BYTES + 1)
+                    bytes_read += len(continuation)
+                    if continuation.endswith(b"\n"):
+                        committed_offset = handle.tell()
+                        break
+                continue
+            record = _incremental_json_line(raw)
+            committed_offset = handle.tell()
+            if record is None:
+                unreadable += 1
+                continue
+            _handle_incremental_record(
+                provider,
+                record,
+                parser,
+                contributions,
+                anchor_fetched_at,
+            )
+            if handle.tell() <= start:
+                raise ValueError("incremental scanner did not advance")
+    return committed_offset, bytes_read, unreadable
+
+
+def load_cost_incremental_state(state_path: Path) -> tuple[str, dict[str, Any] | None]:
+    if not state_path.exists():
+        return "missing", None
+    try:
+        value = read_json(state_path)
+    except (OSError, json.JSONDecodeError):
+        return "corrupt", None
+    if not isinstance(value, dict) or value.get("version") != COST_INCREMENTAL_STATE_VERSION:
+        return "corrupt", None
+    if _incremental_number(value.get("anchorFetchedAt")) is None:
+        return "corrupt", None
+    if _incremental_number(value.get("refreshedAt")) is None:
+        return "corrupt", None
+    if not isinstance(value.get("files"), dict):
+        return "corrupt", None
+    return "valid", value
+
+
+def write_cost_incremental_state_atomic(state_path: Path, state: dict[str, Any]) -> None:
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=".cost-incremental.",
+        suffix=".tmp",
+        dir=str(state_path.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, ensure_ascii=False, separators=(",", ":"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, state_path)
+    finally:
+        try:
+            os.unlink(temporary_name)
+        except FileNotFoundError:
+            pass
+
+
+def refresh_cost_incremental_state(
+    anchor_fetched_at: float,
+    previous_state: dict[str, Any] | None,
+    *,
+    home: Path | None = None,
+    now: float | None = None,
+) -> dict[str, Any]:
+    refreshed_at = time.time() if now is None else now
+    files: dict[str, Any] = {}
+    previous_files = (
+        previous_state.get("files", {})
+        if isinstance(previous_state, dict)
+        and previous_state.get("anchorFetchedAt") == anchor_fetched_at
+        else {}
+    )
+    bytes_read = 0
+    unreadable_lines = 0
+    for provider, root in cost_session_roots(home):
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*.jsonl")):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            if not path.is_file():
+                continue
+            key = str(path)
+            previous = previous_files.get(key) if isinstance(previous_files, dict) else None
+            if (
+                isinstance(previous, dict)
+                and previous.get("provider") == provider
+                and previous.get("size") == stat.st_size
+                and previous.get("mtimeNs") == stat.st_mtime_ns
+            ):
+                files[key] = previous
+                continue
+
+            offset = 0
+            parser = _incremental_parser_seed(provider)
+            contributions: dict[str, Any] = {}
+            prefix_ok = False
+            if isinstance(previous, dict) and previous.get("provider") == provider:
+                previous_offset = _incremental_token(previous.get("offset"))
+                if stat.st_size >= previous_offset:
+                    prefix_ok, fingerprint_bytes = _incremental_prefix_matches(
+                        path,
+                        previous.get("prefixFingerprint"),
+                    )
+                    bytes_read += fingerprint_bytes
+                if prefix_ok:
+                    offset = previous_offset
+                    previous_parser = previous.get("parser")
+                    previous_contributions = previous.get("contributions")
+                    if isinstance(previous_parser, dict) and isinstance(previous_contributions, dict):
+                        parser = json.loads(json.dumps(previous_parser))
+                        contributions = json.loads(json.dumps(previous_contributions))
+                        if parser.get("seeded") is not True:
+                            parser, seed_bytes = _seed_incremental_parser(path, provider, offset)
+                            bytes_read += seed_bytes
+                    else:
+                        prefix_ok = False
+
+            if not prefix_ok:
+                if stat.st_mtime <= anchor_fetched_at:
+                    offset = stat.st_size
+                    parser = _incremental_parser_seed(provider)
+                else:
+                    offset, search_bytes = _find_incremental_start(path, anchor_fetched_at)
+                    bytes_read += search_bytes
+                    parser, seed_bytes = _seed_incremental_parser(path, provider, offset)
+                    bytes_read += seed_bytes
+                contributions = {}
+
+            new_offset, scanned_bytes, unreadable = _scan_incremental_suffix(
+                path,
+                provider,
+                offset,
+                parser,
+                contributions,
+                anchor_fetched_at,
+            )
+            bytes_read += scanned_bytes
+            unreadable_lines += unreadable
+            fingerprint, fingerprint_bytes = _incremental_prefix_fingerprint(path, new_offset)
+            bytes_read += fingerprint_bytes
+            files[key] = {
+                "provider": provider,
+                "path": key,
+                "size": stat.st_size,
+                "mtimeNs": stat.st_mtime_ns,
+                "offset": new_offset,
+                "prefixFingerprint": fingerprint,
+                "contributions": contributions,
+                "parser": parser,
+            }
+    return {
+        "version": COST_INCREMENTAL_STATE_VERSION,
+        "anchorFetchedAt": anchor_fetched_at,
+        "refreshedAt": refreshed_at,
+        "bytesRead": bytes_read,
+        "unreadableLines": unreadable_lines,
+        "files": files,
+    }
+
+
+def _solve_normal_equations(rows: list[tuple[list[float], float]]) -> list[float] | None:
+    if not rows:
+        return None
+    width = len(rows[0][0])
+    matrix = [[0.0 for _ in range(width + 1)] for _ in range(width)]
+    for features, target in rows:
+        if len(features) != width:
+            return None
+        for row in range(width):
+            for column in range(width):
+                matrix[row][column] += features[row] * features[column]
+            matrix[row][width] += features[row] * target
+    scale = max((abs(value) for row in matrix for value in row[:width]), default=0.0)
+    tolerance = max(1e-18, scale * 1e-12)
+    for column in range(width):
+        pivot = max(range(column, width), key=lambda row: abs(matrix[row][column]))
+        if abs(matrix[pivot][column]) <= tolerance:
+            return None
+        matrix[column], matrix[pivot] = matrix[pivot], matrix[column]
+        divisor = matrix[column][column]
+        matrix[column] = [value / divisor for value in matrix[column]]
+        for row in range(width):
+            if row == column:
+                continue
+            factor = matrix[row][column]
+            matrix[row] = [
+                matrix[row][index] - factor * matrix[column][index]
+                for index in range(width + 1)
+            ]
+    solution = [matrix[index][width] for index in range(width)]
+    if any(not math.isfinite(value) or value < -1e-12 for value in solution):
+        return None
+    return [max(0.0, value) for value in solution]
+
+
+def _cost_features(provider: str, usage: dict[str, int]) -> list[float]:
+    input_tokens = float(_incremental_token(usage.get("inputTokens")))
+    cache_read = float(_incremental_token(usage.get("cacheReadTokens")))
+    cache_creation = float(_incremental_token(usage.get("cacheCreationTokens")))
+    if provider == "codex":
+        input_tokens = max(0.0, input_tokens - cache_read - cache_creation)
+    return [
+        input_tokens,
+        float(_incremental_token(usage.get("outputTokens"))),
+        cache_read,
+        cache_creation,
+    ]
+
+
+def fit_cost_rates_from_anchor(payload: Any) -> dict[str, dict[str, dict[str, Any]]]:
+    rates: dict[str, dict[str, dict[str, Any]]] = {}
+    if not isinstance(payload, list):
+        return rates
+    for provider_payload in payload:
+        if not isinstance(provider_payload, dict):
+            continue
+        provider = provider_payload.get("provider")
+        daily = provider_payload.get("daily")
+        if provider not in ("codex", "claude") or not isinstance(daily, list):
+            continue
+        component_rows: dict[str, list[tuple[list[float], float]]] = {}
+        scalar_rows: dict[str, list[tuple[float, float]]] = {}
+        for day in daily:
+            if not isinstance(day, dict):
+                continue
+            breakdowns = day.get("modelBreakdowns")
+            if not isinstance(breakdowns, list):
+                continue
+            for breakdown in breakdowns:
+                if not isinstance(breakdown, dict):
+                    continue
+                model = _incremental_model(breakdown.get("modelName"))
+                cost = _incremental_number(breakdown.get("cost"))
+                total_tokens = _incremental_token(breakdown.get("totalTokens"))
+                if model is None or cost is None or cost < 0:
+                    continue
+                usage_source: dict[str, Any] | None = None
+                if any(
+                    key in breakdown
+                    for key in (
+                        "inputTokens",
+                        "outputTokens",
+                        "cacheReadTokens",
+                        "cacheCreationTokens",
+                    )
+                ):
+                    usage_source = breakdown
+                elif len(breakdowns) == 1:
+                    usage_source = day
+                if usage_source is not None:
+                    features = _cost_features(provider, usage_source)
+                    if any(features):
+                        component_rows.setdefault(model, []).append((features, cost))
+                if total_tokens > 0:
+                    scalar_rows.setdefault(model, []).append((float(total_tokens), cost))
+        provider_rates: dict[str, dict[str, Any]] = {}
+        for model in set(component_rows) | set(scalar_rows):
+            solution = _solve_normal_equations(component_rows.get(model, []))
+            if solution is not None:
+                provider_rates[model] = {
+                    "kind": "components",
+                    "input": solution[0],
+                    "output": solution[1],
+                    "cacheRead": solution[2],
+                    "cacheCreation": solution[3],
+                }
+                continue
+            rows = scalar_rows.get(model, [])
+            denominator = sum(tokens * tokens for tokens, _cost in rows)
+            numerator = sum(tokens * cost for tokens, cost in rows)
+            if denominator > 0:
+                rate = numerator / denominator
+                if math.isfinite(rate) and rate >= 0:
+                    provider_rates[model] = {"kind": "effective", "total": rate}
+        rates[provider] = provider_rates
+    return rates
+
+
+def _normalized_anchor_model(model: str, candidates: dict[str, Any]) -> str | None:
+    if model in candidates:
+        return model
+    dated = re.sub(r"-\d{8}$", "", model)
+    if dated in candidates:
+        return dated
+    lowered = model.lower()
+    for candidate in candidates:
+        if candidate.lower() == lowered:
+            return candidate
+    return None
+
+
+def incremental_usage_cost(
+    provider: str,
+    model: str,
+    usage: dict[str, int],
+    rates: dict[str, dict[str, dict[str, Any]]],
+) -> tuple[str, float | None]:
+    provider_rates = rates.get(provider, {})
+    resolved_model = _normalized_anchor_model(model, provider_rates)
+    if resolved_model is None:
+        return model, None
+    rate = provider_rates[resolved_model]
+    if rate.get("kind") == "components":
+        features = _cost_features(provider, usage)
+        cost = (
+            features[0] * float(rate["input"])
+            + features[1] * float(rate["output"])
+            + features[2] * float(rate["cacheRead"])
+            + features[3] * float(rate["cacheCreation"])
+        )
+        return resolved_model, cost if math.isfinite(cost) and cost >= 0 else None
+    total_rate = _incremental_number(rate.get("total"))
+    if rate.get("kind") == "effective" and total_rate is not None and total_rate >= 0:
+        return resolved_model, usage["totalTokens"] * total_rate
+    return resolved_model, None
+
+
+def _aggregate_incremental_contributions(state: dict[str, Any]) -> dict[str, Any]:
+    aggregated: dict[str, Any] = {"codex": {}, "claude": {}}
+    files = state.get("files")
+    if not isinstance(files, dict):
+        raise ValueError("incremental files are invalid")
+    for file_state in files.values():
+        if not isinstance(file_state, dict):
+            raise ValueError("incremental file state is invalid")
+        provider = file_state.get("provider")
+        contributions = file_state.get("contributions")
+        if provider not in aggregated or not isinstance(contributions, dict):
+            raise ValueError("incremental contribution is invalid")
+        for day, models in contributions.items():
+            if not isinstance(day, str) or not isinstance(models, dict):
+                raise ValueError("incremental day is invalid")
+            for model, usage in models.items():
+                if not isinstance(model, str) or not isinstance(usage, dict):
+                    raise ValueError("incremental model is invalid")
+                _add_incremental_usage(aggregated[provider], provider, day, model, {
+                    key: _incremental_token(usage.get(key))
+                    for key in (
+                        "inputTokens",
+                        "outputTokens",
+                        "cacheReadTokens",
+                        "cacheCreationTokens",
+                    )
+                })
+    return aggregated
+
+
+def compose_incremental_cost_payload(
+    anchor_payload: Any,
+    anchor_fetched_at: float,
+    state: dict[str, Any],
+) -> Any:
+    if state.get("anchorFetchedAt") != anchor_fetched_at:
+        raise ValueError("incremental state belongs to another anchor")
+    if not isinstance(anchor_payload, list):
+        raise ValueError("cost anchor is not a provider array")
+    composed = json.loads(json.dumps(anchor_payload))
+    rates = fit_cost_rates_from_anchor(anchor_payload)
+    aggregated = _aggregate_incremental_contributions(state)
+    anchor_day = datetime.fromtimestamp(anchor_fetched_at, timezone.utc).strftime("%Y-%m-%d")
+    for provider_payload in composed:
+        if not isinstance(provider_payload, dict):
+            continue
+        provider = provider_payload.get("provider")
+        if provider not in ("codex", "claude"):
+            continue
+        daily = provider_payload.get("daily")
+        if not isinstance(daily, list):
+            raise ValueError("provider daily cost is invalid")
+        by_day = {
+            entry.get("date"): entry
+            for entry in daily
+            if isinstance(entry, dict) and isinstance(entry.get("date"), str)
+        }
+        for day, models in aggregated[provider].items():
+            if day < anchor_day:
+                continue
+            entry = by_day.get(day)
+            if entry is None:
+                entry = {
+                    "date": day,
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cacheReadTokens": 0,
+                    "cacheCreationTokens": 0,
+                    "totalTokens": 0,
+                    "totalCost": 0.0,
+                    "modelsUsed": [],
+                    "modelBreakdowns": [],
+                }
+                daily.append(entry)
+                by_day[day] = entry
+            breakdowns = entry.setdefault("modelBreakdowns", [])
+            if not isinstance(breakdowns, list):
+                raise ValueError("model breakdown is invalid")
+            models_used = entry.setdefault("modelsUsed", [])
+            if not isinstance(models_used, list):
+                raise ValueError("modelsUsed is invalid")
+            added_cost = 0.0
+            for model, usage in models.items():
+                display_model, model_cost = incremental_usage_cost(
+                    provider,
+                    model,
+                    usage,
+                    rates,
+                )
+                breakdown = next(
+                    (
+                        item
+                        for item in breakdowns
+                        if isinstance(item, dict) and item.get("modelName") == display_model
+                    ),
+                    None,
+                )
+                if breakdown is None:
+                    breakdown = {"modelName": display_model, "totalTokens": 0}
+                    breakdowns.append(breakdown)
+                breakdown["totalTokens"] = _incremental_token(breakdown.get("totalTokens")) + usage["totalTokens"]
+                if model_cost is not None:
+                    breakdown["cost"] = float(breakdown.get("cost", 0.0) or 0.0) + model_cost
+                    added_cost += model_cost
+                if display_model not in models_used:
+                    models_used.append(display_model)
+                for key in (
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheReadTokens",
+                    "cacheCreationTokens",
+                    "totalTokens",
+                ):
+                    entry[key] = _incremental_token(entry.get(key)) + usage[key]
+            entry["totalCost"] = float(entry.get("totalCost", 0.0) or 0.0) + added_cost
+            models_used.sort()
+            breakdowns.sort(
+                key=lambda item: (
+                    -float(item.get("cost", -1.0) if isinstance(item, dict) else -1.0),
+                    str(item.get("modelName", "")) if isinstance(item, dict) else "",
+                )
+            )
+        daily.sort(key=lambda entry: str(entry.get("date", "")) if isinstance(entry, dict) else "")
+        totals = {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0,
+            "totalTokens": 0,
+            "totalCost": 0.0,
+        }
+        for entry in daily:
+            if not isinstance(entry, dict):
+                continue
+            for key in (
+                "inputTokens",
+                "outputTokens",
+                "cacheReadTokens",
+                "cacheCreationTokens",
+                "totalTokens",
+            ):
+                totals[key] += _incremental_token(entry.get(key))
+            cost = _incremental_number(entry.get("totalCost"))
+            if cost is not None:
+                totals["totalCost"] += cost
+        previous_totals = provider_payload.get("totals")
+        if isinstance(previous_totals, dict) and "cacheCreationTokens" not in previous_totals and totals["cacheCreationTokens"] == 0:
+            totals.pop("cacheCreationTokens")
+        provider_payload["totals"] = totals
+        provider_payload["last30DaysTokens"] = totals["totalTokens"]
+        provider_payload["last30DaysCostUSD"] = totals["totalCost"]
+        if daily:
+            latest = daily[-1]
+            provider_payload["sessionTokens"] = _incremental_token(latest.get("totalTokens"))
+            latest_cost = _incremental_number(latest.get("totalCost"))
+            provider_payload["sessionCostUSD"] = latest_cost
+        provider_payload["updatedAt"] = datetime.fromtimestamp(
+            float(state["refreshedAt"]),
+            timezone.utc,
+        ).isoformat().replace("+00:00", "Z")
+    return composed
+
+
+def incremental_cost_payload(
+    anchor_payload: Any,
+    anchor_fetched_at: float,
+    *,
+    home: Path | None = None,
+    refresh: bool = True,
+) -> Any | None:
+    state_path = cost_incremental_state_path(home)
+    status, state = load_cost_incremental_state(state_path)
+    if status == "corrupt":
+        return None
+    if (
+        status == "valid"
+        and state is not None
+        and state.get("anchorFetchedAt") != anchor_fetched_at
+    ):
+        status, state = "missing", None
+    if refresh and (
+        status == "missing"
+        or state is None
+        or time.time() - float(state["refreshedAt"]) >= COST_CACHE_TTL_SECONDS
+    ):
+        try:
+            state = refresh_cost_incremental_state(
+                anchor_fetched_at,
+                state,
+                home=home,
+            )
+            write_cost_incremental_state_atomic(state_path, state)
+        except (OSError, ValueError, TypeError, OverflowError):
+            return None
+    if state is None:
+        return None
+    try:
+        return compose_incremental_cost_payload(anchor_payload, anchor_fetched_at, state)
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
 def load_cost_cache(cache_path: Path) -> tuple[float, Any] | None:
     """Read a structurally valid cost cache, treating malformed data as absent."""
     try:
@@ -2084,11 +3076,11 @@ def start_cost_cache_refresh() -> None:
 
 
 def cached_cost_is_fresh(cached: tuple[float, Any]) -> bool:
-    return time.time() - cached[0] < COST_CACHE_TTL_SECONDS
+    return time.time() - cached[0] < COST_ANCHOR_TTL_SECONDS
 
 
 def cost_json_response() -> int:
-    """Serve cached exact cost JSON and limit upstream scans to one per TTL."""
+    """Serve an upstream anchor plus native increments, refreshing the anchor daily."""
     executable = upstream_path()
     if executable is None:
         print_json([], False)
@@ -2096,10 +3088,12 @@ def cost_json_response() -> int:
     cache_path, lock_path = cost_cache_paths()
     cached = load_cost_cache(cache_path)
     if cached is not None and cached_cost_is_fresh(cached):
-        print_json(cached[1], False)
+        payload = incremental_cost_payload(cached[1], cached[0])
+        print_json(payload if payload is not None else cached[1], False)
         return 0
     if cached is not None:
-        print_json(cached[1], False)
+        payload = incremental_cost_payload(cached[1], cached[0], refresh=False)
+        print_json(payload if payload is not None else cached[1], False)
         start_cost_cache_refresh()
         return 0
 
