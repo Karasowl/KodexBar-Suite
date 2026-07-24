@@ -2,6 +2,12 @@
 
 All notable fork-specific changes are documented here.
 
+## 0.11.0, 2026-07-24
+
+### Changed
+
+- Keep the 15-minute cost summary cadence while the local engine refreshes from appended Codex and Claude session bytes. A contained upstream full scan now refreshes the cost anchor at most once every 24 hours.
+
 ## 0.10.1, 2026-07-24
 
 ### Fixed

@@ -119,7 +119,7 @@ class QuotasEngineTests(unittest.TestCase):
     def test_version_is_the_public_suite_release(self) -> None:
         result = subprocess.run([str(ENGINE), "--version"], text=True, capture_output=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "kodexbar-quotas 0.10.1")
+        self.assertEqual(result.stdout.strip(), "kodexbar-quotas 0.11.0")
 
     def test_maps_claude_oauth_shape_to_widget_envelope(self) -> None:
         response = json.loads((FIXTURES / "claude-oauth-usage.json").read_text(encoding="utf-8"))
@@ -677,8 +677,12 @@ class QuotasEngineTests(unittest.TestCase):
         assert anchor is not None
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            home, _codex, _claude = self._incremental_fixture_home(root)
+            home, _codex, claude_path = self._incremental_fixture_home(root)
+            with claude_path.open("a", encoding="utf-8") as handle:
+                handle.write("{unreadable\n")
+            started = time.monotonic()
             state = quotas.refresh_cost_incremental_state(anchor, None, home=home, now=anchor + 600)
+            elapsed = time.monotonic() - started
         aggregate = quotas._aggregate_incremental_contributions(state)
         codex = aggregate["codex"]["2026-07-24"]["gpt-synthetic"]
         claude = aggregate["claude"]["2026-07-24"]["claude-synthetic"]
@@ -695,7 +699,9 @@ class QuotasEngineTests(unittest.TestCase):
         )
         self.assertEqual(claude["totalTokens"], 120, "the final cumulative Claude chunk replaces the first")
         self.assertEqual(unknown["totalTokens"], 10)
-        self.assertEqual(state["unreadableLines"], 0)
+        self.assertEqual(state["unreadableLines"], 1)
+        self.assertLess(state["bytesRead"], 50 * 1024 * 1024)
+        self.assertLess(elapsed, 5)
 
     def test_incremental_scanner_resumes_from_saved_offset(self) -> None:
         anchor = quotas._incremental_timestamp("2026-07-24T07:59:00Z")
@@ -927,6 +933,22 @@ class QuotasEngineTests(unittest.TestCase):
             env, cache_path, calls_path = self._cost_test_environment(root, payload=[{"provider": "new"}])
             cache_path.parent.mkdir(parents=True)
             cache_path.write_text(json.dumps({"fetchedAt": time.time(), "payload": [{"provider": "cached"}]}), encoding="utf-8")
+            result = self._run_cost(env)
+        self.assertEqual(json.loads(result.stdout), [{"provider": "cached"}])
+        self.assertFalse(calls_path.exists())
+
+    def test_cost_anchor_younger_than_24_hours_never_runs_upstream(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, cache_path, calls_path = self._cost_test_environment(root, payload=[{"provider": "new"}])
+            cache_path.parent.mkdir(parents=True)
+            cache_path.write_text(
+                json.dumps({
+                    "fetchedAt": time.time() - quotas.COST_ANCHOR_TTL_SECONDS + 1,
+                    "payload": [{"provider": "cached"}],
+                }),
+                encoding="utf-8",
+            )
             result = self._run_cost(env)
         self.assertEqual(json.loads(result.stdout), [{"provider": "cached"}])
         self.assertFalse(calls_path.exists())

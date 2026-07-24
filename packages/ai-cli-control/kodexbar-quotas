@@ -27,7 +27,7 @@ except ImportError:  # pragma: no cover - Python < 3.11
     tomllib = None  # type: ignore[assignment]
 
 
-VERSION = "0.10.1"
+VERSION = "0.11.0"
 TIMEOUT_SECONDS = 15
 COST_CACHE_TTL_SECONDS = 15 * 60
 COST_ANCHOR_TTL_SECONDS = 24 * 60 * 60
@@ -2484,6 +2484,7 @@ def refresh_cost_incremental_state(
                 "provider": provider,
                 "path": key,
                 "size": stat.st_size,
+                "mtime": stat.st_mtime,
                 "mtimeNs": stat.st_mtime_ns,
                 "offset": new_offset,
                 "prefixFingerprint": fingerprint,

@@ -167,7 +167,7 @@ The popup uses `Gemini (Antigravity)` for Antigravity and `Gemini` for the indep
 
 ## Data and Privacy
 
-The widget runs `kodexbar-quotas usage --format json --json-only` locally by default and renders the returned JSON. The engine uses upstream `codexbar` as a per-provider fallback. Optional cost summaries come from upstream `codexbar cost`, but are independent from the normal 60-second usage cycle. They refresh at most every 15 minutes and when the popup opens after that TTL. This repository does not add a provider backend, credential store, telemetry service, or remote account service.
+The widget runs `kodexbar-quotas usage --format json --json-only` locally by default and renders the returned JSON. The engine uses upstream `codexbar` as a per-provider fallback. Optional cost summaries are independent from the normal 60-second usage cycle. They refresh at most every 15 minutes from appended local Codex and Claude session bytes. The complete upstream `codexbar cost` scan is retained as a contained 24-hour anchor. This repository does not add a provider backend, credential store, telemetry service, or remote account service.
 
 CodexBar owns provider authentication, provider configuration, API calls, and CLI probing. Review the [CodexBar project](https://github.com/steipete/CodexBar) for its supported providers and data handling.
 
