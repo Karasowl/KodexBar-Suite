@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import math
 import os
@@ -13,6 +14,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
@@ -24,8 +26,10 @@ except ImportError:  # pragma: no cover - Python < 3.11
     tomllib = None  # type: ignore[assignment]
 
 
-VERSION = "0.10.0"
+VERSION = "0.10.1"
 TIMEOUT_SECONDS = 15
+COST_CACHE_TTL_SECONDS = 15 * 60
+COST_UPSTREAM_TIMEOUT_SECONDS = 10 * 60
 HTTP_MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MiB: enough for quota JSON / gRPC-web billing
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 CODEX_DEFAULT_BASE = "https://chatgpt.com/backend-api"
@@ -1848,6 +1852,245 @@ def upstream_path() -> str | None:
     return None
 
 
+def cost_cache_directory(home: Path | None = None) -> Path:
+    """Return the user cache directory reserved for the expensive cost scan."""
+    configured = os.environ.get("XDG_CACHE_HOME")
+    if configured:
+        return Path(configured).expanduser() / "kodexbar-suite"
+    root = home or home_directory()
+    return root / ".cache" / "kodexbar-suite"
+
+
+def cost_cache_paths(home: Path | None = None) -> tuple[Path, Path]:
+    directory = cost_cache_directory(home)
+    return directory / "cost.json", directory / "cost.lock"
+
+
+def load_cost_cache(cache_path: Path) -> tuple[float, Any] | None:
+    """Read a structurally valid cost cache, treating malformed data as absent."""
+    try:
+        cached = read_json(cache_path)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(cached, dict):
+        return None
+    fetched_at = cached.get("fetchedAt")
+    if not isinstance(fetched_at, (int, float)) or isinstance(fetched_at, bool):
+        return None
+    if not math.isfinite(fetched_at) or "payload" not in cached:
+        return None
+    return float(fetched_at), cached["payload"]
+
+
+def write_cost_cache_atomic(cache_path: Path, fetched_at: float, payload: Any) -> None:
+    """Atomically publish a parsed upstream cost payload in its final directory."""
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=".cost.",
+        suffix=".tmp",
+        dir=str(cache_path.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump({"fetchedAt": fetched_at, "payload": payload}, handle, ensure_ascii=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, cache_path)
+    finally:
+        try:
+            os.unlink(temporary_name)
+        except FileNotFoundError:
+            pass
+
+
+def acquire_cost_lock(lock_path: Path, *, blocking: bool) -> Any | None:
+    """Acquire the process-wide cost lock, with a bounded wait for foreground calls."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("a+", encoding="utf-8")
+    flags = fcntl.LOCK_EX | fcntl.LOCK_NB
+    if not blocking:
+        try:
+            fcntl.flock(handle.fileno(), flags)
+        except BlockingIOError:
+            handle.close()
+            return None
+        return handle
+
+    deadline = time.monotonic() + COST_UPSTREAM_TIMEOUT_SECONDS
+    while True:
+        try:
+            fcntl.flock(handle.fileno(), flags)
+            return handle
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                handle.close()
+                return None
+            time.sleep(0.1)
+
+
+def release_cost_lock(handle: Any) -> None:
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
+
+
+def _nice_cost_process() -> None:
+    try:
+        os.nice(10)
+    except OSError:
+        pass
+
+
+def run_cost_upstream(executable: str) -> subprocess.CompletedProcess[str]:
+    """Run the costly scanner in a low-priority transient scope when possible."""
+    upstream_command = [executable, "cost", "--format", "json", "--json-only"]
+    systemd_run = shutil.which("systemd-run")
+    if systemd_run is not None:
+        scope_command = [
+            systemd_run,
+            "--user",
+            "--scope",
+            "--quiet",
+            "--collect",
+            "--wait",
+            "--pipe",
+            "-p",
+            "MemoryHigh=512M",
+            "-p",
+            "MemoryMax=2G",
+            "-p",
+            "IOWeight=20",
+            "-p",
+            "Nice=10",
+            "--",
+            *upstream_command,
+        ]
+        try:
+            completed = subprocess.run(
+                scope_command,
+                capture_output=True,
+                text=True,
+                timeout=COST_UPSTREAM_TIMEOUT_SECONDS,
+                check=False,
+            )
+            # A scope setup error has no payload. Retry directly with nice so a
+            # missing user manager never turns an otherwise valid cost scan off.
+            if completed.returncode == 0 or completed.stdout:
+                return completed
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return subprocess.run(
+        upstream_command,
+        capture_output=True,
+        text=True,
+        timeout=COST_UPSTREAM_TIMEOUT_SECONDS,
+        check=False,
+        preexec_fn=_nice_cost_process,
+    )
+
+
+def parsed_cost_payload(completed: subprocess.CompletedProcess[str]) -> Any | None:
+    if completed.returncode != 0:
+        return None
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def print_completed_output(completed: subprocess.CompletedProcess[str]) -> int:
+    if completed.stdout:
+        sys.stdout.write(completed.stdout)
+    if completed.stderr:
+        sys.stderr.write(completed.stderr)
+    return completed.returncode
+
+
+def refresh_cost_cache_nonblocking() -> int:
+    """Background-only cache refresh. A competing refresh exits silently."""
+    executable = upstream_path()
+    if executable is None:
+        return 0
+    cache_path, lock_path = cost_cache_paths()
+    lock = acquire_cost_lock(lock_path, blocking=False)
+    if lock is None:
+        return 0
+    try:
+        try:
+            completed = run_cost_upstream(executable)
+        except (OSError, subprocess.TimeoutExpired):
+            return 0
+        payload = parsed_cost_payload(completed)
+        if payload is not None:
+            write_cost_cache_atomic(cache_path, time.time(), payload)
+    finally:
+        release_cost_lock(lock)
+    return 0
+
+
+def start_cost_cache_refresh() -> None:
+    """Detach a cache refresh so stale results never block the widget."""
+    try:
+        with open(os.devnull, "w", encoding="utf-8") as null:
+            subprocess.Popen(
+                [sys.executable, str(Path(__file__).resolve()), "--refresh-cost-cache"],
+                stdin=null,
+                stdout=null,
+                stderr=null,
+                start_new_session=True,
+            )
+    except OSError:
+        pass
+
+
+def cached_cost_is_fresh(cached: tuple[float, Any]) -> bool:
+    return time.time() - cached[0] < COST_CACHE_TTL_SECONDS
+
+
+def cost_json_response() -> int:
+    """Serve cached exact cost JSON and limit upstream scans to one per TTL."""
+    executable = upstream_path()
+    if executable is None:
+        print_json([], False)
+        return 0
+    cache_path, lock_path = cost_cache_paths()
+    cached = load_cost_cache(cache_path)
+    if cached is not None and cached_cost_is_fresh(cached):
+        print_json(cached[1], False)
+        return 0
+    if cached is not None:
+        print_json(cached[1], False)
+        start_cost_cache_refresh()
+        return 0
+
+    lock = acquire_cost_lock(lock_path, blocking=True)
+    if lock is None:
+        return 1
+    try:
+        # Another foreground invocation may have completed while this one waited.
+        cached = load_cost_cache(cache_path)
+        if cached is not None and cached_cost_is_fresh(cached):
+            print_json(cached[1], False)
+            return 0
+        try:
+            completed = run_cost_upstream(executable)
+        except (OSError, subprocess.TimeoutExpired):
+            return 1
+        payload = parsed_cost_payload(completed)
+        if payload is None:
+            fallback = load_cost_cache(cache_path)
+            if fallback is not None:
+                print_json(fallback[1], False)
+                return 0
+            return print_completed_output(completed)
+        write_cost_cache_atomic(cache_path, time.time(), payload)
+        print_json(payload, False)
+        return 0
+    finally:
+        release_cost_lock(lock)
+
+
 def upstream_entries(provider: str, source: str | None) -> list[Any]:
     executable = upstream_path()
     if executable is None:
@@ -2291,6 +2534,8 @@ def print_json(value: Any, pretty: bool) -> None:
 
 
 def main(arguments: list[str]) -> int:
+    if arguments == ["--refresh-cost-cache"]:
+        return refresh_cost_cache_nonblocking()
     if arguments in (["--version"], ["-V"]):
         print(f"kodexbar-quotas {VERSION}")
         return 0
@@ -2298,10 +2543,7 @@ def main(arguments: list[str]) -> int:
         return delegate_whole_call(arguments)
     if arguments[0] == "cost":
         if arguments[1:] == ["--format", "json", "--json-only"]:
-            executable = upstream_path()
-            if executable is None:
-                print_json([], False)
-                return 0
+            return cost_json_response()
         return delegate_whole_call(arguments)
     if arguments[0] != "usage":
         return delegate_whole_call(arguments)

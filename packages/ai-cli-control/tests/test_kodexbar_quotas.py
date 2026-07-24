@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import textwrap
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -118,7 +119,7 @@ class QuotasEngineTests(unittest.TestCase):
     def test_version_is_the_public_suite_release(self) -> None:
         result = subprocess.run([str(ENGINE), "--version"], text=True, capture_output=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "kodexbar-quotas 0.10.0")
+        self.assertEqual(result.stdout.strip(), "kodexbar-quotas 0.10.1")
 
     def test_maps_claude_oauth_shape_to_widget_envelope(self) -> None:
         response = json.loads((FIXTURES / "claude-oauth-usage.json").read_text(encoding="utf-8"))
@@ -554,6 +555,187 @@ class QuotasEngineTests(unittest.TestCase):
                 check=True,
             )
         self.assertEqual(json.loads(result.stdout), [])
+
+    def _cost_test_environment(
+        self,
+        root: Path,
+        *,
+        payload: object,
+        delay_seconds: float = 0,
+        fail: bool = False,
+    ) -> tuple[dict[str, str], Path, Path]:
+        """Create an upstream that records exact invocations outside the real home."""
+        bin_dir = root / "bin"
+        cache_root = root / "cache"
+        calls_path = root / "cost-calls.jsonl"
+        bin_dir.mkdir()
+        upstream = bin_dir / "codexbar"
+        upstream.write_text(
+            "#!" + os.sys.executable + "\n"
+            "import json, os, sys, time\n"
+            "with open(os.environ['COST_CALLS'], 'a', encoding='utf-8') as handle:\n"
+            "    handle.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+            "time.sleep(float(os.environ.get('COST_DELAY_SECONDS', '0')))\n"
+            "if os.environ.get('COST_FAIL') == '1':\n"
+            "    print('synthetic cost failure', file=sys.stderr)\n"
+            "    raise SystemExit(1)\n"
+            "print(os.environ['COST_PAYLOAD'])\n",
+            encoding="utf-8",
+        )
+        upstream.chmod(0o755)
+        env = os.environ.copy()
+        env.update({
+            "HOME": str(root / "home"),
+            "PATH": str(bin_dir),
+            "XDG_CACHE_HOME": str(cache_root),
+            "COST_CALLS": str(calls_path),
+            "COST_PAYLOAD": json.dumps(payload),
+            "COST_DELAY_SECONDS": str(delay_seconds),
+        })
+        if fail:
+            env["COST_FAIL"] = "1"
+        else:
+            env.pop("COST_FAIL", None)
+        return env, cache_root / "kodexbar-suite" / "cost.json", calls_path
+
+    def _run_cost(self, env: dict[str, str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [os.sys.executable, str(ENGINE), "cost", "--format", "json", "--json-only"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=check,
+        )
+
+    def _wait_for_cost_calls(self, calls_path: Path, expected: int) -> list[list[str]]:
+        deadline = time.monotonic() + 5
+        calls: list[list[str]] = []
+        while time.monotonic() < deadline:
+            if calls_path.exists():
+                calls = [json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()]
+            if len(calls) >= expected:
+                return calls
+            time.sleep(0.05)
+        self.fail(f"timed out waiting for {expected} upstream cost calls")
+
+    def test_cost_fresh_cache_skips_upstream(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, cache_path, calls_path = self._cost_test_environment(root, payload=[{"provider": "new"}])
+            cache_path.parent.mkdir(parents=True)
+            cache_path.write_text(json.dumps({"fetchedAt": time.time(), "payload": [{"provider": "cached"}]}), encoding="utf-8")
+            result = self._run_cost(env)
+        self.assertEqual(json.loads(result.stdout), [{"provider": "cached"}])
+        self.assertFalse(calls_path.exists())
+
+    def test_cost_stale_cache_returns_immediately_and_refreshes_in_background(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, cache_path, calls_path = self._cost_test_environment(
+                root, payload=[{"provider": "new"}], delay_seconds=0.5,
+            )
+            cache_path.parent.mkdir(parents=True)
+            cache_path.write_text(
+                json.dumps({"fetchedAt": time.time() - quotas.COST_CACHE_TTL_SECONDS - 1, "payload": [{"provider": "old"}]}),
+                encoding="utf-8",
+            )
+            started = time.monotonic()
+            result = self._run_cost(env)
+            elapsed = time.monotonic() - started
+            self._wait_for_cost_calls(calls_path, 1)
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                cached = json.loads(cache_path.read_text(encoding="utf-8"))
+                if cached["payload"] == [{"provider": "new"}]:
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail("background cost refresh did not update the cache")
+        self.assertEqual(json.loads(result.stdout), [{"provider": "old"}])
+        self.assertLess(elapsed, 0.4)
+
+    def test_cost_without_cache_runs_upstream_and_writes_atomic_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = [{"provider": "codex", "totalCost": 1.25}]
+            env, cache_path, calls_path = self._cost_test_environment(root, payload=payload)
+            result = self._run_cost(env)
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            temporary_files = list(cache_path.parent.glob(".cost.*.tmp"))
+            calls = self._wait_for_cost_calls(calls_path, 1)
+        self.assertEqual(json.loads(result.stdout), payload)
+        self.assertEqual(calls, [["cost", "--format", "json", "--json-only"]])
+        self.assertIsInstance(cached["fetchedAt"], (int, float))
+        self.assertEqual(cached["payload"], payload)
+        self.assertEqual(temporary_files, [])
+
+    def test_cost_upstream_failure_keeps_stale_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, cache_path, calls_path = self._cost_test_environment(root, payload=[], fail=True)
+            old_payload = [{"provider": "old"}]
+            cache_path.parent.mkdir(parents=True)
+            cache_path.write_text(
+                json.dumps({"fetchedAt": time.time() - quotas.COST_CACHE_TTL_SECONDS - 1, "payload": old_payload}),
+                encoding="utf-8",
+            )
+            result = self._run_cost(env)
+            self._wait_for_cost_calls(calls_path, 1)
+            time.sleep(0.1)
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        self.assertEqual(json.loads(result.stdout), old_payload)
+        self.assertEqual(cached["payload"], old_payload)
+
+    def test_cost_background_lock_allows_only_one_upstream_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, cache_path, calls_path = self._cost_test_environment(
+                root, payload=[{"provider": "new"}], delay_seconds=0.6,
+            )
+            cache_path.parent.mkdir(parents=True)
+            cache_path.write_text(
+                json.dumps({"fetchedAt": time.time() - quotas.COST_CACHE_TTL_SECONDS - 1, "payload": [{"provider": "old"}]}),
+                encoding="utf-8",
+            )
+            self._run_cost(env)
+            self._wait_for_cost_calls(calls_path, 1)
+            second = self._run_cost(env)
+            time.sleep(0.8)
+            calls = [json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(json.loads(second.stdout), [{"provider": "old"}])
+        self.assertEqual(calls, [["cost", "--format", "json", "--json-only"]])
+
+    def test_cost_falls_back_to_niced_direct_process_without_systemd_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = [{"provider": "direct"}]
+            env, _cache_path, calls_path = self._cost_test_environment(root, payload=payload)
+            result = self._run_cost(env)
+            calls = self._wait_for_cost_calls(calls_path, 1)
+        self.assertEqual(json.loads(result.stdout), payload)
+        self.assertEqual(calls, [["cost", "--format", "json", "--json-only"]])
+
+    def test_noncanonical_cost_arguments_delegate_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            upstream = bin_dir / "codexbar"
+            upstream.write_text(
+                "#!" + os.sys.executable + "\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\n",
+                encoding="utf-8",
+            )
+            upstream.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = str(bin_dir)
+            result = subprocess.run(
+                [os.sys.executable, str(ENGINE), "cost", "--format", "json", "--pretty"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+        self.assertEqual(json.loads(result.stdout), ["cost", "--format", "json", "--pretty"])
 
     def test_unknown_usage_combination_delegates_whole_call(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
