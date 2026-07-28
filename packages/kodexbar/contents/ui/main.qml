@@ -2554,6 +2554,7 @@ PlasmoidItem {
 
                 delegate: QQC2.AbstractButton {
                     id: compactProviderButton
+                    required property int index
                     required property var modelData
                     height: stripRow.height
                     implicitWidth: compactProviderContent.implicitWidth + 10

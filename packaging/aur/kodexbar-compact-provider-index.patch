@@ -1,0 +1,12 @@
+diff --git a/packages/kodexbar/contents/ui/main.qml b/packages/kodexbar/contents/ui/main.qml
+index 4b248c2..55a5229 100644
+--- a/packages/kodexbar/contents/ui/main.qml
++++ b/packages/kodexbar/contents/ui/main.qml
+@@ -2554,6 +2554,7 @@ PlasmoidItem {
+ 
+                 delegate: QQC2.AbstractButton {
+                     id: compactProviderButton
++                    required property int index
+                     required property var modelData
+                     height: stripRow.height
+                     implicitWidth: compactProviderContent.implicitWidth + 10

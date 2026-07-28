@@ -34,4 +34,6 @@ mkdir -p -- "$state_dir"
     printf 'source=%s\n' "$script_dir"
 } > "$marker"
 
+bash "${script_dir}/packaging/aur/reload-plasma-after-upgrade" --current-user
+
 printf 'KodexBar Suite installed.\n'

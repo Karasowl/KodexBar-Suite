@@ -2,6 +2,13 @@
 
 All notable fork-specific changes are documented here.
 
+## Unreleased
+
+### Fixed
+
+- Reload active Plasma sessions automatically after package or manual upgrades when KodexBar is already present on a panel.
+- Declare the compact provider delegate index explicitly so Plasma does not emit runtime reference errors after reloading the updated widget.
+
 ## 0.12.1, 2026-07-27
 
 ### Changed

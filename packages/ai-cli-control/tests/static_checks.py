@@ -19,7 +19,9 @@ TRAY = ROOT / "kodexbar-tray"
 LOCAL_AI = ROOT / "local-ai"
 SKILLS = ROOT / "kodexbar-skills"
 AUR_PKGBUILD = ROOT.parents[1] / "packaging" / "aur" / "PKGBUILD"
+AUR_INSTALL = ROOT.parents[1] / "packaging" / "aur" / "kodexbar-suite.install"
 PLASMOID_METADATA = ROOT.parent / "kodexbar" / "metadata.json"
+PLASMA_RELOAD = ROOT.parents[1] / "packaging" / "aur" / "reload-plasma-after-upgrade"
 RELEASE_VERSION = "0.12.1"
 AUR_RELEASE_VERSION = "0.12.1"
 FORBIDDEN = ("eval(", "shell=True", "shell = True", "os.system(")
@@ -84,6 +86,8 @@ def main() -> int:
         print("Missing kodexbar-skills engine", file=sys.stderr)
         return 1
     aur_source = AUR_PKGBUILD.read_text(encoding="utf-8")
+    aur_install_source = AUR_INSTALL.read_text(encoding="utf-8")
+    plasma_reload_source = PLASMA_RELOAD.read_text(encoding="utf-8")
     package_statements = "\n".join(line for line in aur_source.splitlines() if not line.lstrip().startswith("#"))
     release_sources = {
         "ai": AI,
@@ -110,6 +114,8 @@ def main() -> int:
         print("AUR package version does not match its pinned release", file=sys.stderr)
         return 1
     required_payload_statements = (
+        r"(?m)^\s*'kodexbar-compact-provider-index\.patch'$",
+        r"(?m)^\s*patch -Np1 -i \"\$\{srcdir\}/kodexbar-compact-provider-index\.patch\"$",
         r"(?m)^\s*packages/ai-cli-control/local-ai\s+\\$",
         r"(?m)^\s*packages/ai-cli-control/kodexbar-skills\s+\\$",
         r'(?m)^\s*install -d "\$\{payload\}/local_ai_drivers"$',
@@ -122,6 +128,21 @@ def main() -> int:
     )
     if not all(re.search(pattern, package_statements) for pattern in required_payload_statements):
         print("AUR package does not install the local-ai executable, drivers, documentation, and symlink", file=sys.stderr)
+        return 1
+    reload_contract = (
+        "post_install()",
+        "post_upgrade()",
+        "/usr/lib/kodexbar-suite/reload-plasma-after-upgrade",
+    )
+    if not all(token in aur_install_source for token in reload_contract):
+        print("AUR lifecycle hooks do not reload an installed KodexBar widget", file=sys.stderr)
+        return 1
+    if (
+        "org.kde.PlasmaShell.dumpCurrentLayoutJS" not in plasma_reload_source
+        or 'systemctl_bin" --user restart plasma-plasmashell.service' not in plasma_reload_source
+        or "plugin_marker=" not in plasma_reload_source
+    ):
+        print("Plasma reload helper does not detect KodexBar before restarting the user shell", file=sys.stderr)
         return 1
     recover_source = RECOVER.read_text(encoding="utf-8")
     quotas_source = QUOTAS.read_text(encoding="utf-8")

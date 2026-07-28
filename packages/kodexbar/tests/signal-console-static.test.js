@@ -53,6 +53,7 @@ assert.match(
     "the selected 520 by 560 viewport is normative"
 )
 assert.match(qml, /signal providerActivated\(string selectionKey\)/, "compact provider blocks expose an activation contract")
+assert.match(qml, /required property int index\s*required property var modelData/, "compact provider delegates declare the repeater index they use")
 assert.match(qml, /root\.selectedEntryKey = selectionKey[\s\S]{0,80}root\.expanded = true/, "compact provider blocks open the exact provider")
 assert.match(preferences, /function signalIcon\(name\)/, "preferences share the packaged icon family")
 assert.match(preferences, /palette\.base: "#14161d"[\s\S]{0,220}palette\.buttonText: "#e9ebf2"/, "preferences keep native controls legible on the dark surface")
