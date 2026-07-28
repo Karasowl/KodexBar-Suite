@@ -16,7 +16,7 @@ import sys
 from typing import Any
 
 
-VERSION = "0.12.0"
+VERSION = "0.12.1"
 SCHEMA_VERSION = 2
 MAX_SKILL_FILES = 4096
 MAX_SKILL_BYTES = 128 * 1024 * 1024

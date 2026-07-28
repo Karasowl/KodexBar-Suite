@@ -1890,28 +1890,16 @@ PlasmoidItem {
             color: root.surfaceColor
         }
 
-        Row {
+        Image {
             id: signalBrand
             anchors.left: parent.left
             anchors.leftMargin: 16
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 5
-
-            PlasmaComponents.Label {
-                text: "KodexBar"
-                color: root.textColor
-                font.family: root.designFont
-                font.pixelSize: 16
-                font.weight: Font.ExtraBold
-            }
-
-            PlasmaComponents.Label {
-                text: "Suite"
-                color: "#9b86ff"
-                font.family: root.designFont
-                font.pixelSize: 16
-                font.weight: Font.DemiBold
-            }
+            width: 38
+            height: 38
+            source: Qt.resolvedUrl("../icons/kodexbar.svg")
+            fillMode: Image.PreserveAspectFit
+            smooth: true
         }
 
         RowLayout {
@@ -2255,7 +2243,6 @@ PlasmoidItem {
 
         readonly property var providerRows: root.popupState.hasEntry
             && !root.activeEntry.errorMessage ? (root.activeEntry.rows || []) : []
-        readonly property var primaryRow: providerRows.length > 0 ? providerRows[0] : null
         readonly property var costRows: root.activeEntry.costSummary
             ? root.signalCostSummaryRows(root.activeEntry.costSummary) : []
         readonly property color stateColor: root.activeStatusColor(root.activeEntry)
@@ -2269,134 +2256,8 @@ PlasmoidItem {
 
             ColumnLayout {
                 width: signalProviderScroll.availableWidth
+                height: Math.max(implicitHeight, signalProviderScroll.availableHeight)
                 spacing: 0
-
-                Item {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 112
-
-                    Rectangle {
-                        id: signalProviderMark
-                        visible: root.popupState.hasEntry
-                        anchors.left: parent.left
-                        anchors.leftMargin: 18
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 64
-                        height: 64
-                        radius: 7
-                        gradient: Gradient {
-                            GradientStop { position: 0; color: "#7450d3" }
-                            GradientStop { position: 1; color: "#9270e6" }
-                        }
-
-                        Image {
-                            id: signalProviderIcon
-                            anchors.centerIn: parent
-                            width: 44
-                            height: 44
-                            source: root.providerIconSource(root.activeEntry.provider)
-                            fillMode: Image.PreserveAspectFit
-                            smooth: true
-                        }
-                    }
-
-                    Column {
-                        anchors.left: signalProviderMark.right
-                        anchors.leftMargin: 16
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 228
-                        spacing: 3
-
-                        Row {
-                            spacing: 7
-
-                            PlasmaComponents.Label {
-                                text: root.popupState.hasEntry
-                                    ? root.activeEntry.displayName : "KodexBar Suite"
-                                color: root.textColor
-                                font.family: root.designFont
-                                font.pixelSize: 27
-                                font.weight: Font.ExtraBold
-                                elide: Text.ElideRight
-                                width: Math.min(implicitWidth, 190)
-                            }
-
-                            Kirigami.Icon {
-                                visible: root.popupState.hasEntry && !root.activeEntry.errorMessage
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: 18
-                                height: 18
-                                source: "emblem-checked"
-                                color: signalProviderView.stateColor
-                            }
-                        }
-
-                        PlasmaComponents.Label {
-                            text: root.activeEntry.source || root.activeSource || ""
-                            color: root.mutedColor
-                            font.family: root.designFont
-                            font.pixelSize: 13
-                            elide: Text.ElideRight
-                            width: parent.width
-                        }
-
-                        PlasmaComponents.Label {
-                            text: root.formatUpdatedDateTime(root.activeEntry.updatedAt)
-                            color: root.quietColor
-                            font.family: root.designFont
-                            font.pixelSize: 12
-                            elide: Text.ElideRight
-                            width: parent.width
-                        }
-                    }
-
-                    Column {
-                        anchors.right: parent.right
-                        anchors.rightMargin: 18
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 160
-                        spacing: 1
-
-                        PlasmaComponents.Label {
-                            visible: signalProviderView.primaryRow !== null
-                            width: parent.width
-                            text: signalProviderView.primaryRow
-                                ? root.formatResetTime(signalProviderView.primaryRow.resetsAt) : ""
-                            color: root.mutedColor
-                            font.family: root.designFont
-                            font.pixelSize: 12
-                            horizontalAlignment: Text.AlignRight
-                            elide: Text.ElideRight
-                        }
-
-                        PlasmaComponents.Label {
-                            width: parent.width
-                            text: signalProviderView.primaryRow
-                                ? root.formatUsedPercent(
-                                    signalProviderView.primaryRow.percentLeft,
-                                    signalProviderView.primaryRow.usageKnown,
-                                    false,
-                                    signalProviderView.primaryRow.precisePercent === true)
-                                : root.popupState.hasEntry ? i18n("Connected") : i18n("Waiting")
-                            color: signalProviderView.primaryRow
-                                ? (root.usedPercent(signalProviderView.primaryRow.percentLeft) >= 80
-                                    ? root.errorColor : "#9475ed")
-                                : signalProviderView.stateColor
-                            font.family: root.designFont
-                            font.pixelSize: signalProviderView.primaryRow ? 30 : 18
-                            font.weight: Font.ExtraBold
-                            horizontalAlignment: Text.AlignRight
-                        }
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.leftMargin: 18
-                    Layout.rightMargin: 18
-                    Layout.preferredHeight: 1
-                    color: root.lineColor
-                }
 
                 ColumnLayout {
                     visible: root.loading && root.popupEntries.length === 0
@@ -2618,112 +2479,10 @@ PlasmoidItem {
                     }
                 }
 
-                Rectangle {
+                Item {
                     Layout.fillWidth: true
-                    Layout.leftMargin: 18
-                    Layout.rightMargin: 18
-                    Layout.preferredHeight: 1
-                    color: root.lineColor
-                }
-
-                ColumnLayout {
-                    visible: root.popupEntries.length > 0
-                    Layout.fillWidth: true
-                    Layout.leftMargin: 18
-                    Layout.rightMargin: 18
-                    Layout.topMargin: 11
-                    Layout.bottomMargin: 10
-                    spacing: 7
-
-                    PlasmaComponents.Label {
-                        text: i18n("Switch provider")
-                        color: root.textColor
-                        font.family: root.designFont
-                        font.pixelSize: 14
-                        font.weight: Font.Bold
-                    }
-
-                    ListView {
-                        id: signalProviderList
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 60
-                        orientation: ListView.Horizontal
-                        spacing: 4
-                        clip: true
-                        boundsBehavior: Flickable.StopAtBounds
-                        model: root.popupEntries
-
-                        delegate: QQC2.Button {
-                            id: signalProviderChoice
-                            required property var modelData
-                            readonly property bool selected: modelData.selectionKey
-                                === root.popupState.selectionKey
-                            width: Math.max(108, providerChoiceContent.implicitWidth + 28)
-                            height: 56
-                            flat: true
-                            text: modelData.tabLabel
-                            Accessible.name: i18n("Switch to %1", modelData.tabLabel)
-                            onClicked: {
-                                root.selectedPopupTab = "provider"
-                                root.selectedEntryKey = modelData.selectionKey
-                            }
-
-                            contentItem: Row {
-                                id: providerChoiceContent
-                                anchors.centerIn: parent
-                                spacing: 9
-
-                                Item {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    width: 30
-                                    height: 30
-
-                                    Image {
-                                        anchors.centerIn: parent
-                                        width: 22
-                                        height: 22
-                                        source: root.providerIconSource(signalProviderChoice.modelData.provider)
-                                        fillMode: Image.PreserveAspectFit
-                                        opacity: signalProviderChoice.selected ? 1 : 0.72
-                                    }
-                                }
-
-                                PlasmaComponents.Label {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: signalProviderChoice.modelData.tabLabel
-                                    color: signalProviderChoice.selected
-                                        ? "#b4a5ff" : root.mutedColor
-                                    font.family: root.designFont
-                                    font.pixelSize: 12
-                                    font.weight: signalProviderChoice.selected
-                                        ? Font.Bold : Font.DemiBold
-                                }
-                            }
-
-                            background: Rectangle {
-                                radius: 9
-                                color: signalProviderChoice.selected
-                                    ? "#26213c"
-                                    : signalProviderChoice.down
-                                        ? "#252936"
-                                        : signalProviderChoice.hovered ? "#1a1d26" : "transparent"
-                                border.width: signalProviderChoice.selected ? 1 : 0
-                                border.color: "#574b86"
-
-                                Rectangle {
-                                    visible: signalProviderChoice.selected
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.bottom: parent.bottom
-                                    anchors.leftMargin: 10
-                                    anchors.rightMargin: 10
-                                    height: 3
-                                    radius: 2
-                                    color: "#9b7cff"
-                                }
-                            }
-                        }
-                    }
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: 0
                 }
 
                 Rectangle {
@@ -2779,6 +2538,7 @@ PlasmoidItem {
         property var blocks: []
         property bool preview: false
         property int activeLocalCount: 0
+        signal providerActivated(string selectionKey)
 
         implicitWidth: stripRow.implicitWidth
         implicitHeight: 28
@@ -2792,64 +2552,87 @@ PlasmoidItem {
             Repeater {
                 model: strip.blocks
 
-                delegate: Row {
+                delegate: QQC2.AbstractButton {
+                    id: compactProviderButton
+                    required property var modelData
                     height: stripRow.height
-                    spacing: 7
+                    implicitWidth: compactProviderContent.implicitWidth + 10
+                    leftPadding: 5
+                    rightPadding: 5
+                    Accessible.name: modelData.fullText || modelData.displayText || modelData.provider
+                    Accessible.description: i18n("Open %1 usage", modelData.provider || i18n("provider"))
+                    onClicked: strip.providerActivated(modelData.selectionKey || "")
 
-                    Rectangle {
-                        visible: index > 0
-                        width: visible ? 1 : 0
-                        height: 16
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: "#333844"
+                    QQC2.ToolTip.visible: hovered && !!modelData.fullText
+                    QQC2.ToolTip.text: modelData.fullText || ""
+                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+
+                    contentItem: Row {
+                        id: compactProviderContent
+                        spacing: 7
+
+                        Rectangle {
+                            visible: index > 0
+                            width: visible ? 1 : 0
+                            height: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: "#333844"
+                        }
+
+                        Rectangle {
+                            width: 7
+                            height: 7
+                            radius: 4
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: modelData.error
+                                ? root.errorColor
+                                : modelData.cached
+                                    ? root.quietColor
+                                : root.metricAccent(
+                                    modelData.worstUsedPercent === null
+                                        || modelData.worstUsedPercent === undefined
+                                        ? null
+                                        : 100 - modelData.worstUsedPercent,
+                                    modelData.worstUsedPercent !== null
+                                        && modelData.worstUsedPercent !== undefined)
+                        }
+
+                        Image {
+                            visible: root.showProviderInPanel
+                            width: visible ? 15 : 0
+                            height: 15
+                            anchors.verticalCenter: parent.verticalCenter
+                            source: root.providerIconSource(modelData.provider)
+                            fillMode: Image.PreserveAspectFit
+                            smooth: true
+                        }
+
+                        PlasmaComponents.Label {
+                            visible: !!(modelData.ordinal && modelData.ordinal.length > 0)
+                            text: modelData.ordinal || ""
+                            color: root.quietColor
+                            font.family: root.designFont
+                            font.pixelSize: 11
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        PlasmaComponents.Label {
+                            text: modelData.displayText || ""
+                            color: modelData.error ? root.errorColor : root.textColor
+                            font.family: root.designFont
+                            font.pixelSize: 13
+                            font.weight: modelData.error ? Font.Bold : Font.DemiBold
+                            elide: Text.ElideRight
+                            width: Math.min(implicitWidth, strip.preview ? 112 : 126)
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
                     }
 
-                    Rectangle {
-                        width: 7
-                        height: 7
-                        radius: 4
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: modelData.error
-                            ? root.errorColor
-                            : modelData.cached
-                                ? root.quietColor
-                            : root.metricAccent(
-                                modelData.worstUsedPercent === null
-                                    || modelData.worstUsedPercent === undefined
-                                    ? null
-                                    : 100 - modelData.worstUsedPercent,
-                                modelData.worstUsedPercent !== null
-                                    && modelData.worstUsedPercent !== undefined)
-                    }
-
-                    Image {
-                        visible: root.showProviderInPanel
-                        width: visible ? 15 : 0
-                        height: 15
-                        anchors.verticalCenter: parent.verticalCenter
-                        source: root.providerIconSource(modelData.provider)
-                        fillMode: Image.PreserveAspectFit
-                        smooth: true
-                    }
-
-                    PlasmaComponents.Label {
-                        visible: !!(modelData.ordinal && modelData.ordinal.length > 0)
-                        text: modelData.ordinal || ""
-                        color: root.quietColor
-                        font.family: root.designFont
-                        font.pixelSize: 11
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    PlasmaComponents.Label {
-                        text: modelData.displayText || ""
-                        color: modelData.error ? root.errorColor : root.textColor
-                        font.family: root.designFont
-                        font.pixelSize: 13
-                        font.weight: modelData.error ? Font.Bold : Font.DemiBold
-                        elide: Text.ElideRight
-                        width: Math.min(implicitWidth, strip.preview ? 112 : 126)
-                        anchors.verticalCenter: parent.verticalCenter
+                    background: Rectangle {
+                        radius: 6
+                        color: compactProviderButton.down
+                            ? "#29243d"
+                            : compactProviderButton.hovered ? "#201d2d" : "transparent"
                     }
                 }
             }
@@ -2894,7 +2677,7 @@ PlasmoidItem {
         }
     }
 
-    compactRepresentation: MouseArea {
+    compactRepresentation: Item {
         id: compact
         readonly property var compactState: root.compactResult()
 
@@ -2902,8 +2685,6 @@ PlasmoidItem {
         Layout.preferredWidth: Math.min(compactBackground.implicitWidth, 520)
         Layout.maximumWidth: 520
         Layout.minimumHeight: 30
-        hoverEnabled: true
-        onClicked: root.expanded = !root.expanded
 
         Rectangle {
             id: compactBackground
@@ -2916,8 +2697,14 @@ PlasmoidItem {
             border.width: 1
             clip: true
 
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.expanded = !root.expanded
+            }
+
             CompactStrip {
                 id: compactStrip
+                z: 1
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.leftMargin: 9
@@ -2925,6 +2712,15 @@ PlasmoidItem {
                 anchors.verticalCenter: parent.verticalCenter
                 blocks: compact.compactState.blocks || []
                 activeLocalCount: root.localModels.filter(function(item) { return item.state === "active" }).length
+                onProviderActivated: function(selectionKey) {
+                    if (!selectionKey) {
+                        root.expanded = true
+                        return
+                    }
+                    root.selectedPopupTab = "provider"
+                    root.selectedEntryKey = selectionKey
+                    root.expanded = true
+                }
             }
 
             PlasmaComponents.Label {
@@ -2943,6 +2739,8 @@ PlasmoidItem {
     fullRepresentation: Item {
         id: full
 
+        width: 520
+        height: 560
         implicitWidth: 520
         implicitHeight: 560
         Layout.minimumWidth: 520

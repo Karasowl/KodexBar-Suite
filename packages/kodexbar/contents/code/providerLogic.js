@@ -794,6 +794,7 @@ function composeCompactBlocks(entries, options) {
     for (var i = 0; i < selected.length; i++) {
         var entry = selected[i]
         var id = providerId(entry && entry.provider)
+        var selectionKey = popupSelectionKeyForEntry(entries, entry)
         var providerOrdinal = 0
         for (var orderedIndex = 0; orderedIndex < orderedEntries.length; orderedIndex++) {
             if (providerId(orderedEntries[orderedIndex] && orderedEntries[orderedIndex].provider) === id) {
@@ -818,6 +819,7 @@ function composeCompactBlocks(entries, options) {
             blockTexts.push(errorText)
             blocks.push({
                 provider: id,
+                selectionKey: selectionKey,
                 ordinal: ordinal,
                 error: true,
                 cached: false,
@@ -902,6 +904,7 @@ function composeCompactBlocks(entries, options) {
             blockTexts.push(blockText)
             blocks.push({
                 provider: id,
+                selectionKey: selectionKey,
                 ordinal: ordinal,
                 error: false,
                 cached: entry.isCached === true,
@@ -984,6 +987,20 @@ function decoratePopupEntries(entries) {
         decorated.push(copy)
     }
     return decorated
+}
+
+function popupSelectionKeyForEntry(entries, targetEntry) {
+    var ordered = orderPopupEntries(entries)
+    var occurrences = {}
+    for (var i = 0; i < ordered.length; i++) {
+        var entry = ordered[i] || {}
+        var id = providerId(entry.provider)
+        occurrences[id] = (occurrences[id] || 0) + 1
+        if (ordered[i] === targetEntry) {
+            return id + ":" + occurrences[id]
+        }
+    }
+    return ""
 }
 
 function activeEntryData(entries, selectionKey) {

@@ -643,6 +643,11 @@ assert.deepEqual(
     ["codex", "claude", "grok", "antigravity"],
     "the default compact model keeps every configured provider in order"
 )
+assert.deepEqual(
+    compactDefault.blocks.map(block => block.selectionKey),
+    ["codex:1", "claude:1", "grok:1", "antigravity:1"],
+    "every compact block selects the matching popup provider"
+)
 assert.equal(compactDefault.blocks[1].displayText, "ERR", "compact errors stay visible")
 assert.deepEqual(
     compactDefault.blocks.map(block => block.worstUsedPercent),
@@ -728,6 +733,11 @@ const stableOrdinal = context.composeCompactText(partiallyVisibleAccounts, {
     showCredits: false
 })
 assert.equal(stableOrdinal.text, "Cx #2 S40%", "account ordinals remain stable when another account has no selected quota")
+assert.equal(
+    stableOrdinal.blocks[0].selectionKey,
+    "codex:2",
+    "a filtered compact account keeps its exact popup selection key"
+)
 
 const creditsOnly = context.composeCompactText(fixture.composeEntries, {
     providerOrder: "codex,grok",
@@ -962,9 +972,9 @@ assert.match(
 )
 assert.match(mainQml, /component SignalTopBar: Item/, "Signal Console owns one global navigation bar")
 assert.match(mainQml, /component SignalProviderView: Item/, "Signal Console owns the selected provider surface")
-assert.match(mainQml, /text: "KodexBar"[\s\S]{0,520}text: "Suite"/, "the selected brand lockup appears in the global bar")
+assert.match(mainQml, /source: Qt\.resolvedUrl\("\.\.\/icons\/kodexbar\.svg"\)/, "the packaged K mark appears in the global bar")
 assert.match(mainQml, /label: i18n\("Providers"\)[\s\S]{0,260}label: i18n\("Local"\)[\s\S]{0,260}label: i18n\("Skills"\)/, "global navigation exposes all three product destinations")
-assert.match(mainQml, /text: i18n\("Switch provider"\)/, "provider choice moves to the bottom of the focused surface")
+assert.doesNotMatch(mainQml, /text: i18n\("Switch provider"\)/, "the compact strip is the single provider switcher")
 assert.match(
     mainQml,
     /QQC2\.ScrollView \{\s*id: metricScroll[\s\S]*metricContent\.implicitHeight > metricScroll\.availableHeight/,
@@ -999,7 +1009,7 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.12.0", "package metadata uses version 0.12.0")
+assert.equal(metadata.KPlugin.Version, "0.12.1", "package metadata uses version 0.12.1")
 assert.equal(metadata.KPlugin.Website, "https://github.com/Karasowl/KodexBar-Suite", "package metadata links to the maintained suite repository")
 assert.match(mainQml, /var antigravityWindows = antigravity && Array\.isArray\(usage\.antigravityRateWindows\)/, "popup consumes the engine's Antigravity model windows")
 assert.match(mainQml, /compactLabel: antigravityKey === "gemini-weekly" \? "W"/, "compact Antigravity weekly uses W like other providers")

@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.12.1, 2026-07-27
+
+### Changed
+
+- Align the bundled CLI version with the Plasma provider-navigation bugfix release.
+
 ## 0.12.0, 2026-07-27
 
 ### Added

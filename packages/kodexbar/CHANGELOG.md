@@ -2,6 +2,19 @@
 
 All notable fork-specific changes are documented here.
 
+## 0.12.1, 2026-07-27
+
+### Changed
+
+- Make every compact provider block open its exact provider and account, including duplicate accounts and provider errors.
+- Use the compact panel strip as the single provider selector and keep the operational footer anchored to the bottom of the fixed viewport.
+
+### Fixed
+
+- Remove the redundant provider hero and bottom provider switcher from the quota surface.
+- Restore the packaged purple K product mark in the global bar.
+- Give the full representation explicit 520 by 560 geometry in addition to Plasma layout constraints, preventing provider content from changing the popup height.
+
 ## 0.12.0, 2026-07-27
 
 ### Added
