@@ -21,7 +21,7 @@ SKILLS = ROOT / "kodexbar-skills"
 AUR_PKGBUILD = ROOT.parents[1] / "packaging" / "aur" / "PKGBUILD"
 PLASMOID_METADATA = ROOT.parent / "kodexbar" / "metadata.json"
 RELEASE_VERSION = "0.12.0"
-AUR_RELEASE_VERSION = "0.11.0"
+AUR_RELEASE_VERSION = "0.12.0"
 FORBIDDEN = ("eval(", "shell=True", "shell = True", "os.system(")
 SECRET_PATTERNS = {
     "private key": re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"),
