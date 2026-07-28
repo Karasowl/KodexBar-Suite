@@ -6,6 +6,9 @@ All notable fork-specific changes are documented here.
 
 ### Fixed
 
+- Reduce the fixed Signal Console height from 560 to 400 pixels, preserving a stable window across providers while dense content scrolls vertically.
+- Restore a compact provider identity row, optional provider-specific details, and the official provider logo without bringing back the oversized hero or duplicate provider switcher.
+- Remove compact provider hover tooltips so they never cover adjacent taskbar icons.
 - Reload active Plasma sessions automatically after package or manual upgrades when KodexBar is already present on a panel.
 - Declare the compact provider delegate index explicitly so Plasma does not emit runtime reference errors after reloading the updated widget.
 

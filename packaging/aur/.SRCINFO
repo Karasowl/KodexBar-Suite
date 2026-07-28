@@ -21,6 +21,6 @@ pkgbase = kodexbar-suite
 	source = kodexbar-compact-provider-index.patch
 	sha256sums = 2e4398277ba9240fc46fa7434c95688346b8da899fc87ac4dd411ef3d2bbc848
 	sha256sums = b8c7d720603f43fddeefb891ace7780a1ef7716aa4125d0fa3cfa48a6e96a095
-	sha256sums = e0323bfdc5b0fd8f6d17e49ee32fe832e1d51861409e6e3392314bc5ccbffd2b
+	sha256sums = 5230bd90888790205bf133eb56dd6513c3c711f1d1a7bc52a8764d7f2cff26ca
 
 pkgname = kodexbar-suite

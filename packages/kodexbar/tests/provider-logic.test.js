@@ -967,8 +967,8 @@ assert.match(mainQml, /ListView \{\s+id: providerTabs/, "popup provider tabs use
 assert.match(mainQml, /preferredWidth: 520/, "popup uses the normative 520 pixel width")
 assert.match(
     mainQml,
-    /Layout\.minimumHeight: 560\s*Layout\.maximumHeight: 560\s*Layout\.preferredHeight: 560/,
-    "Signal Console uses the selected fixed 560 pixel height"
+    /Layout\.minimumHeight: 400\s*Layout\.maximumHeight: 400\s*Layout\.preferredHeight: 400/,
+    "Signal Console uses the selected fixed compact height"
 )
 assert.match(mainQml, /component SignalTopBar: Item/, "Signal Console owns one global navigation bar")
 assert.match(mainQml, /component SignalProviderView: Item/, "Signal Console owns the selected provider surface")

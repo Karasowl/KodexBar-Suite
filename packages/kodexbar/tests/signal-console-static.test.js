@@ -32,11 +32,17 @@ assert.match(topBar, /height: 3[\s\S]{0,120}signalDestination\.selected/, "selec
 assert.match(topBar, /Accessible\.description:/, "top-level navigation announces selection")
 
 assert.doesNotMatch(providerView, /id: signalProviderMark/, "the redundant provider hero is removed")
-assert.match(providerView, /contentWidth: availableWidth[\s\S]{0,220}width: signalProviderScroll\.availableWidth/, "provider content owns the full reference viewport")
+assert.match(providerView, /id: signalProviderIdentity/, "provider views retain a compact identity header")
+assert.match(providerView, /id: signalProviderLogo[\s\S]{0,180}root\.providerIconSource\(root\.activeEntry\.provider\)/, "provider identity uses the packaged provider logo")
+assert.match(providerView, /root\.activeEntry\.plan[\s\S]{0,500}root\.activeEntry\.source[\s\S]{0,500}root\.activeEntry\.account/, "provider identity preserves plan, source, and privacy-controlled account context")
+assert.match(providerView, /contentWidth: availableWidth/, "provider scroll content follows the available viewport width")
+assert.match(providerView, /width: signalProviderScroll\.availableWidth/, "provider layout owns the full reference viewport")
 assert.match(providerView, /height: Math\.max\(implicitHeight, signalProviderScroll\.availableHeight\)/, "short provider content still fills the fixed viewport")
 assert.match(providerView, /text: i18n\("Quota usage"\)/, "quota group has a clear heading")
 assert.match(providerView, /\? i18n\("Spend"\)\s*: i18n\("Credits"\)/, "cost becomes one condensed line")
 assert.match(providerView, /root\.signalCostSummaryRows\(/, "the spend strip uses concise reference-style values")
+assert.match(providerView, /signalProviderView\.detailRows/, "provider-specific supplemental data remains visible")
+assert.match(providerView, /text: i18n\("No usage reported"\)/, "connected providers retain an explicit empty state")
 assert.doesNotMatch(providerView, /text: i18n\("Switch provider"\)/, "the compact panel is the single provider switcher")
 assert.doesNotMatch(providerView, /capacity remaining/, "the implementation does not repeat the generated percentage error")
 
@@ -49,12 +55,14 @@ assert.match(qml, /id: compactPreviewSection\s*visible: false\s*Layout\.fillWidt
 
 assert.match(
     qml,
-    /width: 520\s*height: 560\s*implicitWidth: 520[\s\S]{0,80}implicitHeight: 560[\s\S]{0,260}Layout\.minimumWidth: 520[\s\S]{0,220}Layout\.minimumHeight: 560[\s\S]{0,120}Layout\.preferredHeight: 560/,
-    "the selected 520 by 560 viewport is normative"
+    /width: 520\s*height: 400\s*implicitWidth: 520[\s\S]{0,80}implicitHeight: 400[\s\S]{0,260}Layout\.minimumWidth: 520[\s\S]{0,220}Layout\.minimumHeight: 400[\s\S]{0,120}Layout\.preferredHeight: 400/,
+    "the compact 520 by 400 viewport is stable"
 )
 assert.match(qml, /signal providerActivated\(string selectionKey\)/, "compact provider blocks expose an activation contract")
 assert.match(qml, /required property int index\s*required property var modelData/, "compact provider delegates declare the repeater index they use")
 assert.match(qml, /root\.selectedEntryKey = selectionKey[\s\S]{0,80}root\.expanded = true/, "compact provider blocks open the exact provider")
+const compactStrip = qml.slice(compactStart, qml.indexOf("compactRepresentation: Item", compactStart))
+assert.doesNotMatch(compactStrip, /QQC2\.ToolTip/, "compact provider navigation never covers taskbar icons with hover overlays")
 assert.match(preferences, /function signalIcon\(name\)/, "preferences share the packaged icon family")
 assert.match(preferences, /palette\.base: "#14161d"[\s\S]{0,220}palette\.buttonText: "#e9ebf2"/, "preferences keep native controls legible on the dark surface")
 assert.match(preferences, /text: i18n\("Panel preview"\)/, "preferences avoid inherited all-caps microtype")

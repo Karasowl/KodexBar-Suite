@@ -1394,6 +1394,39 @@ PlasmoidItem {
         return rows
     }
 
+    function signalProviderDetailRows(entry) {
+        if (!entry || typeof entry !== "object") {
+            return []
+        }
+        var rows = []
+        if (entry.extraUsage !== null && entry.extraUsage !== undefined) {
+            rows.push({
+                label: i18n("Extra usage"),
+                value: formatExtraUsageValue(entry.extraUsage),
+                detail: ""
+            })
+        }
+        if (typeof entry.bankedResetCount === "number"
+                && !isNaN(entry.bankedResetCount)
+                && entry.bankedResetCount > 0) {
+            rows.push({
+                label: i18n("Banked resets"),
+                value: formatCredits(entry.bankedResetCount),
+                detail: formatResetTimes(entry.bankedResetExpiresAt)
+            })
+        }
+        var dashboard = entry.dashboardSummary instanceof Array
+            ? entry.dashboardSummary : []
+        for (var i = 0; i < dashboard.length; i++) {
+            rows.push({
+                label: i === 0 ? i18n("Provider details") : "",
+                value: dashboard[i],
+                detail: ""
+            })
+        }
+        return rows
+    }
+
     function formatSignalCostValue(cost, tokens, currencyCode) {
         if (cost !== null && cost !== undefined && !isNaN(cost)) {
             return formatCurrency(cost, currencyCode || "USD")
@@ -2245,6 +2278,7 @@ PlasmoidItem {
             && !root.activeEntry.errorMessage ? (root.activeEntry.rows || []) : []
         readonly property var costRows: root.activeEntry.costSummary
             ? root.signalCostSummaryRows(root.activeEntry.costSummary) : []
+        readonly property var detailRows: root.signalProviderDetailRows(root.activeEntry)
         readonly property color stateColor: root.activeStatusColor(root.activeEntry)
 
         QQC2.ScrollView {
@@ -2253,11 +2287,91 @@ PlasmoidItem {
             clip: true
             contentWidth: availableWidth
             QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
+            QQC2.ScrollBar.vertical.policy: signalProviderContent.implicitHeight > availableHeight
+                ? QQC2.ScrollBar.AsNeeded : QQC2.ScrollBar.AlwaysOff
 
             ColumnLayout {
+                id: signalProviderContent
                 width: signalProviderScroll.availableWidth
                 height: Math.max(implicitHeight, signalProviderScroll.availableHeight)
                 spacing: 0
+
+                RowLayout {
+                    id: signalProviderIdentity
+                    visible: root.popupState.hasEntry
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 18
+                    Layout.rightMargin: 18
+                    Layout.topMargin: 12
+                    Layout.bottomMargin: 4
+                    Layout.preferredHeight: 44
+                    spacing: 10
+
+                    Image {
+                        id: signalProviderLogo
+                        Layout.preferredWidth: 28
+                        Layout.preferredHeight: 28
+                        source: root.providerIconSource(root.activeEntry.provider)
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                        Accessible.name: i18n("%1 logo", root.activeEntry.displayName || i18n("Provider"))
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 1
+
+                        PlasmaComponents.Label {
+                            text: root.activeEntry.displayName || i18n("Provider")
+                            color: root.textColor
+                            font.family: root.designFont
+                            font.pixelSize: 15
+                            font.weight: Font.ExtraBold
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+
+                        PlasmaComponents.Label {
+                            text: {
+                                var details = []
+                                if (root.activeEntry.plan) {
+                                    details.push(root.activeEntry.plan)
+                                }
+                                var source = root.activeEntry.source || root.activeSource || ""
+                                if (source && details.indexOf(source) === -1) {
+                                    details.push(source)
+                                }
+                                if (root.showEmailInWidget && root.activeEntry.account
+                                        && details.indexOf(root.activeEntry.account) === -1) {
+                                    details.push(root.activeEntry.account)
+                                }
+                                return details.join(" · ")
+                            }
+                            visible: text.length > 0
+                            color: root.mutedColor
+                            font.family: root.designFont
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: 7
+                        Layout.preferredHeight: 7
+                        radius: 4
+                        color: signalProviderView.stateColor
+                    }
+                }
+
+                Rectangle {
+                    visible: signalProviderIdentity.visible
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 18
+                    Layout.rightMargin: 18
+                    Layout.preferredHeight: 1
+                    color: root.lineColor
+                }
 
                 ColumnLayout {
                     visible: root.loading && root.popupEntries.length === 0
@@ -2373,7 +2487,7 @@ PlasmoidItem {
                     Layout.fillWidth: true
                     Layout.leftMargin: 18
                     Layout.rightMargin: 18
-                    Layout.topMargin: 12
+                    Layout.topMargin: 10
                     Layout.bottomMargin: 12
                     spacing: 13
 
@@ -2405,6 +2519,41 @@ PlasmoidItem {
                             Layout.fillWidth: true
                             rowData: modelData
                         }
+                    }
+                }
+
+                ColumnLayout {
+                    visible: root.popupState.hasEntry
+                        && !root.activeEntry.errorMessage
+                        && signalProviderView.providerRows.length === 0
+                        && signalProviderView.costRows.length === 0
+                        && !(root.activeEntry.creditsRemaining > 0)
+                        && signalProviderView.detailRows.length === 0
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 18
+                    Layout.rightMargin: 18
+                    Layout.topMargin: 18
+                    Layout.bottomMargin: 18
+                    spacing: 4
+
+                    PlasmaComponents.Label {
+                        text: i18n("No usage reported")
+                        color: root.mutedColor
+                        font.family: root.designFont
+                        font.pixelSize: 14
+                        font.weight: Font.Bold
+                        horizontalAlignment: Text.AlignHCenter
+                        Layout.fillWidth: true
+                    }
+
+                    PlasmaComponents.Label {
+                        text: i18n("The provider is connected, but it did not return quota details.")
+                        color: root.quietColor
+                        font.family: root.designFont
+                        font.pixelSize: 12
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
                     }
                 }
 
@@ -2476,6 +2625,70 @@ PlasmoidItem {
                         font.family: root.designFont
                         font.pixelSize: 13
                         font.weight: Font.Bold
+                    }
+                }
+
+                Rectangle {
+                    visible: signalProviderView.detailRows.length > 0
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 18
+                    Layout.rightMargin: 18
+                    Layout.preferredHeight: 1
+                    color: root.lineColor
+                }
+
+                ColumnLayout {
+                    visible: signalProviderView.detailRows.length > 0
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 18
+                    Layout.rightMargin: 18
+                    Layout.topMargin: 9
+                    Layout.bottomMargin: 9
+                    spacing: 7
+
+                    Repeater {
+                        model: signalProviderView.detailRows
+
+                        delegate: ColumnLayout {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            spacing: 2
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                PlasmaComponents.Label {
+                                    text: modelData.label || ""
+                                    color: root.mutedColor
+                                    font.family: root.designFont
+                                    font.pixelSize: 12
+                                    Layout.fillWidth: true
+                                }
+
+                                PlasmaComponents.Label {
+                                    text: modelData.value || ""
+                                    color: root.textColor
+                                    font.family: root.designFont
+                                    font.pixelSize: 12
+                                    font.weight: Font.DemiBold
+                                    horizontalAlignment: Text.AlignRight
+                                    elide: Text.ElideRight
+                                    Layout.maximumWidth: 300
+                                }
+                            }
+
+                            PlasmaComponents.Label {
+                                visible: !!(modelData.detail && modelData.detail.length > 0)
+                                text: modelData.detail || ""
+                                color: root.quietColor
+                                font.family: root.designFont
+                                font.pixelSize: 11
+                                horizontalAlignment: Text.AlignRight
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                        }
                     }
                 }
 
@@ -2563,10 +2776,6 @@ PlasmoidItem {
                     Accessible.name: modelData.fullText || modelData.displayText || modelData.provider
                     Accessible.description: i18n("Open %1 usage", modelData.provider || i18n("provider"))
                     onClicked: strip.providerActivated(modelData.selectionKey || "")
-
-                    QQC2.ToolTip.visible: hovered && !!modelData.fullText
-                    QQC2.ToolTip.text: modelData.fullText || ""
-                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
 
                     contentItem: Row {
                         id: compactProviderContent
@@ -2741,16 +2950,16 @@ PlasmoidItem {
         id: full
 
         width: 520
-        height: 560
+        height: 400
         implicitWidth: 520
-        implicitHeight: 560
+        implicitHeight: 400
         Layout.minimumWidth: 520
         Layout.maximumWidth: 520
         Layout.preferredWidth: 520
-        // Signal Console uses the selected 520 by 560 design target.
-        Layout.minimumHeight: 560
-        Layout.maximumHeight: 560
-        Layout.preferredHeight: 560
+        // Keep one stable compact height across providers and destinations.
+        Layout.minimumHeight: 400
+        Layout.maximumHeight: 400
+        Layout.preferredHeight: 400
 
         Rectangle {
             id: popupCard

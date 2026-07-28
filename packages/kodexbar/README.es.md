@@ -16,7 +16,7 @@ Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../REA
 
 ## Funciones
 
-- Usa el diseño Signal Console seleccionado en un popup de 520 por 560. Una sola navegación con etiquetas conecta Proveedores, Local y Skills, mientras el proveedor activo recibe un resumen enfocado de cuotas, una línea condensada de costo y un selector inferior de proveedor.
+- Usa el diseño Signal Console seleccionado en un popup estable de 520 por 400. Una sola navegación con etiquetas conecta Proveedores, Local y Skills, mientras el proveedor activo recibe una identidad compacta, un resumen enfocado de cuotas, detalles propios del proveedor y una línea condensada de costo.
 - Mantiene separado el botón de terminal **AI CLI Control** del tab de modelos locales. Su menú abre el selector o actualiza todas las CLI de proveedor.
 - Añade un destino **Local** con etiqueta. Agrupa pesos instalados y montados, muestra estado, confianza de clasificación, rendimiento real cuando el runtime lo aporta, sparkline acotado de actividad y controles seguros de montar o desmontar.
 - Añade un destino **Skills** con etiqueta. Una matriz compacta muestra cada skill frente a Codex, Claude, Grok, Gemini CLI, OpenCode y Hermes. Sus checkboxes preparan cambios por celda, por columna o para todos los destinos seguros.

@@ -14,7 +14,7 @@ assert.match(qml, /id: aiControlPopup/, "AI CLI Control opens the overlapping lo
 assert.match(qml, /source: "utilities-terminal"/, "AI CLI Control uses the terminal affordance");
 assert.match(qml, /component SignalTopBar: Item/, "all product areas share the Signal Console navigation");
 assert.match(qml, /display: QQC2\.AbstractButton\.TextBesideIcon/, "top-level destinations use an icon and a label");
-assert.match(qml, /Layout\.preferredHeight: 560/, "the popup uses the selected 520 by 560 viewport");
+assert.match(qml, /Layout\.preferredHeight: 400/, "the popup uses the stable compact 520 by 400 viewport");
 const popupCard = qml.slice(qml.indexOf("id: popupCard"), qml.indexOf("ColumnLayout", qml.indexOf("id: popupCard")));
 assert.doesNotMatch(popupCard, /anchors\.margins/, "the 520px viewport is the visible card, not an inset legacy card");
 assert.match(qml, /radius: 18/, "the popup keeps the approved minimal rounded card");

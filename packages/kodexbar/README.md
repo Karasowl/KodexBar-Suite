@@ -16,7 +16,7 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 
 ## Features
 
-- Uses the selected Signal Console design in a 520 by 560 popup. One labeled navigation bar connects Providers, Local, and Skills, while the active provider gets a focused quota summary, condensed spend line, and bottom provider switcher.
+- Uses the selected Signal Console design in a stable 520 by 400 popup. One labeled navigation bar connects Providers, Local, and Skills, while the active provider gets a compact identity header, focused quota summary, supplemental provider details, and condensed spend line.
 - Keeps the terminal-shaped **AI CLI Control** button separate from the local-model tab. Its menu opens the selector or updates every provider CLI.
 - Adds a labeled **Local** destination. It groups installed and mounted local weights, shows state, classification confidence, real runtime throughput when available, a bounded activity sparkline, and safe mount or unload controls.
 - Adds a labeled **Skills** destination. A compact matrix shows every skill across Codex, Claude, Grok, Gemini CLI, OpenCode, and Hermes. Its checkboxes stage changes per cell, per provider column, or for every safe target.
