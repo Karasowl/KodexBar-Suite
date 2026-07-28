@@ -1,0 +1,983 @@
+#!/usr/bin/env python3
+"""Inspect and safely align user-owned Agent Skills across local providers."""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+from typing import Any
+
+
+VERSION = "0.12.0"
+SCHEMA_VERSION = 2
+MAX_SKILL_FILES = 4096
+MAX_SKILL_BYTES = 128 * 1024 * 1024
+MAX_BATCH_CHANGES = 512
+MAX_BATCH_JSON_BYTES = 64 * 1024
+PORTABLE_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+IGNORED_PARTS = {
+    ".DS_Store",
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+}
+
+
+@dataclass(frozen=True)
+class Provider:
+    identifier: str
+    label: str
+    root: Path
+    marker: Path
+
+
+@dataclass(frozen=True)
+class SkillSource:
+    provider: str
+    path: Path
+    resolved_path: Path
+    kind: str
+    digest: str | None
+    description: str
+    error: str | None
+
+
+@dataclass(frozen=True)
+class BatchAction:
+    skill: str
+    provider: Provider
+    target: Path
+    source: Path
+    source_digest: str
+    action: str
+
+
+class SkillScanError(Exception):
+    """Raised when a skill exceeds the bounded inventory contract."""
+
+
+def provider_definitions(home: Path) -> list[Provider]:
+    return [
+        Provider("codex", "Codex", home / ".codex/skills", home / ".codex"),
+        Provider("claude", "Claude Code", home / ".claude/skills", home / ".claude"),
+        Provider("grok", "Grok", home / ".grok/skills", home / ".grok"),
+        Provider("gemini", "Gemini CLI", home / ".gemini/skills", home / ".gemini"),
+        Provider(
+            "opencode",
+            "OpenCode",
+            home / ".config/opencode/skills",
+            home / ".config/opencode",
+        ),
+        Provider("hermes", "Hermes", home / ".hermes/skills", home / ".hermes"),
+    ]
+
+
+def selected_providers(
+    providers: list[Provider],
+    raw: str | None,
+) -> list[Provider]:
+    if not raw:
+        return providers
+    requested = [item.strip().lower() for item in raw.split(",") if item.strip()]
+    known = {provider.identifier: provider for provider in providers}
+    unknown = sorted(set(requested) - set(known))
+    if unknown:
+        raise ValueError(f"Unknown provider: {', '.join(unknown)}")
+    if not requested:
+        raise ValueError("At least one provider is required")
+    return [known[item] for item in requested]
+
+
+def provider_available(provider: Provider) -> bool:
+    return provider.root.is_dir() or provider.marker.is_dir()
+
+
+def tree_signature(root: Path) -> str:
+    """Return a stable content and mode digest without following nested links."""
+    records: list[tuple[str, int, str]] = []
+    file_count = 0
+    byte_count = 0
+    for current, directories, files in os.walk(root, followlinks=False):
+        current_path = Path(current)
+        directories[:] = sorted(
+            name for name in directories if name not in IGNORED_PARTS
+        )
+        for name in sorted(directories):
+            path = current_path / name
+            if path.is_symlink():
+                relative = str(path.relative_to(root))
+                records.append((relative, stat.S_IFLNK, os.readlink(path)))
+        for name in sorted(files):
+            if name in IGNORED_PARTS:
+                continue
+            path = current_path / name
+            relative = str(path.relative_to(root))
+            if path.is_symlink():
+                records.append((relative, stat.S_IFLNK, os.readlink(path)))
+                continue
+            if not path.is_file():
+                continue
+            file_count += 1
+            byte_count += path.stat().st_size
+            if file_count > MAX_SKILL_FILES or byte_count > MAX_SKILL_BYTES:
+                raise SkillScanError(
+                    "Skill exceeds the scan limit "
+                    f"({MAX_SKILL_FILES} files or {MAX_SKILL_BYTES} bytes)"
+                )
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            mode = stat.S_IMODE(path.stat().st_mode)
+            records.append((relative, mode, digest))
+    encoded = json.dumps(records, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def skill_description(skill_file: Path) -> str:
+    try:
+        with skill_file.open(encoding="utf-8") as handle:
+            in_frontmatter = False
+            for index, raw_line in enumerate(handle):
+                line = raw_line.rstrip("\n")
+                if index == 0 and line.strip() == "---":
+                    in_frontmatter = True
+                    continue
+                if in_frontmatter and line.strip() == "---":
+                    break
+                if in_frontmatter and line.lower().startswith("description:"):
+                    value = line.split(":", 1)[1].strip().strip("\"'")
+                    return " ".join(value.split())
+                if index > 80:
+                    break
+    except (OSError, UnicodeError):
+        return ""
+    return ""
+
+
+def inspect_source(provider: Provider, entry: Path) -> SkillSource:
+    kind = "symlink" if entry.is_symlink() else "directory"
+    try:
+        resolved = entry.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        return SkillSource(
+            provider.identifier,
+            entry,
+            entry.resolve(strict=False),
+            kind,
+            None,
+            "",
+            f"Cannot resolve skill: {error}",
+        )
+    marker = resolved / "SKILL.md"
+    if not resolved.is_dir() or not marker.is_file():
+        return SkillSource(
+            provider.identifier,
+            entry,
+            resolved,
+            kind,
+            None,
+            "",
+            "SKILL.md is missing",
+        )
+    try:
+        digest = tree_signature(resolved)
+    except (OSError, SkillScanError) as error:
+        return SkillSource(
+            provider.identifier,
+            entry,
+            resolved,
+            kind,
+            None,
+            "",
+            f"Cannot read skill: {error}",
+        )
+    return SkillSource(
+        provider.identifier,
+        entry,
+        resolved,
+        kind,
+        digest,
+        skill_description(marker),
+        None,
+    )
+
+
+def scan_provider(provider: Provider) -> dict[str, SkillSource]:
+    result: dict[str, SkillSource] = {}
+    if not provider.root.is_dir():
+        return result
+    try:
+        entries = sorted(provider.root.iterdir(), key=lambda item: item.name.lower())
+    except OSError:
+        return result
+    for entry in entries:
+        if entry.name.startswith("."):
+            continue
+        if not entry.is_dir() and not entry.is_symlink():
+            continue
+        source = inspect_source(provider, entry)
+        if source.digest is not None or source.error is not None:
+            result[entry.name] = source
+    return result
+
+
+def source_payload(source: SkillSource) -> dict[str, Any]:
+    return {
+        "provider": source.provider,
+        "path": str(source.path),
+        "resolvedPath": str(source.resolved_path),
+        "kind": source.kind,
+        "digest": source.digest,
+        "description": source.description,
+        "error": source.error,
+    }
+
+
+def preferred_source(sources: list[SkillSource]) -> SkillSource | None:
+    valid = [source for source in sources if source.digest and not source.error]
+    if not valid:
+        return None
+    order = {
+        provider.identifier: index
+        for index, provider in enumerate(provider_definitions(Path("/")))
+    }
+    return sorted(
+        valid,
+        key=lambda source: (
+            0 if source.kind == "symlink" else 1,
+            order.get(source.provider, 99),
+            str(source.path),
+        ),
+    )[0]
+
+
+def skill_cell(
+    provider: Provider,
+    source: SkillSource | None,
+    canonical: SkillSource | None,
+) -> dict[str, Any]:
+    available = provider_available(provider)
+    if not available:
+        state = "unavailable"
+        reason = "Provider is not installed or configured"
+    elif source is None:
+        state = "missing"
+        reason = "Not linked to this provider"
+    elif source.error:
+        state = "error"
+        reason = source.error
+    elif canonical is None or not canonical.digest:
+        state = "error"
+        reason = "No readable source is available"
+    elif source.resolved_path == canonical.resolved_path:
+        if source.kind == "symlink":
+            state = "linked"
+            reason = "Linked to the shared source"
+        else:
+            state = "source"
+            reason = "This provider exposes the shared source directly"
+    elif source.digest == canonical.digest:
+        state = "matching"
+        reason = "Matching independent copy"
+    else:
+        state = "conflict"
+        reason = "Content differs from the shared source"
+
+    synced = state in {"linked", "source"}
+    present = state in {"linked", "source", "matching", "conflict"}
+    can_enable = state in {"missing", "matching"}
+    can_disable = state == "linked"
+    return {
+        "provider": provider.identifier,
+        "state": state,
+        "present": present,
+        "synced": synced,
+        "canEnable": can_enable,
+        "canDisable": can_disable,
+        "toggleable": can_enable or can_disable,
+        "reason": reason,
+    }
+
+
+def build_inventory(home: Path, requested: str | None = None) -> dict[str, Any]:
+    providers = selected_providers(provider_definitions(home), requested)
+    scans = {provider.identifier: scan_provider(provider) for provider in providers}
+    connected = [
+        provider for provider in providers if provider_available(provider)
+    ]
+    names = sorted(
+        {
+            name
+            for provider_skills in scans.values()
+            for name in provider_skills
+        },
+        key=str.lower,
+    )
+    skills: list[dict[str, Any]] = []
+    for name in names:
+        sources = [
+            scans[provider.identifier][name]
+            for provider in providers
+            if name in scans[provider.identifier]
+        ]
+        provider_ids = [source.provider for source in sources]
+        missing = [
+            provider.identifier
+            for provider in connected
+            if provider.identifier not in provider_ids
+        ]
+        errors = [source.error for source in sources if source.error]
+        digests = {source.digest for source in sources if source.digest}
+        resolved_paths = {
+            str(source.resolved_path)
+            for source in sources
+            if source.digest and not source.error
+        }
+        if errors or len(digests) > 1:
+            status = "conflict"
+        elif not missing and len(resolved_paths) == 1:
+            status = "synced"
+        elif not missing:
+            status = "matching"
+        else:
+            status = "partial"
+        canonical = preferred_source(sources)
+        portable = bool(PORTABLE_NAME.fullmatch(name)) and len(name) <= 64
+        syncable = (
+            status in {"partial", "matching"}
+            and canonical is not None
+            and portable
+        )
+        description = next(
+            (source.description for source in sources if source.description),
+            "",
+        )
+        source_map = {source.provider: source for source in sources}
+        cells = [
+            skill_cell(
+                provider,
+                source_map.get(provider.identifier),
+                canonical,
+            )
+            for provider in providers
+        ]
+        skills.append(
+            {
+                "name": name,
+                "description": description,
+                "status": status,
+                "portable": portable,
+                "syncable": syncable,
+                "providers": provider_ids,
+                "missingProviders": missing,
+                "sources": [source_payload(source) for source in sources],
+                "canonical": source_payload(canonical) if canonical else None,
+                "cells": cells,
+            }
+        )
+
+    status_order = {"conflict": 0, "matching": 1, "partial": 2, "synced": 3}
+    skills.sort(
+        key=lambda skill: (
+            status_order.get(skill["status"], 99),
+            skill["name"].lower(),
+        )
+    )
+    summary = {
+        "uniqueSkills": len(skills),
+        "connectedProviders": len(connected),
+        "synced": sum(skill["status"] == "synced" for skill in skills),
+        "matching": sum(skill["status"] == "matching" for skill in skills),
+        "partial": sum(skill["status"] == "partial" for skill in skills),
+        "conflicts": sum(skill["status"] == "conflict" for skill in skills),
+    }
+    return {
+        "ok": True,
+        "schemaVersion": SCHEMA_VERSION,
+        "version": VERSION,
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "summary": summary,
+        "providers": [
+            {
+                "id": provider.identifier,
+                "label": provider.label,
+                "path": str(provider.root),
+                "available": provider_available(provider),
+                "rootExists": provider.root.is_dir(),
+                "skillCount": len(scans[provider.identifier]),
+            }
+            for provider in providers
+        ],
+        "skills": skills,
+    }
+
+
+def find_skill(
+    inventory: dict[str, Any],
+    name: str,
+) -> dict[str, Any] | None:
+    return next(
+        (skill for skill in inventory["skills"] if skill["name"] == name),
+        None,
+    )
+
+
+def build_sync_plan(
+    home: Path,
+    name: str,
+    source_provider: str,
+    requested_providers: str | None,
+    requested_targets: str | None,
+) -> tuple[dict[str, Any], list[tuple[Provider, Path, str]]]:
+    providers = selected_providers(
+        provider_definitions(home),
+        requested_providers,
+    )
+    provider_map = {provider.identifier: provider for provider in providers}
+    if source_provider not in provider_map:
+        raise ValueError(f"Unknown source provider: {source_provider}")
+    inventory = build_inventory(home, requested_providers)
+    skill = find_skill(inventory, name)
+    if not skill:
+        raise ValueError(f"Skill is not installed: {name}")
+    if not skill["portable"]:
+        raise ValueError(f"Skill name is not portable: {name}")
+    source_data = next(
+        (
+            source
+            for source in skill["sources"]
+            if source["provider"] == source_provider
+        ),
+        None,
+    )
+    if not source_data or source_data["error"] or not source_data["digest"]:
+        raise ValueError(f"Source skill is unavailable: {source_provider}/{name}")
+    source_path = Path(source_data["resolvedPath"])
+    source_digest = source_data["digest"]
+
+    if requested_targets:
+        target_ids = [
+            item.strip().lower()
+            for item in requested_targets.split(",")
+            if item.strip()
+        ]
+    else:
+        target_ids = [
+            provider["id"]
+            for provider in inventory["providers"]
+            if provider["available"] and provider["id"] != source_provider
+        ]
+    unknown = sorted(set(target_ids) - set(provider_map))
+    if unknown:
+        raise ValueError(f"Unknown target provider: {', '.join(unknown)}")
+    target_ids = list(dict.fromkeys(target_ids))
+    if source_provider in target_ids:
+        raise ValueError("The source provider cannot also be a target")
+
+    actions: list[tuple[Provider, Path, str]] = []
+    plan: list[dict[str, Any]] = []
+    conflicts: list[dict[str, str]] = []
+    for target_id in target_ids:
+        provider = provider_map[target_id]
+        if not provider_available(provider):
+            conflicts.append(
+                {
+                    "provider": target_id,
+                    "reason": "Provider is not installed or configured",
+                }
+            )
+            continue
+        target = provider.root / name
+        if target.is_symlink():
+            if target.resolve(strict=False) == source_path:
+                action = "already-linked"
+            else:
+                conflicts.append(
+                    {
+                        "provider": target_id,
+                        "reason": "Target is a different symbolic link",
+                    }
+                )
+                continue
+        elif target.exists() and target.resolve(strict=False) == source_path:
+            action = "source-location"
+        elif target.exists():
+            if not target.is_dir() or not (target / "SKILL.md").is_file():
+                conflicts.append(
+                    {
+                        "provider": target_id,
+                        "reason": "Target is not a valid skill directory",
+                    }
+                )
+                continue
+            try:
+                target_digest = tree_signature(target)
+            except (OSError, SkillScanError) as error:
+                conflicts.append(
+                    {
+                        "provider": target_id,
+                        "reason": f"Target cannot be read: {error}",
+                    }
+                )
+                continue
+            if target_digest != source_digest:
+                conflicts.append(
+                    {
+                        "provider": target_id,
+                        "reason": "Target content diverges from the source",
+                    }
+                )
+                continue
+            action = "replace-identical"
+        else:
+            action = "create-link"
+        plan.append(
+            {
+                "provider": target_id,
+                "action": action,
+                "target": str(target),
+                "source": str(source_path),
+            }
+        )
+        if action not in {"already-linked", "source-location"}:
+            actions.append((provider, target, action))
+
+    result = {
+        "ok": not conflicts,
+        "applied": False,
+        "skill": name,
+        "sourceProvider": source_provider,
+        "sourcePath": str(source_path),
+        "sourceDigest": source_digest,
+        "plan": plan,
+        "conflicts": conflicts,
+    }
+    return result, actions
+
+
+def validate_apply_state(
+    result: dict[str, Any],
+    actions: list[tuple[Provider, Path, str]],
+) -> str | None:
+    source = Path(result["sourcePath"])
+    try:
+        if not source.is_dir() or not (source / "SKILL.md").is_file():
+            return "Source skill is no longer available"
+        if tree_signature(source) != result["sourceDigest"]:
+            return "Source skill changed after preflight"
+        for _, target, action in actions:
+            if action == "create-link":
+                if target.exists() or target.is_symlink():
+                    return f"Target appeared after preflight: {target}"
+                continue
+            if target.is_symlink() or not target.is_dir():
+                return f"Target changed after preflight: {target}"
+            if not (target / "SKILL.md").is_file():
+                return f"Target is no longer a valid skill: {target}"
+            if tree_signature(target) != result["sourceDigest"]:
+                return f"Target content changed after preflight: {target}"
+    except (OSError, SkillScanError) as error:
+        return f"Cannot verify synchronization state: {error}"
+    return None
+
+
+def apply_sync_plan(
+    result: dict[str, Any],
+    actions: list[tuple[Provider, Path, str]],
+) -> dict[str, Any]:
+    state_error = validate_apply_state(result, actions)
+    if state_error:
+        result["ok"] = False
+        result["error"] = f"Synchronization cancelled: {state_error}"
+        result["backups"] = []
+        return result
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    applied: list[tuple[Path, Path | None]] = []
+    backups: list[str] = []
+    try:
+        for provider, target, action in actions:
+            provider.root.mkdir(parents=True, exist_ok=True)
+            backup: Path | None = None
+            if action == "replace-identical":
+                backup = target.parent / f".{target.name}.backup-{timestamp}"
+                if backup.exists() or backup.is_symlink():
+                    raise FileExistsError(f"Backup already exists: {backup}")
+                os.replace(target, backup)
+                backups.append(str(backup))
+            try:
+                target.symlink_to(
+                    Path(result["sourcePath"]),
+                    target_is_directory=True,
+                )
+            except BaseException:
+                if backup is not None and not target.exists():
+                    os.replace(backup, target)
+                raise
+            applied.append((target, backup))
+    except BaseException as error:
+        for target, backup in reversed(applied):
+            if target.is_symlink():
+                target.unlink()
+            if backup is not None and backup.exists():
+                os.replace(backup, target)
+        result["ok"] = False
+        result["error"] = f"Synchronization rolled back: {error}"
+        result["backups"] = []
+        return result
+    result["applied"] = True
+    result["backups"] = backups
+    return result
+
+
+def parse_batch_changes(raw: str) -> list[dict[str, Any]]:
+    if len(raw.encode("utf-8")) > MAX_BATCH_JSON_BYTES:
+        raise ValueError("Batch request is too large")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError("Batch request is not valid JSON") from error
+    if not isinstance(payload, list) or not payload:
+        raise ValueError("Batch request must contain at least one change")
+    if len(payload) > MAX_BATCH_CHANGES:
+        raise ValueError(f"Batch request exceeds {MAX_BATCH_CHANGES} changes")
+
+    changes: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in payload:
+        if not isinstance(entry, dict):
+            raise ValueError("Every batch change must be an object")
+        name = entry.get("skill")
+        provider = entry.get("provider")
+        enabled = entry.get("enabled")
+        if (
+            not isinstance(name, str)
+            or len(name) > 64
+            or not PORTABLE_NAME.fullmatch(name)
+        ):
+            raise ValueError("Batch request contains an invalid skill name")
+        if (
+            not isinstance(provider, str)
+            or not re.fullmatch(r"[a-z][a-z0-9-]*", provider)
+        ):
+            raise ValueError("Batch request contains an invalid provider")
+        if not isinstance(enabled, bool):
+            raise ValueError("Batch enabled state must be true or false")
+        key = (name, provider)
+        previous = changes.get(key)
+        if previous is not None and previous["enabled"] != enabled:
+            raise ValueError(
+                f"Batch request has conflicting states for {name}/{provider}"
+            )
+        changes[key] = {
+            "skill": name,
+            "provider": provider,
+            "enabled": enabled,
+        }
+    return list(changes.values())
+
+
+def build_batch_plan(
+    home: Path,
+    raw_changes: str,
+    requested_providers: str | None,
+) -> tuple[dict[str, Any], list[BatchAction]]:
+    providers = selected_providers(
+        provider_definitions(home),
+        requested_providers,
+    )
+    provider_map = {provider.identifier: provider for provider in providers}
+    inventory = build_inventory(home, requested_providers)
+    skill_map = {skill["name"]: skill for skill in inventory["skills"]}
+    requested = parse_batch_changes(raw_changes)
+    actions: list[BatchAction] = []
+    plan: list[dict[str, Any]] = []
+    conflicts: list[dict[str, str]] = []
+
+    for change in requested:
+        name = change["skill"]
+        provider_id = change["provider"]
+        enabled = change["enabled"]
+        provider = provider_map.get(provider_id)
+        skill = skill_map.get(name)
+        if provider is None:
+            conflicts.append(
+                {
+                    "skill": name,
+                    "provider": provider_id,
+                    "reason": "Unknown provider",
+                }
+            )
+            continue
+        if skill is None or not skill["portable"] or not skill["canonical"]:
+            conflicts.append(
+                {
+                    "skill": name,
+                    "provider": provider_id,
+                    "reason": "Skill has no portable readable source",
+                }
+            )
+            continue
+        cell = next(
+            (
+                item
+                for item in skill["cells"]
+                if item["provider"] == provider_id
+            ),
+            None,
+        )
+        if cell is None:
+            conflicts.append(
+                {
+                    "skill": name,
+                    "provider": provider_id,
+                    "reason": "Provider state is unavailable",
+                }
+            )
+            continue
+
+        action = ""
+        if enabled:
+            if cell["synced"]:
+                action = "already-linked"
+            elif cell["state"] == "missing":
+                action = "create-link"
+            elif cell["state"] == "matching":
+                action = "replace-identical"
+            else:
+                conflicts.append(
+                    {
+                        "skill": name,
+                        "provider": provider_id,
+                        "reason": cell["reason"],
+                    }
+                )
+                continue
+        else:
+            if cell["state"] == "linked":
+                action = "remove-link"
+            elif cell["state"] == "missing":
+                action = "already-missing"
+            else:
+                conflicts.append(
+                    {
+                        "skill": name,
+                        "provider": provider_id,
+                        "reason": (
+                            "Only a shared symbolic link can be disabled safely"
+                        ),
+                    }
+                )
+                continue
+
+        source = Path(skill["canonical"]["resolvedPath"])
+        target = provider.root / name
+        plan.append(
+            {
+                "skill": name,
+                "provider": provider_id,
+                "enabled": enabled,
+                "action": action,
+                "source": str(source),
+                "target": str(target),
+            }
+        )
+        if action not in {"already-linked", "already-missing"}:
+            actions.append(
+                BatchAction(
+                    name,
+                    provider,
+                    target,
+                    source,
+                    skill["canonical"]["digest"],
+                    action,
+                )
+            )
+
+    actions.sort(key=lambda item: (item.skill.lower(), item.provider.identifier))
+    plan.sort(key=lambda item: (item["skill"].lower(), item["provider"]))
+    return {
+        "ok": not conflicts,
+        "operation": "batch",
+        "applied": False,
+        "requestedChanges": len(requested),
+        "plannedChanges": len(actions),
+        "plan": plan,
+        "conflicts": conflicts,
+    }, actions
+
+
+def validate_batch_state(actions: list[BatchAction]) -> str | None:
+    checked_sources: dict[Path, str] = {}
+    try:
+        for item in actions:
+            if item.source not in checked_sources:
+                if (
+                    not item.source.is_dir()
+                    or not (item.source / "SKILL.md").is_file()
+                ):
+                    return f"Source skill is no longer available: {item.skill}"
+                digest = tree_signature(item.source)
+                if digest != item.source_digest:
+                    return f"Source skill changed after preflight: {item.skill}"
+                checked_sources[item.source] = digest
+
+            if item.action == "create-link":
+                if item.target.exists() or item.target.is_symlink():
+                    return f"Target appeared after preflight: {item.target}"
+            elif item.action == "replace-identical":
+                if item.target.is_symlink() or not item.target.is_dir():
+                    return f"Target changed after preflight: {item.target}"
+                if not (item.target / "SKILL.md").is_file():
+                    return f"Target is no longer a valid skill: {item.target}"
+                if tree_signature(item.target) != item.source_digest:
+                    return f"Target content changed after preflight: {item.target}"
+            elif item.action == "remove-link":
+                if (
+                    not item.target.is_symlink()
+                    or item.target.resolve(strict=False) != item.source
+                ):
+                    return f"Shared link changed after preflight: {item.target}"
+    except (OSError, SkillScanError) as error:
+        return f"Cannot verify batch state: {error}"
+    return None
+
+
+def apply_batch_plan(
+    result: dict[str, Any],
+    actions: list[BatchAction],
+) -> dict[str, Any]:
+    state_error = validate_batch_state(actions)
+    if state_error:
+        result["ok"] = False
+        result["error"] = f"Synchronization cancelled: {state_error}"
+        result["backups"] = []
+        return result
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    applied: list[tuple[BatchAction, Path | None]] = []
+    backups: list[str] = []
+    try:
+        for item in actions:
+            backup: Path | None = None
+            if item.action == "remove-link":
+                item.target.unlink()
+                applied.append((item, None))
+                continue
+
+            item.provider.root.mkdir(parents=True, exist_ok=True)
+            if item.action == "replace-identical":
+                backup = (
+                    item.target.parent
+                    / f".{item.target.name}.backup-{timestamp}"
+                )
+                if backup.exists() or backup.is_symlink():
+                    raise FileExistsError(f"Backup already exists: {backup}")
+                os.replace(item.target, backup)
+                backups.append(str(backup))
+            try:
+                item.target.symlink_to(item.source, target_is_directory=True)
+            except BaseException:
+                if backup is not None and not item.target.exists():
+                    os.replace(backup, item.target)
+                raise
+            applied.append((item, backup))
+    except BaseException as error:
+        for item, backup in reversed(applied):
+            if item.action == "remove-link":
+                if not item.target.exists() and not item.target.is_symlink():
+                    item.target.symlink_to(
+                        item.source,
+                        target_is_directory=True,
+                    )
+                continue
+            if item.target.is_symlink():
+                item.target.unlink()
+            if backup is not None and backup.exists():
+                os.replace(backup, item.target)
+        result["ok"] = False
+        result["error"] = f"Synchronization rolled back: {error}"
+        result["backups"] = []
+        return result
+
+    result["applied"] = True
+    result["backups"] = backups
+    return result
+
+
+def emit(payload: dict[str, Any]) -> None:
+    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Inspect and safely align Agent Skills across providers"
+    )
+    parser.add_argument("--version", action="version", version=VERSION)
+    parser.add_argument("--home", type=Path, default=Path.home())
+    parser.add_argument("--providers")
+    sub = parser.add_subparsers(dest="command")
+    sub.add_parser("status", help="Print the read-only skill inventory as JSON")
+    sync = sub.add_parser("sync", help="Plan or apply one conflict-safe sync")
+    sync.add_argument("--skill", required=True)
+    sync.add_argument("--source", required=True)
+    sync.add_argument("--targets")
+    sync.add_argument("--apply", action="store_true")
+    batch = sub.add_parser(
+        "batch",
+        help="Plan or apply a conflict-safe set of provider checkboxes",
+    )
+    batch.add_argument("--changes-json", required=True)
+    batch.add_argument("--apply", action="store_true")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    home = args.home.expanduser().resolve()
+    command = args.command or "status"
+    try:
+        if command == "status":
+            emit(build_inventory(home, args.providers))
+            return 0
+        if command == "batch":
+            result, actions = build_batch_plan(
+                home,
+                args.changes_json,
+                args.providers,
+            )
+            if not result["ok"]:
+                emit(result)
+                return 3
+            if args.apply:
+                result = apply_batch_plan(result, actions)
+            emit(result)
+            return 0 if result["ok"] else 4
+        result, actions = build_sync_plan(
+            home,
+            args.skill,
+            args.source,
+            args.providers,
+            args.targets,
+        )
+        if not result["ok"]:
+            emit(result)
+            return 3
+        if args.apply:
+            result = apply_sync_plan(result, actions)
+        emit(result)
+        return 0 if result["ok"] else 4
+    except (OSError, ValueError) as error:
+        emit({"ok": False, "error": str(error)})
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

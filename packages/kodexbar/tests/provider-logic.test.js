@@ -957,9 +957,14 @@ assert.match(mainQml, /ListView \{\s+id: providerTabs/, "popup provider tabs use
 assert.match(mainQml, /preferredWidth: 520/, "popup uses the normative 520 pixel width")
 assert.match(
     mainQml,
-    /Layout\.minimumHeight: 520\s*Layout\.maximumHeight: 520\s*Layout\.preferredHeight: 520/,
-    "popup keeps the normative fixed 520 pixel height"
+    /Layout\.minimumHeight: 560\s*Layout\.maximumHeight: 560\s*Layout\.preferredHeight: 560/,
+    "Signal Console uses the selected fixed 560 pixel height"
 )
+assert.match(mainQml, /component SignalTopBar: Item/, "Signal Console owns one global navigation bar")
+assert.match(mainQml, /component SignalProviderView: Item/, "Signal Console owns the selected provider surface")
+assert.match(mainQml, /text: "KodexBar"[\s\S]{0,520}text: "Suite"/, "the selected brand lockup appears in the global bar")
+assert.match(mainQml, /label: i18n\("Providers"\)[\s\S]{0,260}label: i18n\("Local"\)[\s\S]{0,260}label: i18n\("Skills"\)/, "global navigation exposes all three product destinations")
+assert.match(mainQml, /text: i18n\("Switch provider"\)/, "provider choice moves to the bottom of the focused surface")
 assert.match(
     mainQml,
     /QQC2\.ScrollView \{\s*id: metricScroll[\s\S]*metricContent\.implicitHeight > metricScroll\.availableHeight/,
@@ -994,7 +999,7 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.11.0", "package metadata uses version 0.11.0")
+assert.equal(metadata.KPlugin.Version, "0.12.0", "package metadata uses version 0.12.0")
 assert.equal(metadata.KPlugin.Website, "https://github.com/Karasowl/KodexBar-Suite", "package metadata links to the maintained suite repository")
 assert.match(mainQml, /var antigravityWindows = antigravity && Array\.isArray\(usage\.antigravityRateWindows\)/, "popup consumes the engine's Antigravity model windows")
 assert.match(mainQml, /compactLabel: antigravityKey === "gemini-weekly" \? "W"/, "compact Antigravity weekly uses W like other providers")
@@ -1447,7 +1452,7 @@ assert.match(
 )
 assert.match(
     mainQml,
-    /onExpandedChanged: \{\s*if \(expanded\) \{\s*refreshCostIfDue\(showCostSummary\)/,
+    /onExpandedChanged: \{\s*if \(root\.expanded\) \{\s*refreshCostIfDue\(showCostSummary\)/,
     "opening the popup consults the cost TTL"
 )
 assert.match(

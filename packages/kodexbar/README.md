@@ -8,7 +8,7 @@
 [![CodexBar CLI](https://img.shields.io/badge/powered%20by-CodexBar%20CLI-0a0a0c?style=flat-square)](https://github.com/steipete/CodexBar)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-KodexBar Suite is a KDE Plasma 6 widget for monitoring AI provider quotas through the [CodexBar CLI](https://github.com/steipete/CodexBar). It provides a configurable compact summary in the panel, a complete popup with every enabled provider and quota, and an optional local-model viewer.
+KodexBar Suite is a KDE Plasma 6 widget for monitoring AI provider quotas through the [CodexBar CLI](https://github.com/steipete/CodexBar). It provides a configurable compact summary in the panel, a complete popup with every enabled provider and quota, an optional local-model viewer, and a cross-provider skill inventory.
 
 This package is also maintained inside the [KodexBar Suite monorepo](../../README.md). From that repository root, use `./install.sh` to install it together with `ai-cli-control`. The package can still be validated and installed independently.
 
@@ -16,9 +16,10 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 
 ## Features
 
-- Uses the selected dark 520 by 520 card with provider tabs, live status, source pills, metric badges, progress bars, and a matching compact preview.
+- Uses the selected Signal Console design in a 520 by 560 popup. One labeled navigation bar connects Providers, Local, and Skills, while the active provider gets a focused quota summary, condensed spend line, and bottom provider switcher.
 - Keeps the terminal-shaped **AI CLI Control** button separate from the local-model tab. Its menu opens the selector or updates every provider CLI.
-- Adds an icon-only **Local models** tab. It groups installed and mounted local weights, shows state, classification confidence, real runtime throughput when available, a bounded activity sparkline, and safe mount or unload controls.
+- Adds a labeled **Local** destination. It groups installed and mounted local weights, shows state, classification confidence, real runtime throughput when available, a bounded activity sparkline, and safe mount or unload controls.
+- Adds a labeled **Skills** destination. A compact matrix shows every skill across Codex, Claude, Grok, Gemini CLI, OpenCode, and Hermes. Its checkboxes stage changes per cell, per provider column, or for every safe target.
 - Keeps installed but unmounted models dimmed, omits models that are not installed, and uses a vertical-only local list so provider data, account identity, plan, source, quotas, credits, costs, errors, cache state, and compact strip remain available without horizontal overflow.
 - Shows one provider account at a time, ordered as Codex, Claude, Grok, Antigravity, then every other enabled provider.
 - Keeps repeated accounts separate with stable non-sensitive ordinals in tabs and compact output.
@@ -154,6 +155,7 @@ The popup uses `Gemini (Antigravity)` for Antigravity and `Gemini` for the indep
 | --- | --- |
 | Command | Empty or default uses `kodexbar-quotas`, then retries `codexbar` only if the engine command is missing. A custom command is used alone. |
 | AI CLI Control | `ai` binary name or full path used by the widget actions. |
+| Skills engine | `kodexbar-skills` binary name or full path. Empty restores the default name. |
 | Source | `Best available`, `auto`, `web`, `cli`, `oauth`, or `api`. |
 | Refresh | Poll interval from 10 to 3600 seconds. |
 | Compact providers | Display-only ordered comma-separated provider IDs used by the system tray. The visible provider checkboxes cover Codex, Claude, Grok, and Antigravity. Empty shows every returned provider and never filters the popup. |
@@ -168,6 +170,10 @@ The popup uses `Gemini (Antigravity)` for Antigravity and `Gemini` for the indep
 ## Data and Privacy
 
 The widget runs `kodexbar-quotas usage --format json --json-only` locally by default and renders the returned JSON. The engine uses upstream `codexbar` as a per-provider fallback. Optional cost summaries are independent from the normal 60-second usage cycle. They refresh at most every 15 minutes from appended local Codex and Claude session bytes. The complete upstream `codexbar cost` scan is retained as a contained 6-hour anchor. This repository does not add a provider backend, credential store, telemetry service, or remote account service.
+
+The Skills tab runs `kodexbar-skills status`, which only reads each provider's conventional skill directory. Refresh never modifies a skill. A checked cell represents a shared link. A mixed cell represents an independent copy, while a conflict cell stays locked. Changes can be staged per cell, for one provider column, or through **Sync all providers**. **Preview changes** runs a dry run. Only a successful preview enables **Apply changes**, which opens one confirmation before applying the exact batch.
+
+Enabling a missing cell creates a symbolic link to an existing source. Enabling an identical copy first moves it to a timestamped backup. Disabling removes only a shared link and never deletes its source or an independent copy. The whole batch rechecks sources and targets after preview. If any target changed, it cancels without writing. A failure during application triggers a best-effort rollback of the complete batch.
 
 CodexBar owns provider authentication, provider configuration, API calls, and CLI probing. Review the [CodexBar project](https://github.com/steipete/CodexBar) for its supported providers and data handling.
 
@@ -203,11 +209,15 @@ codexbar usage --format json --json-only --source auto | python3 -m json.tool
 | Provider works in a terminal but not in Plasma | Configure the full path to `codexbar` because Plasma may not inherit the shell `PATH`. |
 | Status is absent | Enable **Fetch provider status**. |
 | Cost summary is absent | Run `codexbar cost --format json --pretty` and verify local cost data exists. |
+| Skill inventory is absent | Run `kodexbar-skills status` and configure its full path under **Skills engine** when Plasma does not inherit the shell `PATH`. |
+| A skill shows `Conflict` | Review the listed copies. KodexBar never chooses between or overwrites divergent content. |
 
 ## Attribution and License
 
 Maintained by [Karasowl](https://github.com/Karasowl). Based on the original KodexBar project by [tylxr](https://github.com/tylxr59).
 
 Usage data is supplied by the independent [CodexBar CLI](https://github.com/steipete/CodexBar). See [NOTICE.md](NOTICE.md) for attribution details.
+
+The shared navigation and utility icons are adapted from [Tabler Icons](https://github.com/tabler/tabler-icons), used under the MIT License. The bundled license is at [`contents/icons/signal/LICENSE`](contents/icons/signal/LICENSE).
 
 Licensed under the original MIT license. See [LICENSE](LICENSE). The notice file supplements the license and does not replace it.

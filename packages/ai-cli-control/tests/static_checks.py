@@ -17,9 +17,10 @@ QUOTAS = ROOT / "kodexbar-quotas"
 PANEL = ROOT / "kodexbar-panel"
 TRAY = ROOT / "kodexbar-tray"
 LOCAL_AI = ROOT / "local-ai"
+SKILLS = ROOT / "kodexbar-skills"
 AUR_PKGBUILD = ROOT.parents[1] / "packaging" / "aur" / "PKGBUILD"
 PLASMOID_METADATA = ROOT.parent / "kodexbar" / "metadata.json"
-RELEASE_VERSION = "0.11.0"
+RELEASE_VERSION = "0.12.0"
 AUR_RELEASE_VERSION = "0.11.0"
 FORBIDDEN = ("eval(", "shell=True", "shell = True", "os.system(")
 SECRET_PATTERNS = {
@@ -79,9 +80,17 @@ def main() -> int:
     if not LOCAL_AI.is_file():
         print("Missing local-ai engine", file=sys.stderr)
         return 1
+    if not SKILLS.is_file():
+        print("Missing kodexbar-skills engine", file=sys.stderr)
+        return 1
     aur_source = AUR_PKGBUILD.read_text(encoding="utf-8")
     package_statements = "\n".join(line for line in aur_source.splitlines() if not line.lstrip().startswith("#"))
-    release_sources = {"ai": AI, "kodexbar-quotas": QUOTAS, "local-ai": LOCAL_AI}
+    release_sources = {
+        "ai": AI,
+        "kodexbar-quotas": QUOTAS,
+        "local-ai": LOCAL_AI,
+        "kodexbar-skills": SKILLS,
+    }
     for name, path in release_sources.items():
         if f'VERSION = "{RELEASE_VERSION}"' not in path.read_text(encoding="utf-8"):
             print(f"{name} does not declare release version {RELEASE_VERSION}", file=sys.stderr)
@@ -102,11 +111,13 @@ def main() -> int:
         return 1
     required_payload_statements = (
         r"(?m)^\s*packages/ai-cli-control/local-ai\s+\\$",
+        r"(?m)^\s*packages/ai-cli-control/kodexbar-skills\s+\\$",
         r'(?m)^\s*install -d "\$\{payload\}/local_ai_drivers"$',
         r"(?m)^\s*packages/ai-cli-control/local_ai_drivers/__init__\.py\s+\\$",
         r"(?m)^\s*packages/ai-cli-control/local_ai_drivers/builtin\.py\s+\\$",
         r"(?m)^\s*packages/ai-cli-control/local_ai_drivers/descriptors\.py\s+\\$",
         r'(?m)^\s*ln -s /usr/lib/kodexbar-suite/ai-cli-control/local-ai "\$\{pkgdir\}/usr/bin/local-ai"$',
+        r'(?m)^\s*ln -s /usr/lib/kodexbar-suite/ai-cli-control/kodexbar-skills "\$\{pkgdir\}/usr/bin/kodexbar-skills"$',
         r"(?m)^\s*install -m644 packages/ai-cli-control/local_ai_drivers/CONTRACT\.md\s+\\$",
     )
     if not all(re.search(pattern, package_statements) for pattern in required_payload_statements):
@@ -117,6 +128,7 @@ def main() -> int:
     panel_source = PANEL.read_text(encoding="utf-8")
     tray_source = TRAY.read_text(encoding="utf-8")
     local_ai_source = LOCAL_AI.read_text(encoding="utf-8")
+    skills_source = SKILLS.read_text(encoding="utf-8")
     failures = [token for token in FORBIDDEN if token in source]
     if failures:
         print(f"Forbidden execution tokens found: {', '.join(failures)}", file=sys.stderr)
@@ -145,8 +157,19 @@ def main() -> int:
     if any(token in local_ai_source for token in FORBIDDEN):
         print("Forbidden execution tokens found in local-ai", file=sys.stderr)
         return 1
+    if any(token in skills_source for token in FORBIDDEN):
+        print("Forbidden execution tokens found in kodexbar-skills", file=sys.stderr)
+        return 1
     if 'sub.add_parser("status"' not in local_ai_source or '"unmount"' not in local_ai_source:
         print("local-ai is missing its JSON inspection/control contract", file=sys.stderr)
+        return 1
+    if (
+        'sub.add_parser("status"' not in skills_source
+        or '"sync"' not in skills_source
+        or '"batch"' not in skills_source
+        or '"--changes-json"' not in skills_source
+    ):
+        print("kodexbar-skills is missing its JSON inspection/control contract", file=sys.stderr)
         return 1
     findings = find_secrets()
     if findings:

@@ -8,7 +8,7 @@
 [![CodexBar CLI](https://img.shields.io/badge/powered%20by-CodexBar%20CLI-0a0a0c?style=flat-square)](https://github.com/steipete/CodexBar)
 [![Licencia: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-KodexBar Suite es un widget para KDE Plasma 6 que permite consultar las cuotas de proveedores de IA mediante la [CLI CodexBar](https://github.com/steipete/CodexBar). Ofrece un resumen compacto configurable en el panel, un popup completo con todos los proveedores y cuotas habilitados, y un visor opcional de modelos locales.
+KodexBar Suite es un widget para KDE Plasma 6 que permite consultar las cuotas de proveedores de IA mediante la [CLI CodexBar](https://github.com/steipete/CodexBar). Ofrece un resumen compacto configurable en el panel, un popup completo con todos los proveedores y cuotas habilitados, un visor opcional de modelos locales y un inventario de skills entre proveedores.
 
 Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../README.es.md). Desde la raíz de ese repositorio, usa `./install.sh` para instalarlo junto con `ai-cli-control`. El paquete todavía puede validarse e instalarse por separado.
 
@@ -16,9 +16,10 @@ Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../REA
 
 ## Funciones
 
-- Usa el diseño oscuro seleccionado de 520 por 520 con pestañas de proveedores, estado real, etiquetas de fuente, distintivos de ventana, barras de progreso y una vista previa compacta coincidente.
+- Usa el diseño Signal Console seleccionado en un popup de 520 por 560. Una sola navegación con etiquetas conecta Proveedores, Local y Skills, mientras el proveedor activo recibe un resumen enfocado de cuotas, una línea condensada de costo y un selector inferior de proveedor.
 - Mantiene separado el botón de terminal **AI CLI Control** del tab de modelos locales. Su menú abre el selector o actualiza todas las CLI de proveedor.
-- Añade un tab de icono **Modelos locales**. Agrupa pesos instalados y montados, muestra estado, confianza de clasificación, rendimiento real cuando el runtime lo aporta, sparkline acotado de actividad y controles seguros de montar o desmontar.
+- Añade un destino **Local** con etiqueta. Agrupa pesos instalados y montados, muestra estado, confianza de clasificación, rendimiento real cuando el runtime lo aporta, sparkline acotado de actividad y controles seguros de montar o desmontar.
+- Añade un destino **Skills** con etiqueta. Una matriz compacta muestra cada skill frente a Codex, Claude, Grok, Gemini CLI, OpenCode y Hermes. Sus checkboxes preparan cambios por celda, por columna o para todos los destinos seguros.
 - Conserva atenuados los modelos instalados sin montar, omite los que no están instalados y usa una lista local solo vertical. Así siguen disponibles proveedor, cuenta, plan, fuente, cuotas, créditos, coste, errores, caché y tira compacta sin desborde horizontal.
 - Muestra una cuenta de proveedor a la vez, ordenada como Codex, Claude, Grok, Antigravity y después todos los demás proveedores habilitados.
 - Mantiene separadas las cuentas repetidas con ordinales estables no sensibles en pestañas y salida compacta.
@@ -154,6 +155,7 @@ El popup usa `Gemini (Antigravity)` para Antigravity y `Gemini` para el proveedo
 | --- | --- |
 | Command | Vacío o predeterminado usa `kodexbar-quotas` y reintenta con `codexbar` solo si falta el comando del motor. Un comando personalizado se usa solo. |
 | AI CLI Control | Nombre o ruta completa del binario `ai` usado por las acciones del widget. |
+| Skills engine | Nombre o ruta completa de `kodexbar-skills`. Vacío restaura el nombre predeterminado. |
 | Source | `Best available`, `auto`, `web`, `cli`, `oauth` o `api`. |
 | Refresh | Intervalo de consulta entre 10 y 3600 segundos. |
 | Compact providers | Identificadores ordenados y separados por comas que usa la bandeja del sistema. Las casillas visibles cubren Codex, Claude, Grok y Antigravity. Vacío muestra todos los proveedores devueltos y nunca filtra el popup. |
@@ -168,6 +170,10 @@ El popup usa `Gemini (Antigravity)` para Antigravity y `Gemini` para el proveedo
 ## Datos y privacidad
 
 El widget ejecuta localmente `kodexbar-quotas usage --format json --json-only` de forma predeterminada y presenta el JSON devuelto. El motor usa `codexbar` upstream como respaldo por proveedor. Los resúmenes opcionales de costos son independientes del ciclo normal de uso de 60 segundos. Se actualizan como máximo cada 15 minutos desde los bytes añadidos a las sesiones locales de Codex y Claude. El scan completo de `codexbar cost` upstream se conserva como ancla contenida de 6 horas. Este repositorio no agrega un backend de proveedor, almacén de credenciales, servicio de telemetría ni servicio remoto de cuentas.
+
+El tab Skills ejecuta `kodexbar-skills status`, que solo lee los directorios convencionales de cada proveedor. La actualización nunca modifica una skill. Una casilla marcada representa un enlace compartido. Una casilla mixta representa una copia independiente y una celda con conflicto queda bloqueada. Se pueden preparar cambios por celda, seleccionar una columna o usar **Sincronizar todos los proveedores**. **Previsualizar cambios** ejecuta un dry run. Solo una vista previa correcta habilita **Aplicar cambios**, que muestra una confirmación única antes de aplicar el lote exacto.
+
+Activar una celda ausente crea un enlace simbólico hacia una fuente existente. Activar una copia idéntica la mueve primero a un respaldo con fecha. Desactivar solo retira un enlace compartido y nunca borra la fuente ni una copia independiente. Todo el lote vuelve a verificar fuentes y destinos después de la vista previa. Si cualquier objetivo cambió, cancela sin escribir. Un fallo durante la aplicación intenta revertir el lote completo.
 
 CodexBar administra autenticación, configuración de proveedores, llamadas API y consultas de CLI. Revisa el [proyecto CodexBar](https://github.com/steipete/CodexBar) para conocer sus proveedores compatibles y el manejo de datos.
 
@@ -203,11 +209,15 @@ codexbar usage --format json --json-only --source auto | python3 -m json.tool
 | El proveedor funciona en una terminal pero no en Plasma | Configura la ruta completa a `codexbar` porque Plasma puede no heredar el `PATH` del shell. |
 | No aparece el estado | Activa **Fetch provider status**. |
 | No aparece el resumen de costos | Ejecuta `codexbar cost --format json --pretty` y confirma que existen datos locales. |
+| No aparece el inventario de skills | Ejecuta `kodexbar-skills status` y configura la ruta completa en **Skills engine** si Plasma no hereda el `PATH`. |
+| Una skill muestra `Conflict` | Revisa las copias indicadas. KodexBar no elige ni sobrescribe contenido divergente. |
 
 ## Atribución y licencia
 
 Mantenido por [Karasowl](https://github.com/Karasowl). Basado en el proyecto KodexBar original de [tylxr](https://github.com/tylxr59).
 
 Los datos de uso son suministrados por la [CLI CodexBar](https://github.com/steipete/CodexBar), un proyecto independiente. Consulta [NOTICE.md](NOTICE.md) para ver los detalles de atribución.
+
+Los iconos compartidos de navegación y utilidades se adaptan de [Tabler Icons](https://github.com/tabler/tabler-icons), usados bajo licencia MIT. La licencia incluida está en [`contents/icons/signal/LICENSE`](contents/icons/signal/LICENSE).
 
 Distribuido bajo la licencia MIT original. Consulta [LICENSE](LICENSE). El archivo de atribución complementa la licencia y no la reemplaza.

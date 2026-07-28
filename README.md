@@ -7,6 +7,7 @@ KodexBar Suite is a small Linux desktop toolkit with two independent packages:
 - `packages/kodexbar` is a KDE Plasma 6 widget for ordered CodexBar quota summaries.
 - `packages/ai-cli-control` is the local `ai` selector for launching and updating provider CLIs, including read-only conversation recovery with `ai recover`.
 - `local-ai`, installed with `ai-cli-control`, is an optional JSON monitor for local model runtimes. It does not install runtimes or download weights.
+- `kodexbar-skills`, installed with `ai-cli-control`, inventories and synchronizes skills across six providers with confirmation, preflight, and identical-copy backups.
 
 The packages are maintained in one repository and can be installed together from the repository root. Each package remains usable and testable on its own.
 
@@ -33,7 +34,9 @@ The shared Plasma ID is intentional. This package replaces an existing upstream 
 
 After installation, add **KodexBar Suite** to a Plasma panel if it is not already present. Open the widget popup to view quotas. Use the AI button or the Plasma context menu to open `ai-cli-control` and update provider CLIs.
 
-The popup also has an icon-only **Local models** tab. It reads its inventory through `local-ai`, which supports explicit model roots and common localhost runtimes. It displays only real runtime metrics, preserves unmounted installed models in a dimmed state, and exposes only actions a runtime can perform safely. See [the local model monitor documentation](packages/ai-cli-control/README.md#local-model-monitor) and its portable templates under `packages/ai-cli-control/examples/`.
+The Signal Console popup uses labeled Providers, Local, and Skills destinations. Local reads its inventory through `local-ai`, which supports explicit model roots and common localhost runtimes. It displays only real runtime metrics, preserves unmounted installed models in a dimmed state, and exposes only actions a runtime can perform safely. See [the local model monitor documentation](packages/ai-cli-control/README.md#local-model-monitor) and its portable templates under `packages/ai-cli-control/examples/`.
+
+The **Skills** tab uses `kodexbar-skills` to compare Codex, Claude, Grok, Gemini CLI, OpenCode, and Hermes. A matrix stages changes per skill and provider, selects every safe target or one complete provider column, and previews the batch before applying it. Refresh is read-only. Identical copies are backed up, shared links can be disabled without deleting their source, and divergent content stays locked. See [the skill engine contract](packages/ai-cli-control/README.md#skill-inventory-and-synchronization).
 
 ## Installation channels
 
@@ -51,7 +54,7 @@ The same package also appears in graphical AUR helpers on CachyOS such as Shelly
 
 What the package installs under `/usr`:
 
-- Plasma widget, `ai`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray`, `local-ai`, its built-in drivers, and tray icons.
+- Plasma widget, `ai`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray`, `local-ai`, `kodexbar-skills`, the built-in local model drivers, and tray icons.
 - A zero-config first run: on first use without `~/.config/codexbar/config.json`, the suite detects which AI CLIs you already have and enables their quotas automatically. You do not need to edit config files or read provider docs.
 
 How quotas work after install:

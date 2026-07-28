@@ -12,18 +12,9 @@ const config = fs.readFileSync(path.join(root, "contents/config/main.xml"), "utf
 assert.match(qml, /id: aiControlButton/, "AI CLI Control remains a separate header action");
 assert.match(qml, /id: aiControlPopup/, "AI CLI Control opens the overlapping local inspector");
 assert.match(qml, /source: "utilities-terminal"/, "AI CLI Control uses the terminal affordance");
-assert.match(qml, /id: headerTabs/, "provider and local tabs live in the compact header");
-assert.match(qml, /id: headerIdentity[\s\S]{0,180}width: Math\.max\(0, headerTabs\.x - 64\)/, "the identity column has a width independent of its title row")
-assert.match(qml, /id: headerTitleRow/, "the header title row is explicitly identified")
-assert.match(qml, /width: Math\.max\(0, headerTitleRow\.width - headerTitleLabel\.width - headerTitleRow\.spacing\)/, "the plan width is derived from the explicit title row")
-assert.doesNotMatch(qml, /headerTabs\.x - 8 - \(parent\.x \+ parent\.width\)/, "header text never depends on its own row implicit width")
-assert.match(qml, /Layout\.preferredHeight: 1/, "the inherited wide tab band is replaced by a hairline divider");
-assert.doesNotMatch(qml, /text: "KodexBar Suite"/, "the inherited generic popup heading is not the visual target");
-assert.doesNotMatch(qml, /AI provider quotas/, "the inherited generic popup subtitle is not the visual target");
-assert.match(qml, /root\.activeEntry\.displayName/, "the header identifies the selected provider");
-assert.match(qml, /width: 32/, "provider tabs are compact icon controls");
-assert.match(qml, /modelData\.kind === "local" && providerTabs\.count > 1/, "Local follows provider icons behind a separator");
-assert.match(qml, /Layout\.preferredHeight: 520/, "the popup uses the compact 520px viewport");
+assert.match(qml, /component SignalTopBar: Item/, "all product areas share the Signal Console navigation");
+assert.match(qml, /display: QQC2\.AbstractButton\.TextBesideIcon/, "top-level destinations use an icon and a label");
+assert.match(qml, /Layout\.preferredHeight: 560/, "the popup uses the selected 520 by 560 viewport");
 const popupCard = qml.slice(qml.indexOf("id: popupCard"), qml.indexOf("ColumnLayout", qml.indexOf("id: popupCard")));
 assert.doesNotMatch(popupCard, /anchors\.margins/, "the 520px viewport is the visible card, not an inset legacy card");
 assert.match(qml, /radius: 18/, "the popup keeps the approved minimal rounded card");
@@ -42,8 +33,11 @@ assert.match(qml, /delegate: Item \{\s*required property var modelData\s*require
 assert.doesNotMatch(qml, /(?:visible|enabled): modelData\.capabilities &&/, "capability-driven boolean properties never receive undefined");
 assert.match(qml, /visible: !!\(modelData\.capabilities && \(modelData\.capabilities\.releaseRuntime/, "runtime release controls coerce sparse capabilities to booleans");
 assert.match(qml, /visible: !!\(modelData\.capabilities && modelData\.capabilities\.stopRuntime\)/, "runtime stop controls coerce sparse capabilities to booleans");
-assert.match(qml, /Layout\.maximumHeight: 340/, "local inventory keeps the approved compact scroll limit");
-assert.match(qml, /localKindGlyph/, "local rows are grouped with a semantic type glyph");
+assert.doesNotMatch(qml.slice(localScrollStart, localListStart), /Layout\.maximumHeight:/, "local inventory uses the full destination height");
+assert.match(qml, /source: parent\.parent\.parent\.resident\s*\? root\.signalIconSource\("cpu"\)\s*: root\.signalIconSource\("package"\)/, "local groups use the shared Tabler-style semantic icons");
+assert.match(qml, /text: i18n\("Inspect memory, activity, and installed model storage\."\)/, "local models has a task-oriented page description");
+assert.match(qml, /id: localModelsScroll[\s\S]{0,360}background: Rectangle/, "local inventory uses the shared flat bordered surface");
+assert.match(qml, /width: 44\s*height: 44[\s\S]{0,240}modelData\.capabilities\.unmount/, "local model actions expose a 44px target");
 assert.match(qml, /localModelMeta/, "local rows retain size, quantization, memory and confidence evidence");
 assert.match(qml, /memory\.vramMiB[\s\S]{0,180}memory\.ramMiB/, "local metadata keeps VRAM and RAM when the runtime reports them");
 assert.match(qml, /function localModelIsResident\(item\)/, "resident state is defined once for both local surfaces");
@@ -54,7 +48,7 @@ assert.match(qml, /function localModelCanUnmount\(item\)/, "uncertain activity d
 assert.strictEqual((qml.match(/!root\.localModelActivityKnown\(modelData\) \? 128/g) || []).length, 2, "both local surfaces reserve the same translated width for uncertain activity");
 assert.match(qml, /function localModelOrder\(left, right\)/, "the QML inventory keeps residents globally before installed models");
 assert.match(qml, /localModels = payload\.models\.slice\(\)\.sort/, "the rendered inventory applies the resident-first order from the same payload");
-assert.match(qml, /i18n\("IN MEMORY"\)/, "resident models get a distinct top section");
+assert.match(qml, /i18n\("In memory"\)/, "resident models get a readable distinct section");
 assert.match(qml, /resident !== root\.localModelIsResident\(root\.localModels\[index - 1\]\)/, "resident sections do not repeat those rows under type groups");
 assert.match(qml, /context\.setLineDash\(\[2, 3\]\)/, "loaded idle models render a quiet dashed activity line");
 assert.match(qml, /text: i18n\("%1 mdl"/, "the compact footer reports active local models");
@@ -70,10 +64,11 @@ assert.match(qml, /localMetricText/, "missing throughput has an honest label");
 assert.match(qml, /state === "installed"/, "installed but unmounted rows are preserved");
 assert.match(qml, /localModelsRefreshTimer/, "periodic local refresh is configured");
 assert.match(config, /localModelsRefreshInterval/, "refresh interval is configurable");
-assert.strictEqual((qml.match(/Layout\.preferredHeight: 8\b/g) || []).length, 0, "quota bars no longer use the legacy 8px height");
-assert.match(qml, /Layout\.preferredHeight: 6/, "quota bars use the thin 6px line");
-assert.strictEqual((qml.match(/text: root\.formatUsedPercent/g) || []).length, 1, "percentage has one visual position below its bar");
-assert.ok(qml.indexOf("text: root.formatUsedPercent") > qml.indexOf("id: segmentTrack"), "percentage follows the quota activity lines");
+const providerQuotaContent = qml.slice(qml.indexOf("id: providerContent"), qml.indexOf("id: localModelsContent"));
+assert.strictEqual((providerQuotaContent.match(/Layout\.preferredHeight: 8\b/g) || []).length, 0, "quota bars no longer use the legacy 8px height");
+assert.match(providerQuotaContent, /Layout\.preferredHeight: 6/, "quota bars use the thin 6px line");
+assert.match(qml, /component SignalQuotaRow: Item/, "quota rows share one selected visual component");
+assert.match(qml, /text: root\.formatUsedPercent\(/, "quota percentage stays next to its label");
 assert.match(qml, /id: localStopDialog/, "stopping a runtime has a separate confirmation dialog");
 assert.match(qml, /modelData\.capabilities\.stopRuntime/, "stop controls only appear for declared capabilities");
 assert.match(qml, /Invalid local runtime action/, "runtime actions validate normalized identifiers before the data-engine command");

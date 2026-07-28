@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.12.0, 2026-07-27
+
+### Added
+
+- Add `kodexbar-skills`, a read-only inventory and explicit synchronizer for Codex, Claude, Grok, Gemini CLI, OpenCode, and Hermes skill directories.
+- Add normalized provider cells and transactional batch planning for checkbox-based linking and safe link removal.
+- Add full-target preflight, timestamped backups for identical copies, and conflict rejection before synchronization writes.
+
 ## 0.11.0, 2026-07-24
 
 ### Added

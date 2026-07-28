@@ -18,6 +18,7 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 - Keep every launched and updated command as an argument array without shell evaluation.
 - Provide `kodexbar-quotas`, a local quota engine for the KodexBar Suite widget, `kodexbar-panel`, a compact adapter for non-KDE bars, and `kodexbar-tray`, a StatusNotifierItem indicator.
 - Provide `local-ai`, a JSON inventory and safe control surface for local model runtimes. It is optional and does not install or download models.
+- Provide `kodexbar-skills`, a local inventory and explicit skill synchronizer for Codex, Claude, Grok, Gemini CLI, OpenCode, and Hermes.
 
 ## Requirements
 
@@ -143,6 +144,24 @@ Built-in adapters are installed with the package. Additional adapters are declar
 Use `examples/local-ai.json` as the portable configuration template. `examples/` also contains optional llama.cpp router and OpenCode templates. They are not installed, and no OpenCode package or model is downloaded by this release.
 
 Run `local-ai opencode-catalog` to print the current llama.cpp catalog as an OpenCode `@ai-sdk/openai-compatible` provider block. Review and merge that output manually. The command never writes or replaces an existing OpenCode configuration.
+
+## Skill inventory and synchronization
+
+`kodexbar-skills status` inspects the conventional skill directories for six providers and returns a JSON inventory. It does not crawl the home directory. Status distinguishes links to one shared source, identical independent copies, providers missing a skill, and divergent content. Conflicts appear first. Each skill is bounded to 4096 files or 128 MiB while fingerprinting so refresh work remains contained.
+
+```bash
+kodexbar-skills status
+kodexbar-skills sync --skill NAME --source codex
+kodexbar-skills sync --skill NAME --source codex --targets gemini,opencode --apply
+kodexbar-skills batch --changes-json '[{"skill":"NAME","provider":"gemini","enabled":true}]'
+kodexbar-skills batch --changes-json '[{"skill":"NAME","provider":"gemini","enabled":true}]' --apply
+```
+
+`sync` and `batch` are dry runs unless `--apply` is present. `batch` accepts an explicit list of provider cells and their desired state. Enabling links a missing target or backs up and links an identical copy. Disabling removes only a link that still points to the shared source. It never deletes sources, regular copies, or divergent content.
+
+The preflight validates every batch target and fingerprints each source again before writing. A regular copy with identical content first moves to `.<name>.backup-<timestamp>`. A different link, divergent content, or a change after preview cancels the complete batch. If a write fails, it attempts to roll back every link and restore backups already created.
+
+Supported roots are `~/.codex/skills`, `~/.claude/skills`, `~/.grok/skills`, `~/.gemini/skills`, `~/.config/opencode/skills`, and `~/.hermes/skills`. Hidden directories and non-portable names are never synchronization candidates.
 
 ## Quotas engine
 

@@ -18,6 +18,7 @@ Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../REA
 - Conserva cada comando de inicio y actualización como arreglo de argumentos sin evaluación de shell.
 - Incluye `kodexbar-quotas`, un motor local de cuotas para el widget KodexBar Suite, `kodexbar-panel`, un adaptador compacto para barras no KDE, y `kodexbar-tray`, un indicador StatusNotifierItem.
 - Incluye `local-ai`, un inventario JSON y una superficie segura de control para runtimes de modelos locales. Es opcional y no instala ni descarga modelos.
+- Incluye `kodexbar-skills`, un inventario local y sincronizador explícito de skills para Codex, Claude, Grok, Gemini CLI, OpenCode y Hermes.
 
 ## Requisitos
 
@@ -143,6 +144,24 @@ Los adaptadores incluidos se instalan con el paquete. Los adicionales son descri
 Usa `examples/local-ai.json` como plantilla portable de configuración. `examples/` incluye también plantillas opcionales para router llama.cpp y OpenCode. No se instalan, y este cambio no descarga modelos ni instala OpenCode.
 
 Ejecuta `local-ai opencode-catalog` para imprimir el catálogo actual de llama.cpp como bloque de proveedor OpenCode con `@ai-sdk/openai-compatible`. Revísalo e intégralo manualmente. El comando nunca escribe ni reemplaza una configuración existente de OpenCode.
+
+## Inventario y sincronización de skills
+
+`kodexbar-skills status` inspecciona los directorios convencionales de seis proveedores y devuelve un inventario JSON. No recorre todo el home. El estado distingue enlaces a una fuente común, copias independientes idénticas, proveedores sin la skill y contenido divergente. Los conflictos aparecen primero. Cada skill se limita a 4096 archivos o 128 MiB durante el fingerprint para mantener acotado el refresco.
+
+```bash
+kodexbar-skills status
+kodexbar-skills sync --skill NOMBRE --source codex
+kodexbar-skills sync --skill NOMBRE --source codex --targets gemini,opencode --apply
+kodexbar-skills batch --changes-json '[{"skill":"NOMBRE","provider":"gemini","enabled":true}]'
+kodexbar-skills batch --changes-json '[{"skill":"NOMBRE","provider":"gemini","enabled":true}]' --apply
+```
+
+`sync` y `batch` son simulaciones salvo que se añada `--apply`. `batch` recibe una lista explícita de celdas y su estado deseado. Activar enlaza una ausencia o respalda y enlaza una copia idéntica. Desactivar retira únicamente un enlace que todavía apunta a la fuente compartida. No borra fuentes, copias regulares ni contenido divergente.
+
+El preflight valida todos los destinos del lote y vuelve a medir cada fuente antes de escribir. Una copia normal con el mismo contenido se mueve primero a `.<nombre>.backup-<fecha>`. Un enlace hacia otra fuente, una copia divergente o un cambio posterior a la vista previa cancela el lote completo. Si una escritura falla, intenta revertir todos los enlaces y restaurar los respaldos ya creados.
+
+Las raíces admitidas son `~/.codex/skills`, `~/.claude/skills`, `~/.grok/skills`, `~/.gemini/skills`, `~/.config/opencode/skills` y `~/.hermes/skills`. Los directorios ocultos se omiten. Los nombres no portables aparecen en el inventario, pero nunca son candidatos de sincronización.
 
 ## Motor de cuotas
 

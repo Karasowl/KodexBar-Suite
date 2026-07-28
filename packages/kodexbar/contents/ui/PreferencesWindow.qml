@@ -14,10 +14,11 @@ QQC2.ApplicationWindow {
     readonly property int fontSizeCardTitle: 17
     readonly property int fontSizeBody: 13
     readonly property int fontSizeSecondary: 12
-    readonly property int fontSizeMicro: 10
+    readonly property int fontSizeMicro: 12
     property string savedState: ""
     property string workingCommand: ""
     property string workingAiControlCommand: ""
+    property string workingSkillsCommand: ""
     property string workingSourceDefault: "detect"
     property int workingRefreshInterval: 60
     property int workingClaudeRefreshInterval: 300
@@ -51,8 +52,21 @@ QQC2.ApplicationWindow {
     minimumWidth: 820
     minimumHeight: 560
     title: i18n("KodexBar Suite Preferences")
-    color: "#0a0a0c"
+    color: "#0f1116"
     flags: Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
+    palette.window: "#0f1116"
+    palette.windowText: "#e9ebf2"
+    palette.base: "#14161d"
+    palette.alternateBase: "#171a22"
+    palette.text: "#e9ebf2"
+    palette.button: "#1b1e28"
+    palette.buttonText: "#e9ebf2"
+    palette.highlight: "#6e5aff"
+    palette.highlightedText: "#ffffff"
+    palette.placeholderText: "#6b7080"
+    palette.mid: "#262a35"
+    palette.dark: "#0a0c10"
+    palette.light: "#303441"
 
     function normalizedProviderIds(value) {
         var ids = []
@@ -121,10 +135,15 @@ QQC2.ApplicationWindow {
         return Qt.resolvedUrl("../icons/providers/" + providerId + ".svg")
     }
 
+    function signalIcon(name) {
+        return Qt.resolvedUrl("../icons/signal/" + name + ".svg")
+    }
+
     function snapshot() {
         return JSON.stringify({
             command: workingCommand,
             aiControlCommand: workingAiControlCommand,
+            skillsCommand: workingSkillsCommand,
             sourceDefault: workingSourceDefault,
             refreshInterval: workingRefreshInterval,
             claudeRefreshInterval: workingClaudeRefreshInterval,
@@ -143,6 +162,7 @@ QQC2.ApplicationWindow {
     function load() {
         workingCommand = String(Plasmoid.configuration.codexbarCommand || "kodexbar-quotas")
         workingAiControlCommand = String(Plasmoid.configuration.aiControlCommand || "ai")
+        workingSkillsCommand = String(Plasmoid.configuration.skillsCommand || "kodexbar-skills")
         workingSourceDefault = String(Plasmoid.configuration.sourceDefault
             || Plasmoid.configuration.source || "detect")
         workingRefreshInterval = Math.max(10, Math.min(3600,
@@ -174,6 +194,7 @@ QQC2.ApplicationWindow {
     function save() {
         Plasmoid.configuration.codexbarCommand = workingCommand
         Plasmoid.configuration.aiControlCommand = workingAiControlCommand
+        Plasmoid.configuration.skillsCommand = workingSkillsCommand
         Plasmoid.configuration.sourceDefault = workingSourceDefault
         Plasmoid.configuration.refreshInterval = workingRefreshInterval
         Plasmoid.configuration.claudeRefreshInterval = workingClaudeRefreshInterval
@@ -192,6 +213,7 @@ QQC2.ApplicationWindow {
     function restoreDefaults() {
         workingCommand = "kodexbar-quotas"
         workingAiControlCommand = "ai"
+        workingSkillsCommand = "kodexbar-skills"
         workingSourceDefault = "detect"
         workingRefreshInterval = 60
         workingClaudeRefreshInterval = 300
@@ -260,7 +282,7 @@ QQC2.ApplicationWindow {
 
     Rectangle {
         anchors.fill: parent
-        color: "#0a0a0c"
+        color: "#0f1116"
 
         RowLayout {
             anchors.fill: parent
@@ -268,9 +290,9 @@ QQC2.ApplicationWindow {
 
             Rectangle {
                 Layout.fillHeight: true
-                Layout.preferredWidth: 238
-                color: "#0f1015"
-                border.color: "#22252f"
+                Layout.preferredWidth: 230
+                color: "#11141b"
+                border.color: "#262a35"
                 border.width: 1
 
                 ColumnLayout {
@@ -319,9 +341,9 @@ QQC2.ApplicationWindow {
 
                     Repeater {
                         model: [
-                            { id: "general", text: i18n("General"), icon: "adjustfilters" },
-                            { id: "shortcuts", text: i18n("Keyboard shortcuts"), icon: "input-keyboard" },
-                            { id: "about", text: i18n("About"), icon: "dialog-information" }
+                            { id: "general", text: i18n("General"), icon: "adjustments" },
+                            { id: "shortcuts", text: i18n("Keyboard shortcuts"), icon: "keyboard" },
+                            { id: "about", text: i18n("About"), icon: "info-circle" }
                         ]
 
                         delegate: QQC2.Button {
@@ -329,7 +351,6 @@ QQC2.ApplicationWindow {
                             Layout.fillWidth: true
                             height: 42
                             text: modelData.text
-                            icon.name: modelData.icon
                             checkable: true
                             checked: preferences.currentPage === modelData.id
                             onClicked: preferences.currentPage = modelData.id
@@ -340,8 +361,8 @@ QQC2.ApplicationWindow {
                                 Kirigami.Icon {
                                     Layout.preferredWidth: 18
                                     Layout.preferredHeight: 18
-                                    source: modelData.icon
-                                    color: parent.parent.checked ? "#ffffff" : "#8b91a3"
+                                    source: preferences.signalIcon(modelData.icon)
+                                    color: parent.parent.checked ? "#a98cff" : "#8b91a3"
                                 }
 
                                 QQC2.Label {
@@ -354,8 +375,20 @@ QQC2.ApplicationWindow {
                             }
 
                             background: Rectangle {
-                                radius: 10
-                                color: parent.checked ? "#6e5aff" : "transparent"
+                                radius: 8
+                                color: parent.checked ? "#1c1a29"
+                                    : parent.hovered ? "#171a22" : "transparent"
+
+                                Rectangle {
+                                    visible: parent.parent.checked
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 1
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 3
+                                    height: 24
+                                    radius: 2
+                                    color: "#8f72ff"
+                                }
                             }
                         }
                     }
@@ -367,7 +400,7 @@ QQC2.ApplicationWindow {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                color: "#0a0a0c"
+                color: "#0f1116"
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -422,7 +455,7 @@ QQC2.ApplicationWindow {
                                         Rectangle {
                                             Layout.fillWidth: true
                                             Layout.preferredHeight: 82
-                                            radius: 14
+                                            radius: 10
                                             color: "#14161d"
                                             border.color: "#22252f"
                                             border.width: 1
@@ -436,7 +469,7 @@ QQC2.ApplicationWindow {
                                                     Layout.fillWidth: true
 
                                                     QQC2.Label {
-                                                        text: i18n("PANEL PREVIEW")
+                                                        text: i18n("Panel preview")
                                                         color: "#8b91a3"
                                                         font.family: appletRoot ? appletRoot.designFont : ""
                                                         font.pixelSize: preferences.fontSizeMicro
@@ -453,7 +486,7 @@ QQC2.ApplicationWindow {
                                                     }
 
                                                     QQC2.Label {
-                                                        text: i18n("LIVE")
+                                                        text: i18n("Live")
                                                         color: "#45d483"
                                                         font.family: appletRoot ? appletRoot.designFont : ""
                                                         font.pixelSize: preferences.fontSizeMicro
@@ -589,6 +622,26 @@ QQC2.ApplicationWindow {
                                                 QQC2.Label {
                                                     Layout.fillWidth: true
                                                     text: i18n("Opens the AI CLI Control selector and updates provider CLIs.")
+                                                    color: "#8b91a3"
+                                                    font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeSecondary
+                                                    wrapMode: Text.WordWrap
+                                                }
+
+                                                PreferenceField {
+                                                    label: i18n("Skills engine")
+                                                    QQC2.TextField {
+                                                        Layout.fillWidth: true
+                                                        text: preferences.workingSkillsCommand
+                                                        placeholderText: "kodexbar-skills"
+                                                        selectByMouse: true
+                                                        onTextEdited: preferences.workingSkillsCommand = text
+                                                    }
+                                                }
+
+                                                QQC2.Label {
+                                                    Layout.fillWidth: true
+                                                    text: i18n("Scans and safely links user skills across connected providers.")
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
                                                     font.pixelSize: preferences.fontSizeSecondary
@@ -976,7 +1029,7 @@ QQC2.ApplicationWindow {
                                                 }
 
                                                 QQC2.Label {
-                                                    text: i18n("Version %1", Plasmoid.metaData.version || "0.11.0")
+                                                    text: i18n("Version %1", Plasmoid.metaData.version || "0.12.0")
                                                     color: "#8b91a3"
                                                     font.family: appletRoot ? appletRoot.designFont : ""
                                                     font.pixelSize: preferences.fontSizeSecondary
@@ -1013,8 +1066,8 @@ QQC2.ApplicationWindow {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 66
-                        color: "#0f1015"
-                        border.color: "#22252f"
+                        color: "#11141b"
+                        border.color: "#262a35"
                         border.width: 1
 
                         RowLayout {
@@ -1077,16 +1130,18 @@ QQC2.ApplicationWindow {
         default property alias content: body.data
 
         Layout.fillWidth: true
-        implicitHeight: cardColumn.implicitHeight + 36
-        radius: 14
-        color: "#14161d"
-        border.color: "#22252f"
-        border.width: 1
+        implicitHeight: cardColumn.implicitHeight + 34
+        radius: 0
+        color: "transparent"
+        border.width: 0
 
         ColumnLayout {
             id: cardColumn
             anchors.fill: parent
-            anchors.margins: 18
+            anchors.leftMargin: 2
+            anchors.rightMargin: 2
+            anchors.topMargin: 16
+            anchors.bottomMargin: 17
             spacing: 14
 
             ColumnLayout {
@@ -1119,6 +1174,14 @@ QQC2.ApplicationWindow {
                 Layout.fillWidth: true
                 spacing: 0
             }
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: 1
+            color: "#262a35"
         }
     }
 

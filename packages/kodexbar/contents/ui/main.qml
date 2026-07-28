@@ -32,12 +32,31 @@ PlasmoidItem {
     property string codexbarCommand: configuredCodexbarCommand.trim() || "codexbar"
     property string aiControlCommand: Plasmoid.configuration.aiControlCommand || "ai"
     property string localAiCommand: Plasmoid.configuration.localAiCommand || "local-ai"
+    property string skillsCommand: Plasmoid.configuration.skillsCommand || "kodexbar-skills"
     property string aiControlError: ""
     property string localModelsError: ""
     property bool localModelsLoading: false
     property var localModels: []
     property var localRuntimes: []
     property var localModelHistory: ({})
+    property string skillsError: ""
+    property bool skillsLoading: false
+    property string skillSyncingName: ""
+    property string skillsOperation: ""
+    property var skillsInventory: []
+    property var skillProviders: []
+    property var skillsDesiredStates: ({})
+    property var skillsPendingChanges: []
+    property var skillsPreview: null
+    property var skillsSummary: ({
+        uniqueSkills: 0,
+        connectedProviders: 0,
+        synced: 0,
+        matching: 0,
+        partial: 0,
+        conflicts: 0
+    })
+    property string skillsGeneratedAt: ""
     property string selectedPopupTab: "provider"
     property int localModelsRefreshSeconds: Math.max(5, Math.min(3600,
         Plasmoid.configuration.localModelsRefreshInterval || 15))
@@ -99,6 +118,7 @@ PlasmoidItem {
                 tabLabel: popupEntries[i].tabLabel, provider: popupEntries[i].provider })
         }
         tabs.push({ kind: "local", id: "local", tabLabel: i18n("Local models"), icon: "cpu" })
+        tabs.push({ kind: "skills", id: "skills", tabLabel: i18n("Skills"), icon: "applications-development" })
         return tabs
     }
 
@@ -297,6 +317,29 @@ PlasmoidItem {
         return String(raw)
     }
 
+    function formatUpdatedDateTime(value) {
+        var raw = value || generatedAt
+        if (!raw) {
+            return ""
+        }
+        var date = new Date(raw)
+        if (!isNaN(date.getTime())) {
+            return date.toLocaleString(Qt.locale(), Locale.ShortFormat)
+        }
+        return String(raw)
+    }
+
+    function formatResetDateTime(value) {
+        if (!value) {
+            return ""
+        }
+        var date = new Date(value)
+        if (isNaN(date.getTime())) {
+            return ""
+        }
+        return date.toLocaleString(Qt.locale(), Locale.ShortFormat)
+    }
+
     function formatResetTimes(values) {
         var dates = Array.isArray(values) ? values : []
         var formatted = []
@@ -454,6 +497,298 @@ PlasmoidItem {
             command += " " + shellQuote(argv[i])
         }
         return command
+    }
+
+    function skillsCommandLine(argv) {
+        return wrapEngineCommand(skillsCommand, argv)
+    }
+
+    function refreshSkills() {
+        if (skillsLoading) {
+            return
+        }
+        skillsLoading = true
+        skillsOperation = "status"
+        skillsError = ""
+        skillsExecutable.connectedSources = []
+        skillsExecutable.connectSource(skillsCommandLine(["status"]))
+        skillsWatchdog.restart()
+    }
+
+    function applySkillsInventory(payload) {
+        if (!payload || !(payload.skills instanceof Array)
+                || !(payload.providers instanceof Array) || !payload.summary) {
+            skillsError = i18n("Invalid skills response")
+            return
+        }
+        skillsInventory = payload.skills
+        skillProviders = payload.providers
+        skillsSummary = payload.summary
+        skillsGeneratedAt = payload.generatedAt || ""
+        initializeSkillDesiredStates()
+    }
+
+    function skillProviderLabel(providerId) {
+        for (var i = 0; i < skillProviders.length; i++) {
+            if (skillProviders[i].id === providerId) {
+                return skillProviders[i].label
+            }
+        }
+        return providerId
+    }
+
+    function skillKey(skillName, providerId) {
+        return String(skillName) + "\u001f" + String(providerId)
+    }
+
+    function skillCell(item, providerId) {
+        var cells = item && item.cells instanceof Array ? item.cells : []
+        for (var i = 0; i < cells.length; i++) {
+            if (cells[i].provider === providerId) {
+                return cells[i]
+            }
+        }
+        return null
+    }
+
+    function initializeSkillDesiredStates() {
+        var next = {}
+        for (var i = 0; i < skillsInventory.length; i++) {
+            var item = skillsInventory[i]
+            var cells = item.cells instanceof Array ? item.cells : []
+            for (var j = 0; j < cells.length; j++) {
+                next[skillKey(item.name, cells[j].provider)] = cells[j].synced === true
+            }
+        }
+        skillsDesiredStates = next
+        skillsPendingChanges = []
+        skillsPreview = null
+    }
+
+    function invalidateSkillPreview() {
+        skillsPreview = null
+        skillsPendingChanges = []
+    }
+
+    function skillCellDesired(item, providerId) {
+        var cell = skillCell(item, providerId)
+        if (!cell) {
+            return false
+        }
+        var key = skillKey(item.name, providerId)
+        if (Object.prototype.hasOwnProperty.call(skillsDesiredStates, key)) {
+            return skillsDesiredStates[key] === true
+        }
+        return cell.synced === true
+    }
+
+    function setSkillCellDesired(item, providerId, enabled) {
+        var cell = skillCell(item, providerId)
+        if (!cell || !cell.toggleable || skillsLoading) {
+            return
+        }
+        var next = {}
+        for (var key in skillsDesiredStates) {
+            if (Object.prototype.hasOwnProperty.call(skillsDesiredStates, key)) {
+                next[key] = skillsDesiredStates[key]
+            }
+        }
+        next[skillKey(item.name, providerId)] = enabled === true
+        skillsDesiredStates = next
+        invalidateSkillPreview()
+    }
+
+    function skillCellCheckState(item, providerId) {
+        var cell = skillCell(item, providerId)
+        if (!cell) {
+            return Qt.Unchecked
+        }
+        if (skillCellDesired(item, providerId)) {
+            return Qt.Checked
+        }
+        return cell.present ? Qt.PartiallyChecked : Qt.Unchecked
+    }
+
+    function skillCellHelp(item, providerId) {
+        var cell = skillCell(item, providerId)
+        if (!cell) {
+            return i18n("Provider state unavailable")
+        }
+        if (cell.state === "linked") {
+            return i18n("Synchronized link. Uncheck to remove only this provider link.")
+        }
+        if (cell.state === "source") {
+            return i18n("Shared source exposed directly. It cannot be disabled here.")
+        }
+        if (cell.state === "matching") {
+            return i18n("Matching independent copy. Check to replace it with a shared link after backup.")
+        }
+        if (cell.state === "conflict") {
+            return i18n("Different content. KodexBar will not overwrite it.")
+        }
+        if (cell.state === "error") {
+            return cell.reason || i18n("This skill could not be read.")
+        }
+        if (cell.state === "unavailable") {
+            return i18n("Provider is not installed or configured.")
+        }
+        return i18n("Not synchronized. Check to create a shared link.")
+    }
+
+    function skillChanges() {
+        var changes = []
+        for (var i = 0; i < skillsInventory.length; i++) {
+            var item = skillsInventory[i]
+            var cells = item.cells instanceof Array ? item.cells : []
+            for (var j = 0; j < cells.length; j++) {
+                var cell = cells[j]
+                if (!cell.toggleable) {
+                    continue
+                }
+                var desired = skillCellDesired(item, cell.provider)
+                if (desired !== (cell.synced === true)) {
+                    changes.push({
+                        skill: item.name,
+                        provider: cell.provider,
+                        enabled: desired
+                    })
+                }
+            }
+        }
+        return changes
+    }
+
+    function skillChangeCount() {
+        return skillChanges().length
+    }
+
+    function skillChangeCountFor(enabled) {
+        var changes = skillChanges()
+        var count = 0
+        for (var i = 0; i < changes.length; i++) {
+            if (changes[i].enabled === enabled) {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    function bulkSkillCheckState(providerId) {
+        var eligible = 0
+        var selected = 0
+        for (var i = 0; i < skillsInventory.length; i++) {
+            var item = skillsInventory[i]
+            var cells = item.cells instanceof Array ? item.cells : []
+            for (var j = 0; j < cells.length; j++) {
+                var cell = cells[j]
+                if ((!providerId || cell.provider === providerId) && cell.canEnable) {
+                    eligible += 1
+                    if (skillCellDesired(item, cell.provider)) {
+                        selected += 1
+                    }
+                }
+            }
+        }
+        if (eligible === 0 || selected === 0) {
+            return Qt.Unchecked
+        }
+        return selected === eligible ? Qt.Checked : Qt.PartiallyChecked
+    }
+
+    function bulkSkillEligibleCount(providerId) {
+        var count = 0
+        for (var i = 0; i < skillsInventory.length; i++) {
+            var cells = skillsInventory[i].cells instanceof Array
+                ? skillsInventory[i].cells : []
+            for (var j = 0; j < cells.length; j++) {
+                if ((!providerId || cells[j].provider === providerId)
+                        && cells[j].canEnable) {
+                    count += 1
+                }
+            }
+        }
+        return count
+    }
+
+    function setBulkSkillDesired(providerId, enabled) {
+        if (skillsLoading) {
+            return
+        }
+        var next = {}
+        for (var key in skillsDesiredStates) {
+            if (Object.prototype.hasOwnProperty.call(skillsDesiredStates, key)) {
+                next[key] = skillsDesiredStates[key]
+            }
+        }
+        for (var i = 0; i < skillsInventory.length; i++) {
+            var item = skillsInventory[i]
+            var cells = item.cells instanceof Array ? item.cells : []
+            for (var j = 0; j < cells.length; j++) {
+                var cell = cells[j]
+                if ((!providerId || cell.provider === providerId) && cell.canEnable) {
+                    next[skillKey(item.name, cell.provider)] = enabled === true
+                }
+            }
+        }
+        skillsDesiredStates = next
+        invalidateSkillPreview()
+    }
+
+    function skillStatusText(item) {
+        if (!item) return i18n("Unknown")
+        if (item.status === "synced") return i18n("Shared source")
+        if (item.status === "matching") return i18n("Matching copies")
+        if (item.status === "conflict") return i18n("Conflict")
+        var missing = item.missingProviders instanceof Array ? item.missingProviders.length : 0
+        return i18np("Missing from %1 provider", "Missing from %1 providers", missing)
+    }
+
+    function skillCompactStatusText(item) {
+        if (!item) return i18n("Unknown")
+        if (item.status === "synced") return i18n("Synced")
+        if (item.status === "matching") return i18n("Matching")
+        if (item.status === "conflict") return i18n("Conflict")
+        var missing = item.missingProviders instanceof Array ? item.missingProviders.length : 0
+        return i18np("%1 missing", "%1 missing", missing)
+    }
+
+    function skillStatusColor(item) {
+        if (!item) return quietColor
+        if (item.status === "synced") return goodColor
+        if (item.status === "conflict") return errorColor
+        if (item.status === "matching") return accentColor
+        return warningColor
+    }
+
+    function previewSkillChanges() {
+        var changes = skillChanges()
+        if (skillsLoading || changes.length === 0) {
+            return
+        }
+        skillsLoading = true
+        skillsOperation = "preview"
+        skillsPendingChanges = changes
+        skillsError = ""
+        skillsExecutable.connectedSources = []
+        skillsExecutable.connectSource(skillsCommandLine([
+            "batch", "--changes-json", JSON.stringify(changes)
+        ]))
+        skillsWatchdog.restart()
+    }
+
+    function applySkillChanges() {
+        if (skillsLoading || skillsPendingChanges.length === 0) {
+            return
+        }
+        skillsLoading = true
+        skillsOperation = "apply"
+        skillsError = ""
+        skillsExecutable.connectedSources = []
+        skillsExecutable.connectSource(skillsCommandLine([
+            "batch", "--changes-json", JSON.stringify(skillsPendingChanges),
+            "--apply"
+        ]))
+        skillsWatchdog.restart()
     }
 
     function refreshLocalModels() {
@@ -1033,6 +1368,42 @@ PlasmoidItem {
         return rows
     }
 
+    function signalCostSummaryRows(summary) {
+        if (!summary) {
+            return []
+        }
+        var rows = []
+        if (summary.todayCost !== null || summary.todayTokens !== null) {
+            rows.push({
+                label: i18n("Today"),
+                value: formatSignalCostValue(
+                    summary.todayCost,
+                    summary.todayTokens,
+                    summary.currencyCode)
+            })
+        }
+        if (summary.totalCost !== null || summary.totalTokens !== null) {
+            rows.push({
+                label: i18np("Last day", "Last %1 days", summary.historyDays || 30),
+                value: formatSignalCostValue(
+                    summary.totalCost,
+                    summary.totalTokens,
+                    summary.currencyCode)
+            })
+        }
+        return rows
+    }
+
+    function formatSignalCostValue(cost, tokens, currencyCode) {
+        if (cost !== null && cost !== undefined && !isNaN(cost)) {
+            return formatCurrency(cost, currencyCode || "USD")
+        }
+        if (tokens !== null && tokens !== undefined && !isNaN(tokens)) {
+            return i18n("%1 tokens", formatTokenCount(tokens))
+        }
+        return ""
+    }
+
     function formatCostAndTokens(cost, tokens, currencyCode) {
         var parts = []
         if (cost !== null && cost !== undefined && !isNaN(cost)) {
@@ -1161,6 +1532,16 @@ PlasmoidItem {
             "ollama": "ollama"
         }
         return Qt.resolvedUrl("../icons/providers/" + (icons[key] || "codex") + ".svg")
+    }
+
+    function signalIconSource(name) {
+        return Qt.resolvedUrl("../icons/signal/" + name + ".svg")
+    }
+
+    function skillProviderIconSource(providerId) {
+        return String(providerId || "").toLowerCase() === "hermes"
+            ? signalIconSource("package")
+            : providerIconSource(providerId)
     }
 
     function percentLeft(window) {
@@ -1499,6 +1880,900 @@ PlasmoidItem {
         return Kirigami.Theme.disabledTextColor
     }
 
+    component SignalTopBar: Item {
+        id: signalTopBar
+
+        implicitHeight: 64
+
+        Rectangle {
+            anchors.fill: parent
+            color: root.surfaceColor
+        }
+
+        Row {
+            id: signalBrand
+            anchors.left: parent.left
+            anchors.leftMargin: 16
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 5
+
+            PlasmaComponents.Label {
+                text: "KodexBar"
+                color: root.textColor
+                font.family: root.designFont
+                font.pixelSize: 16
+                font.weight: Font.ExtraBold
+            }
+
+            PlasmaComponents.Label {
+                text: "Suite"
+                color: "#9b86ff"
+                font.family: root.designFont
+                font.pixelSize: 16
+                font.weight: Font.DemiBold
+            }
+        }
+
+        RowLayout {
+            id: signalNavigation
+            anchors.left: signalBrand.right
+            anchors.leftMargin: 12
+            anchors.right: signalActions.left
+            anchors.rightMargin: 8
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            spacing: 2
+
+            Repeater {
+                model: [
+                    {
+                        id: "provider",
+                        label: i18n("Providers"),
+                        icon: "packages"
+                    },
+                    {
+                        id: "local",
+                        label: i18n("Local"),
+                        icon: "box"
+                    },
+                    {
+                        id: "skills",
+                        label: i18n("Skills"),
+                        icon: "user-cog"
+                    }
+                ]
+
+                delegate: QQC2.ToolButton {
+                    id: signalDestination
+                    required property var modelData
+                    readonly property bool selected: root.selectedPopupTab === modelData.id
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumWidth: 60
+                    text: modelData.label
+                    display: QQC2.AbstractButton.TextBesideIcon
+                    Accessible.name: modelData.label
+                    Accessible.description: selected
+                        ? i18n("%1 selected", modelData.label)
+                        : i18n("Open %1", modelData.label)
+
+                    onClicked: {
+                        root.selectedPopupTab = modelData.id
+                        if (modelData.id === "provider") {
+                            root.refresh()
+                        } else if (modelData.id === "local") {
+                            root.refreshLocalModels()
+                        } else {
+                            root.refreshSkills()
+                        }
+                    }
+
+                    contentItem: Row {
+                        anchors.centerIn: parent
+                        spacing: 5
+
+                        Kirigami.Icon {
+                            width: 20
+                            height: 20
+                            anchors.verticalCenter: parent.verticalCenter
+                            source: root.signalIconSource(signalDestination.modelData.icon)
+                            color: signalDestination.selected ? "#b4a5ff" : root.mutedColor
+                        }
+
+                        PlasmaComponents.Label {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: signalDestination.modelData.label
+                            color: signalDestination.selected ? root.textColor : root.mutedColor
+                            font.family: root.designFont
+                            font.pixelSize: 12
+                            font.weight: signalDestination.selected ? Font.Bold : Font.DemiBold
+                        }
+                    }
+
+                    background: Item {
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            anchors.leftMargin: 7
+                            anchors.rightMargin: 7
+                            height: 3
+                            radius: 2
+                            color: signalDestination.selected ? "#9b7cff" : "transparent"
+                        }
+
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: 7
+                            radius: 9
+                            color: signalDestination.down
+                                ? "#29253b"
+                                : signalDestination.hovered ? "#1a1d26" : "transparent"
+                            z: -1
+                        }
+                    }
+                }
+            }
+        }
+
+        Row {
+            id: signalActions
+            anchors.right: parent.right
+            anchors.rightMargin: 12
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 2
+
+            QQC2.ToolButton {
+                id: signalRefresh
+                width: 34
+                height: 40
+                enabled: root.selectedPopupTab === "local"
+                    ? !root.localModelsLoading
+                    : root.selectedPopupTab === "skills" ? !root.skillsLoading : !root.loading
+                text: i18n("Refresh")
+                display: QQC2.AbstractButton.IconOnly
+                Accessible.name: text
+                onClicked: {
+                    if (root.selectedPopupTab === "local") {
+                        root.refreshLocalModels()
+                    } else if (root.selectedPopupTab === "skills") {
+                        root.refreshSkills()
+                    } else {
+                        root.refresh()
+                    }
+                }
+
+                QQC2.ToolTip.visible: hovered
+                QQC2.ToolTip.text: text
+
+                contentItem: Kirigami.Icon {
+                    source: root.signalIconSource("refresh")
+                    color: signalRefresh.enabled ? root.mutedColor : root.quietColor
+                }
+
+                background: Rectangle {
+                    radius: 9
+                    color: signalRefresh.down
+                        ? "#29253b"
+                        : signalRefresh.hovered ? "#1a1d26" : "transparent"
+                }
+            }
+
+            QQC2.ToolButton {
+                id: signalSettings
+                width: 34
+                height: 40
+                text: i18n("Configure")
+                display: QQC2.AbstractButton.IconOnly
+                Accessible.name: text
+                onClicked: root.openPreferences()
+
+                QQC2.ToolTip.visible: hovered
+                QQC2.ToolTip.text: text
+
+                contentItem: Kirigami.Icon {
+                    source: root.signalIconSource("settings")
+                    color: root.mutedColor
+                }
+
+                background: Rectangle {
+                    radius: 9
+                    color: signalSettings.down
+                        ? "#29253b"
+                        : signalSettings.hovered ? "#1a1d26" : "transparent"
+                }
+            }
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: 1
+            color: root.lineColor
+        }
+    }
+
+    component SignalQuotaRow: Item {
+        id: signalQuotaRow
+
+        required property var rowData
+        readonly property real used: root.usedPercent(rowData.percentLeft) || 0
+        readonly property color accent: used >= 80
+            ? root.errorColor
+            : used >= 65 ? root.warningColor : "#9475ed"
+        readonly property bool hasSegments: !!(rowData.segments && rowData.segments.length)
+        readonly property var legendItems: rowData.segmentLegendItems || []
+        readonly property string absoluteReset: root.formatResetDateTime(rowData.resetsAt)
+
+        implicitHeight: quotaColumn.implicitHeight
+
+        ColumnLayout {
+            id: quotaColumn
+            anchors.left: parent.left
+            anchors.right: parent.right
+            spacing: 7
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                PlasmaComponents.Label {
+                    text: signalQuotaRow.rowData.title || i18n("Usage")
+                    color: root.textColor
+                    font.family: root.designFont
+                    font.pixelSize: 14
+                    font.weight: Font.Bold
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                }
+
+                PlasmaComponents.Label {
+                    visible: text.length > 0
+                    text: root.formatResetTime(signalQuotaRow.rowData.resetsAt)
+                    color: root.mutedColor
+                    font.family: root.designFont
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                    Layout.maximumWidth: 154
+                }
+
+                PlasmaComponents.Label {
+                    text: root.formatUsedPercent(
+                        signalQuotaRow.rowData.percentLeft,
+                        signalQuotaRow.rowData.usageKnown,
+                        false,
+                        signalQuotaRow.rowData.precisePercent === true)
+                    color: signalQuotaRow.accent
+                    font.family: root.designFont
+                    font.pixelSize: 13
+                    font.weight: Font.Bold
+                    Layout.minimumWidth: 78
+                    horizontalAlignment: Text.AlignRight
+                }
+            }
+
+            Rectangle {
+                id: signalQuotaTrack
+                visible: signalQuotaRow.rowData.usageKnown !== false
+                    && signalQuotaRow.rowData.percentLeft !== null
+                    && signalQuotaRow.rowData.percentLeft !== undefined
+                Layout.fillWidth: true
+                Layout.preferredHeight: 6
+                radius: 3
+                color: "#343943"
+                clip: true
+
+                Rectangle {
+                    visible: !signalQuotaRow.hasSegments
+                    width: parent.width * signalQuotaRow.used / 100
+                    height: parent.height
+                    radius: 3
+                    color: signalQuotaRow.accent
+                }
+
+                Row {
+                    visible: signalQuotaRow.hasSegments
+                    anchors.fill: parent
+                    spacing: 0
+
+                    Repeater {
+                        model: signalQuotaRow.rowData.segments || []
+
+                        delegate: Rectangle {
+                            required property var modelData
+                            required property int index
+                            width: signalQuotaTrack.width
+                                * Math.min(100, Math.max(0, modelData.points)) / 100
+                            height: signalQuotaTrack.height
+                            color: root.segmentColor(modelData.title, index)
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                visible: !!(signalQuotaRow.rowData.detail
+                    && signalQuotaRow.rowData.detail.length > 0)
+                    || signalQuotaRow.legendItems.length > 0
+                    || signalQuotaRow.absoluteReset.length > 0
+                Layout.fillWidth: true
+                spacing: 9
+
+                PlasmaComponents.Label {
+                    visible: !!(signalQuotaRow.rowData.detail
+                        && signalQuotaRow.rowData.detail.length > 0)
+                    text: signalQuotaRow.rowData.detail || ""
+                    color: root.mutedColor
+                    font.family: root.designFont
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+
+                Repeater {
+                    model: signalQuotaRow.legendItems
+
+                    delegate: Row {
+                        required property var modelData
+                        required property int index
+                        spacing: 4
+
+                        Rectangle {
+                            width: 7
+                            height: 7
+                            radius: 4
+                            color: root.segmentColor(modelData.title, index)
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        PlasmaComponents.Label {
+                            text: modelData.text || ""
+                            color: root.mutedColor
+                            font.family: root.designFont
+                            font.pixelSize: 11
+                        }
+                    }
+                }
+
+                PlasmaComponents.Label {
+                    visible: signalQuotaRow.absoluteReset.length > 0
+                    text: signalQuotaRow.absoluteReset
+                    color: root.quietColor
+                    font.family: root.designFont
+                    font.pixelSize: 12
+                    horizontalAlignment: Text.AlignRight
+                    Layout.fillWidth: true
+                }
+            }
+        }
+    }
+
+    component SignalProviderView: Item {
+        id: signalProviderView
+
+        readonly property var providerRows: root.popupState.hasEntry
+            && !root.activeEntry.errorMessage ? (root.activeEntry.rows || []) : []
+        readonly property var primaryRow: providerRows.length > 0 ? providerRows[0] : null
+        readonly property var costRows: root.activeEntry.costSummary
+            ? root.signalCostSummaryRows(root.activeEntry.costSummary) : []
+        readonly property color stateColor: root.activeStatusColor(root.activeEntry)
+
+        QQC2.ScrollView {
+            id: signalProviderScroll
+            anchors.fill: parent
+            clip: true
+            contentWidth: availableWidth
+            QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
+
+            ColumnLayout {
+                width: signalProviderScroll.availableWidth
+                spacing: 0
+
+                Item {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 112
+
+                    Rectangle {
+                        id: signalProviderMark
+                        visible: root.popupState.hasEntry
+                        anchors.left: parent.left
+                        anchors.leftMargin: 18
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 64
+                        height: 64
+                        radius: 7
+                        gradient: Gradient {
+                            GradientStop { position: 0; color: "#7450d3" }
+                            GradientStop { position: 1; color: "#9270e6" }
+                        }
+
+                        Image {
+                            id: signalProviderIcon
+                            anchors.centerIn: parent
+                            width: 44
+                            height: 44
+                            source: root.providerIconSource(root.activeEntry.provider)
+                            fillMode: Image.PreserveAspectFit
+                            smooth: true
+                        }
+                    }
+
+                    Column {
+                        anchors.left: signalProviderMark.right
+                        anchors.leftMargin: 16
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 228
+                        spacing: 3
+
+                        Row {
+                            spacing: 7
+
+                            PlasmaComponents.Label {
+                                text: root.popupState.hasEntry
+                                    ? root.activeEntry.displayName : "KodexBar Suite"
+                                color: root.textColor
+                                font.family: root.designFont
+                                font.pixelSize: 27
+                                font.weight: Font.ExtraBold
+                                elide: Text.ElideRight
+                                width: Math.min(implicitWidth, 190)
+                            }
+
+                            Kirigami.Icon {
+                                visible: root.popupState.hasEntry && !root.activeEntry.errorMessage
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 18
+                                height: 18
+                                source: "emblem-checked"
+                                color: signalProviderView.stateColor
+                            }
+                        }
+
+                        PlasmaComponents.Label {
+                            text: root.activeEntry.source || root.activeSource || ""
+                            color: root.mutedColor
+                            font.family: root.designFont
+                            font.pixelSize: 13
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
+
+                        PlasmaComponents.Label {
+                            text: root.formatUpdatedDateTime(root.activeEntry.updatedAt)
+                            color: root.quietColor
+                            font.family: root.designFont
+                            font.pixelSize: 12
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
+                    }
+
+                    Column {
+                        anchors.right: parent.right
+                        anchors.rightMargin: 18
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 160
+                        spacing: 1
+
+                        PlasmaComponents.Label {
+                            visible: signalProviderView.primaryRow !== null
+                            width: parent.width
+                            text: signalProviderView.primaryRow
+                                ? root.formatResetTime(signalProviderView.primaryRow.resetsAt) : ""
+                            color: root.mutedColor
+                            font.family: root.designFont
+                            font.pixelSize: 12
+                            horizontalAlignment: Text.AlignRight
+                            elide: Text.ElideRight
+                        }
+
+                        PlasmaComponents.Label {
+                            width: parent.width
+                            text: signalProviderView.primaryRow
+                                ? root.formatUsedPercent(
+                                    signalProviderView.primaryRow.percentLeft,
+                                    signalProviderView.primaryRow.usageKnown,
+                                    false,
+                                    signalProviderView.primaryRow.precisePercent === true)
+                                : root.popupState.hasEntry ? i18n("Connected") : i18n("Waiting")
+                            color: signalProviderView.primaryRow
+                                ? (root.usedPercent(signalProviderView.primaryRow.percentLeft) >= 80
+                                    ? root.errorColor : "#9475ed")
+                                : signalProviderView.stateColor
+                            font.family: root.designFont
+                            font.pixelSize: signalProviderView.primaryRow ? 30 : 18
+                            font.weight: Font.ExtraBold
+                            horizontalAlignment: Text.AlignRight
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 18
+                    Layout.rightMargin: 18
+                    Layout.preferredHeight: 1
+                    color: root.lineColor
+                }
+
+                ColumnLayout {
+                    visible: root.loading && root.popupEntries.length === 0
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 120
+                    spacing: 10
+
+                    Item {
+                        Layout.fillHeight: true
+                    }
+
+                    QQC2.BusyIndicator {
+                        running: visible
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: 24
+                        Layout.preferredHeight: 24
+                    }
+
+                    PlasmaComponents.Label {
+                        text: i18n("Loading usage...")
+                        color: root.mutedColor
+                        font.family: root.designFont
+                        font.pixelSize: 13
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+
+                    Item {
+                        Layout.fillHeight: true
+                    }
+                }
+
+                ColumnLayout {
+                    visible: root.engineNotInstalled && !root.loading
+                    Layout.fillWidth: true
+                    Layout.margins: 18
+                    spacing: 9
+
+                    PlasmaComponents.Label {
+                        text: i18n("Data engine not installed")
+                        color: root.textColor
+                        font.family: root.designFont
+                        font.pixelSize: 16
+                        font.weight: Font.Bold
+                        Layout.fillWidth: true
+                    }
+
+                    PlasmaComponents.Label {
+                        text: i18n("Install the full KodexBar Suite package to load provider quotas.")
+                        color: root.mutedColor
+                        font.family: root.designFont
+                        font.pixelSize: 13
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        QQC2.TextField {
+                            id: signalInstallCommand
+                            Layout.fillWidth: true
+                            readOnly: true
+                            selectByMouse: true
+                            text: root.engineInstallCommand
+                            font.family: "monospace"
+                            font.pixelSize: 12
+                        }
+
+                        QQC2.Button {
+                            text: i18n("Copy")
+                            onClicked: {
+                                signalInstallCommand.selectAll()
+                                signalInstallCommand.copy()
+                            }
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    visible: !root.engineNotInstalled
+                        && ((root.errorMessage.length > 0 && root.popupEntries.length === 0)
+                            || (root.popupState.hasEntry && root.activeEntry.errorMessage))
+                    Layout.fillWidth: true
+                    Layout.margins: 18
+                    spacing: 5
+
+                    PlasmaComponents.Label {
+                        text: i18n("Couldn't load usage")
+                        color: root.errorColor
+                        font.family: root.designFont
+                        font.pixelSize: 15
+                        font.weight: Font.Bold
+                        Layout.fillWidth: true
+                    }
+
+                    PlasmaComponents.Label {
+                        text: root.popupState.hasEntry && root.activeEntry.errorMessage
+                            ? root.activeEntry.errorMessage
+                            : (root.errorDetail.length > 0
+                                ? root.errorMessage + " " + root.errorDetail
+                                : root.errorMessage)
+                        color: "#d5a7ad"
+                        font.family: root.designFont
+                        font.pixelSize: 13
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                }
+
+                ColumnLayout {
+                    visible: signalProviderView.providerRows.length > 0
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 18
+                    Layout.rightMargin: 18
+                    Layout.topMargin: 12
+                    Layout.bottomMargin: 12
+                    spacing: 13
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        PlasmaComponents.Label {
+                            text: i18n("Quota usage")
+                            color: root.textColor
+                            font.family: root.designFont
+                            font.pixelSize: 17
+                            font.weight: Font.ExtraBold
+                            Layout.fillWidth: true
+                        }
+
+                        PlasmaComponents.Label {
+                            text: i18n("Local time")
+                            color: root.quietColor
+                            font.family: root.designFont
+                            font.pixelSize: 12
+                        }
+                    }
+
+                    Repeater {
+                        model: signalProviderView.providerRows
+
+                        delegate: SignalQuotaRow {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            rowData: modelData
+                        }
+                    }
+                }
+
+                Rectangle {
+                    visible: signalProviderView.costRows.length > 0
+                        || root.activeEntry.creditsRemaining > 0
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 18
+                    Layout.rightMargin: 18
+                    Layout.preferredHeight: 1
+                    color: root.lineColor
+                }
+
+                RowLayout {
+                    visible: signalProviderView.costRows.length > 0
+                        || root.activeEntry.creditsRemaining > 0
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 18
+                    Layout.rightMargin: 18
+                    Layout.preferredHeight: 50
+                    spacing: 9
+
+                    Kirigami.Icon {
+                        source: root.signalIconSource("currency-dollar")
+                        color: "#9b7cff"
+                        Layout.preferredWidth: 20
+                        Layout.preferredHeight: 20
+                    }
+
+                    PlasmaComponents.Label {
+                        text: signalProviderView.costRows.length > 0
+                            ? i18n("Spend")
+                            : i18n("Credits")
+                        color: root.mutedColor
+                        font.family: root.designFont
+                        font.pixelSize: 13
+                        Layout.fillWidth: true
+                    }
+
+                    Repeater {
+                        model: signalProviderView.costRows
+
+                        delegate: Row {
+                            required property var modelData
+                            spacing: 4
+
+                            PlasmaComponents.Label {
+                                text: modelData.label
+                                color: root.quietColor
+                                font.family: root.designFont
+                                font.pixelSize: 12
+                            }
+
+                            PlasmaComponents.Label {
+                                text: modelData.value
+                                color: root.textColor
+                                font.family: root.designFont
+                                font.pixelSize: 12
+                                font.weight: Font.DemiBold
+                            }
+                        }
+                    }
+
+                    PlasmaComponents.Label {
+                        visible: signalProviderView.costRows.length === 0
+                            && root.activeEntry.creditsRemaining > 0
+                        text: root.formatCredits(root.activeEntry.creditsRemaining)
+                        color: root.textColor
+                        font.family: root.designFont
+                        font.pixelSize: 13
+                        font.weight: Font.Bold
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 18
+                    Layout.rightMargin: 18
+                    Layout.preferredHeight: 1
+                    color: root.lineColor
+                }
+
+                ColumnLayout {
+                    visible: root.popupEntries.length > 0
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 18
+                    Layout.rightMargin: 18
+                    Layout.topMargin: 11
+                    Layout.bottomMargin: 10
+                    spacing: 7
+
+                    PlasmaComponents.Label {
+                        text: i18n("Switch provider")
+                        color: root.textColor
+                        font.family: root.designFont
+                        font.pixelSize: 14
+                        font.weight: Font.Bold
+                    }
+
+                    ListView {
+                        id: signalProviderList
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 60
+                        orientation: ListView.Horizontal
+                        spacing: 4
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        model: root.popupEntries
+
+                        delegate: QQC2.Button {
+                            id: signalProviderChoice
+                            required property var modelData
+                            readonly property bool selected: modelData.selectionKey
+                                === root.popupState.selectionKey
+                            width: Math.max(108, providerChoiceContent.implicitWidth + 28)
+                            height: 56
+                            flat: true
+                            text: modelData.tabLabel
+                            Accessible.name: i18n("Switch to %1", modelData.tabLabel)
+                            onClicked: {
+                                root.selectedPopupTab = "provider"
+                                root.selectedEntryKey = modelData.selectionKey
+                            }
+
+                            contentItem: Row {
+                                id: providerChoiceContent
+                                anchors.centerIn: parent
+                                spacing: 9
+
+                                Item {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 30
+                                    height: 30
+
+                                    Image {
+                                        anchors.centerIn: parent
+                                        width: 22
+                                        height: 22
+                                        source: root.providerIconSource(signalProviderChoice.modelData.provider)
+                                        fillMode: Image.PreserveAspectFit
+                                        opacity: signalProviderChoice.selected ? 1 : 0.72
+                                    }
+                                }
+
+                                PlasmaComponents.Label {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: signalProviderChoice.modelData.tabLabel
+                                    color: signalProviderChoice.selected
+                                        ? "#b4a5ff" : root.mutedColor
+                                    font.family: root.designFont
+                                    font.pixelSize: 12
+                                    font.weight: signalProviderChoice.selected
+                                        ? Font.Bold : Font.DemiBold
+                                }
+                            }
+
+                            background: Rectangle {
+                                radius: 9
+                                color: signalProviderChoice.selected
+                                    ? "#26213c"
+                                    : signalProviderChoice.down
+                                        ? "#252936"
+                                        : signalProviderChoice.hovered ? "#1a1d26" : "transparent"
+                                border.width: signalProviderChoice.selected ? 1 : 0
+                                border.color: "#574b86"
+
+                                Rectangle {
+                                    visible: signalProviderChoice.selected
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    anchors.leftMargin: 10
+                                    anchors.rightMargin: 10
+                                    height: 3
+                                    radius: 2
+                                    color: "#9b7cff"
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 18
+                    Layout.rightMargin: 18
+                    Layout.preferredHeight: 1
+                    color: root.lineColor
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 18
+                    Layout.rightMargin: 18
+                    Layout.preferredHeight: 38
+                    spacing: 8
+
+                    Rectangle {
+                        Layout.preferredWidth: 9
+                        Layout.preferredHeight: 9
+                        radius: 5
+                        color: signalProviderView.stateColor
+                    }
+
+                    PlasmaComponents.Label {
+                        text: root.activeEntry.statusIndicator
+                            ? root.statusText(
+                                root.activeEntry.statusIndicator,
+                                root.activeEntry.statusDescription)
+                            : root.activeEntry.errorMessage ? i18n("Needs attention")
+                                : i18n("Operational")
+                        color: root.mutedColor
+                        font.family: root.designFont
+                        font.pixelSize: 12
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+
+                    PlasmaComponents.Label {
+                        text: root.formatUpdatedDateTime(root.activeEntry.updatedAt)
+                        color: root.quietColor
+                        font.family: root.designFont
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+        }
+    }
+
     component CompactStrip: Item {
         id: strip
         property var blocks: []
@@ -1668,20 +2943,21 @@ PlasmoidItem {
     fullRepresentation: Item {
         id: full
 
+        implicitWidth: 520
+        implicitHeight: 560
         Layout.minimumWidth: 520
         Layout.maximumWidth: 520
         Layout.preferredWidth: 520
-        // The metric ScrollView owns overflow instead of enlarging the compact
-        // 520 by 520 viewport.
-        Layout.minimumHeight: 520
-        Layout.maximumHeight: 520
-        Layout.preferredHeight: 520
+        // Signal Console uses the selected 520 by 560 design target.
+        Layout.minimumHeight: 560
+        Layout.maximumHeight: 560
+        Layout.preferredHeight: 560
 
         Rectangle {
             id: popupCard
             anchors.fill: parent
             radius: 18
-            color: "#131419"
+            color: root.surfaceColor
             border.color: root.lineColor
             border.width: 1
             clip: true
@@ -1692,8 +2968,10 @@ PlasmoidItem {
             spacing: 0
 
             Item {
+                id: legacyHeaderSection
+                visible: false
                 Layout.fillWidth: true
-                Layout.preferredHeight: 62
+                Layout.preferredHeight: 0
 
                 Rectangle {
                     width: 26
@@ -1704,7 +2982,7 @@ PlasmoidItem {
                     color: "transparent"
 
                     Image {
-                        visible: root.selectedPopupTab !== "local"
+                        visible: root.selectedPopupTab === "provider"
                         anchors.centerIn: parent
                         width: 26
                         height: 26
@@ -1719,6 +2997,15 @@ PlasmoidItem {
                         width: 22
                         height: 22
                         source: "cpu"
+                        color: root.textColor
+                    }
+
+                    Kirigami.Icon {
+                        visible: root.selectedPopupTab === "skills"
+                        anchors.centerIn: parent
+                        width: 22
+                        height: 22
+                        source: "applications-development"
                         color: root.textColor
                     }
                 }
@@ -1737,7 +3024,11 @@ PlasmoidItem {
                         PlasmaComponents.Label {
                             id: headerTitleLabel
                             width: Math.min(implicitWidth, headerTitleRow.width)
-                            text: root.selectedPopupTab === "local" ? i18n("Local models") : (root.activeEntry.displayName || i18n("Provider"))
+                            text: root.selectedPopupTab === "local"
+                                ? i18n("Local models")
+                                : root.selectedPopupTab === "skills"
+                                    ? i18n("Skills")
+                                    : (root.activeEntry.displayName || i18n("Provider"))
                             color: root.textColor
                             font.family: root.designFont
                             font.pixelSize: 16
@@ -1748,6 +3039,9 @@ PlasmoidItem {
                             width: Math.max(0, headerTitleRow.width - headerTitleLabel.width - headerTitleRow.spacing)
                             text: root.selectedPopupTab === "local"
                                 ? i18n("%1 in memory", root.localModels.filter(function(item) { return item.state === "active" || item.state === "loaded" }).length)
+                                : root.selectedPopupTab === "skills"
+                                    ? i18n("%1 across %2 providers", root.skillsSummary.uniqueSkills || 0,
+                                        root.skillsSummary.connectedProviders || 0)
                                 : (root.activeEntry.plan || root.activeEntry.accountLabel || root.activeEntry.source || i18n("Usage"))
                             color: "#7a8093"
                             font.family: root.designFont
@@ -1758,9 +3052,22 @@ PlasmoidItem {
 
                     Row {
                         spacing: 6
-                        Rectangle { width: 6; height: 6; radius: 3; color: root.selectedPopupTab === "local" ? root.goodColor : root.activeStatusColor(root.activeEntry) }
+                        Rectangle {
+                            width: 6
+                            height: 6
+                            radius: 3
+                            color: root.selectedPopupTab === "local"
+                                ? root.goodColor
+                                : root.selectedPopupTab === "skills"
+                                    ? (root.skillsError.length > 0 ? root.errorColor
+                                        : root.skillsLoading ? root.warningColor
+                                        : (root.skillsSummary.conflicts || 0) > 0 ? root.warningColor : root.goodColor)
+                                    : root.activeStatusColor(root.activeEntry)
+                        }
                         PlasmaComponents.Label {
                             text: root.selectedPopupTab === "local" ? i18n("Checked just now")
+                                : root.selectedPopupTab === "skills"
+                                    ? i18n("Scanned %1", root.formatUpdatedTime(root.skillsGeneratedAt))
                                 : i18n("Updated %1", root.formatUpdatedTime(root.activeEntry.updatedAt))
                             color: root.quietColor
                             font.family: root.designFont
@@ -1768,7 +3075,9 @@ PlasmoidItem {
                         }
                         PlasmaComponents.Label { text: "·"; color: "#3a3f4d"; font.pixelSize: 11 }
                         PlasmaComponents.Label {
-                            text: String(root.selectedPopupTab === "local" ? "local" : (root.activeEntry.source || root.activeSource || "")).toUpperCase()
+                            text: String(root.selectedPopupTab === "provider"
+                                ? (root.activeEntry.source || root.activeSource || "")
+                                : "local").toUpperCase()
                             color: root.accentColor
                             font.family: root.designFont
                             font.pixelSize: 11
@@ -1869,11 +3178,20 @@ PlasmoidItem {
                     anchors.right: configureButton.left
                     anchors.rightMargin: 2
                     y: 16
-                    enabled: !root.loading
+                    enabled: root.selectedPopupTab === "local" ? !root.localModelsLoading
+                        : root.selectedPopupTab === "skills" ? !root.skillsLoading : !root.loading
                     text: i18n("Refresh")
                     display: QQC2.AbstractButton.IconOnly
                     Accessible.name: text
-                    onClicked: root.refresh()
+                    onClicked: {
+                        if (root.selectedPopupTab === "local") {
+                            root.refreshLocalModels()
+                        } else if (root.selectedPopupTab === "skills") {
+                            root.refreshSkills()
+                        } else {
+                            root.refresh()
+                        }
+                    }
 
                     QQC2.ToolTip.visible: hovered
                     QQC2.ToolTip.text: text
@@ -1917,14 +3235,14 @@ PlasmoidItem {
                     Repeater {
                         model: root.popupTabs
                         delegate: Item {
-                            readonly property bool selected: modelData.kind === "local"
-                                ? root.selectedPopupTab === "local"
-                                : root.selectedPopupTab === "provider" && modelData.entry.selectionKey === root.popupState.selectionKey
-                            width: modelData.kind === "local" && headerTabsRepeater.count > 1 ? 37 : 30
+                            readonly property bool selected: modelData.kind === "provider"
+                                ? root.selectedPopupTab === "provider" && modelData.entry.selectionKey === root.popupState.selectionKey
+                                : root.selectedPopupTab === modelData.kind
+                            width: modelData.kind !== "provider" && headerTabsRepeater.count > 1 ? 37 : 30
                             height: 30
 
                             Rectangle {
-                                visible: modelData.kind === "local" && headerTabsRepeater.count > 1
+                                visible: modelData.kind !== "provider" && headerTabsRepeater.count > 1
                                 width: 1
                                 height: 18
                                 anchors.left: parent.left
@@ -1940,12 +3258,20 @@ PlasmoidItem {
                                 display: QQC2.AbstractButton.IconOnly
                                 Accessible.name: text
                                 onClicked: {
-                                    if (modelData.kind === "local") { root.selectedPopupTab = "local"; root.refreshLocalModels() }
-                                    else { root.selectedPopupTab = "provider"; root.selectedEntryKey = modelData.entry.selectionKey }
+                                    if (modelData.kind === "local") {
+                                        root.selectedPopupTab = "local"
+                                        root.refreshLocalModels()
+                                    } else if (modelData.kind === "skills") {
+                                        root.selectedPopupTab = "skills"
+                                        root.refreshSkills()
+                                    } else {
+                                        root.selectedPopupTab = "provider"
+                                        root.selectedEntryKey = modelData.entry.selectionKey
+                                    }
                                 }
                                 contentItem: Item {
                                     Image {
-                                        visible: modelData.kind !== "local"
+                                        visible: modelData.kind === "provider"
                                         anchors.centerIn: parent
                                         width: 16; height: 16
                                         source: root.providerIconSource(modelData.provider)
@@ -1953,10 +3279,10 @@ PlasmoidItem {
                                         opacity: parent.parent.parent.selected ? 1 : 0.4
                                     }
                                     Kirigami.Icon {
-                                        visible: modelData.kind === "local"
+                                        visible: modelData.kind !== "provider"
                                         anchors.centerIn: parent
                                         width: 16; height: 16
-                                        source: "cpu"
+                                        source: modelData.icon
                                         color: parent.parent.parent.selected ? root.textColor : root.quietColor
                                     }
                                 }
@@ -1968,9 +3294,15 @@ PlasmoidItem {
                 }
             }
 
-            Item {
+            SignalTopBar {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 1
+                Layout.preferredHeight: 64
+            }
+
+            Item {
+                visible: false
+                Layout.fillWidth: true
+                Layout.preferredHeight: 0
 
                 Rectangle {
                     anchors.left: parent.left
@@ -2004,10 +3336,10 @@ PlasmoidItem {
                         model: root.popupTabs
 
                         delegate: QQC2.Button {
-                            readonly property bool selected: modelData.kind === "local"
-                                ? root.selectedPopupTab === "local"
-                                : root.selectedPopupTab === "provider"
+                            readonly property bool selected: modelData.kind === "provider"
+                                ? root.selectedPopupTab === "provider"
                                     && modelData.entry.selectionKey === root.popupState.selectionKey
+                                : root.selectedPopupTab === modelData.kind
                             width: 32
                             height: 32
                             flat: true
@@ -2016,6 +3348,9 @@ PlasmoidItem {
                                 if (modelData.kind === "local") {
                                     root.selectedPopupTab = "local"
                                     root.refreshLocalModels()
+                                } else if (modelData.kind === "skills") {
+                                    root.selectedPopupTab = "skills"
+                                    root.refreshSkills()
                                 } else {
                                     root.selectedPopupTab = "provider"
                                     root.selectedEntryKey = modelData.entry.selectionKey
@@ -2026,7 +3361,7 @@ PlasmoidItem {
                                 spacing: 7
 
                                 Rectangle {
-                                    visible: modelData.kind === "local" && providerTabs.count > 1
+                                    visible: modelData.kind !== "provider" && providerTabs.count > 1
                                     Layout.preferredWidth: visible ? 1 : 0
                                     Layout.preferredHeight: 18
                                     color: "#282b34"
@@ -2037,7 +3372,7 @@ PlasmoidItem {
                                 }
 
                                 Image {
-                                    visible: modelData.kind !== "local"
+                                    visible: modelData.kind === "provider"
                                     Layout.preferredWidth: 16
                                     Layout.preferredHeight: visible ? 16 : 0
                                     source: root.providerIconSource(modelData.provider)
@@ -2047,10 +3382,10 @@ PlasmoidItem {
                                 }
 
                                 Kirigami.Icon {
-                                    visible: modelData.kind === "local"
+                                    visible: modelData.kind !== "provider"
                                     Layout.preferredWidth: visible ? 16 : 0
                                     Layout.preferredHeight: 16
-                                    source: "cpu"
+                                    source: modelData.icon
                                     color: parent.parent.selected ? "#f2f3f8" : root.mutedColor
                                 }
 
@@ -2085,9 +3420,14 @@ PlasmoidItem {
                 id: providerContent
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                visible: root.selectedPopupTab !== "local"
+                visible: root.selectedPopupTab === "provider"
+
+                SignalProviderView {
+                    anchors.fill: parent
+                }
 
                 ColumnLayout {
+                    visible: false
                     anchors.fill: parent
                     anchors.leftMargin: 16
                     anchors.rightMargin: 16
@@ -2871,59 +4211,80 @@ PlasmoidItem {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 20
-                    anchors.rightMargin: 20
-                    anchors.topMargin: 15
-                    anchors.bottomMargin: 6
-                    spacing: 8
+                    anchors.leftMargin: 18
+                    anchors.rightMargin: 18
+                    anchors.topMargin: 14
+                    anchors.bottomMargin: 0
+                    spacing: 0
 
                     RowLayout {
-                        visible: false
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 0
-                        spacing: 9
+                        Layout.preferredHeight: 104
+                        spacing: 12
 
-                        Kirigami.Icon {
-                            Layout.preferredWidth: 20
-                            Layout.preferredHeight: 20
-                            source: "cpu"
-                            color: root.textColor
-                        }
-
-                        PlasmaComponents.Label {
-                            text: i18n("Local models")
-                            color: root.textColor
-                            font.family: root.designFont
-                            font.pixelSize: 16
-                            font.weight: Font.Bold
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            elide: Text.ElideRight
-                        }
+                            spacing: 4
 
-                        PlasmaComponents.Label {
-                            text: i18n("%1 loaded", root.localModels.filter(function(item) {
-                                return item.state === "active" || item.state === "loaded"
-                            }).length)
-                            color: root.mutedColor
-                            font.family: root.designFont
-                            font.pixelSize: 11
-                        }
+                            PlasmaComponents.Label {
+                                text: i18n("Local models")
+                                color: root.textColor
+                                font.family: root.designFont
+                                font.pixelSize: 25
+                                font.weight: Font.ExtraBold
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                            }
 
-                        QQC2.ToolButton {
-                            width: 28
-                            height: 28
-                            enabled: !root.localModelsLoading
-                            text: i18n("Check local models now")
-                            display: QQC2.AbstractButton.IconOnly
-                            Accessible.name: text
-                            onClicked: root.refreshLocalModels()
-                            QQC2.ToolTip.visible: hovered
-                            QQC2.ToolTip.text: text
-                            contentItem: Kirigami.Icon {
-                                source: "view-refresh"
-                                color: parent.enabled ? root.mutedColor : root.quietColor
+                            PlasmaComponents.Label {
+                                text: i18n("Inspect memory, activity, and installed model storage.")
+                                color: root.mutedColor
+                                font.family: root.designFont
+                                font.pixelSize: 13
                             }
                         }
+
+                        Rectangle {
+                            Layout.preferredWidth: 126
+                            Layout.preferredHeight: 54
+                            radius: 10
+                            color: "#171a23"
+                            border.width: 1
+                            border.color: root.lineColor
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 1
+
+                                PlasmaComponents.Label {
+                                    Layout.fillWidth: true
+                                    text: i18n("%1 loaded", root.localModels.filter(function(item) {
+                                        return item.state === "active" || item.state === "loaded"
+                                    }).length)
+                                    color: root.textColor
+                                    font.family: root.designFont
+                                    font.pixelSize: 13
+                                    font.weight: Font.Bold
+                                    horizontalAlignment: Text.AlignHCenter
+                                }
+
+                                PlasmaComponents.Label {
+                                    Layout.fillWidth: true
+                                    text: i18n("%1 installed", root.localModels.length)
+                                    color: root.quietColor
+                                    font.family: root.designFont
+                                    font.pixelSize: 11
+                                    horizontalAlignment: Text.AlignHCenter
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 1
+                        color: root.lineColor
                     }
 
                     PlasmaComponents.Label {
@@ -2932,7 +4293,7 @@ PlasmoidItem {
                         text: root.localModelsError
                         color: root.errorColor
                         font.family: root.designFont
-                        font.pixelSize: 11
+                        font.pixelSize: 12
                         wrapMode: Text.WordWrap
                     }
 
@@ -2940,16 +4301,23 @@ PlasmoidItem {
                         id: localModelsScroll
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        Layout.maximumHeight: 340
+                        Layout.topMargin: 10
+                        Layout.bottomMargin: 10
                         clip: true
                         QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
+                        background: Rectangle {
+                            radius: 10
+                            color: root.surfaceColor
+                            border.width: 1
+                            border.color: root.lineColor
+                        }
 
                         ListView {
                             id: localModelsList
-                            width: localModelsScroll.availableWidth
+                            width: Math.max(0, localModelsScroll.availableWidth - 2)
                             contentWidth: width
                             model: root.localModels
-                            spacing: 2
+                            spacing: 0
                             clip: true
                             flickableDirection: Flickable.VerticalFlick
                             boundsBehavior: Flickable.StopAtBounds
@@ -2962,9 +4330,11 @@ PlasmoidItem {
                                     || resident !== root.localModelIsResident(root.localModels[index - 1])
                                     || (!resident && root.localModels[index - 1].kind !== modelData.kind)
                                 width: localModelsList.width
-                                height: groupStart ? 72 : 52
-                                radius: 10
-                                color: "transparent"
+                                height: groupStart ? 78 : 58
+                                radius: 0
+                                color: modelData.state === "active"
+                                    ? "#111b19"
+                                    : (index % 2 === 0 ? "#12151c" : root.surfaceColor)
                                 border.width: 0
                                 opacity: modelData.state === "installed" ? 0.58 : 1
 
@@ -2978,26 +4348,28 @@ PlasmoidItem {
                                     anchors.rightMargin: 10
                                     spacing: 7
                                     Rectangle {
-                                        Layout.preferredWidth: 20
-                                        Layout.preferredHeight: 20
+                                        Layout.preferredWidth: 24
+                                        Layout.preferredHeight: 24
                                         radius: 6
                                         color: (parent.parent.resident ? root.accentColor : root.localKindColor(modelData.kind)) + "1f"
-                                        PlasmaComponents.Label {
+
+                                        Kirigami.Icon {
                                             anchors.centerIn: parent
-                                            text: parent.parent.parent.resident ? "●" : root.localKindGlyph(modelData.kind)
+                                            width: 15
+                                            height: 15
+                                            source: parent.parent.parent.resident
+                                                ? root.signalIconSource("cpu")
+                                                : root.signalIconSource("package")
                                             color: parent.parent.parent.resident ? root.accentColor : root.localKindColor(modelData.kind)
-                                            font.family: "monospace"
-                                            font.pixelSize: 10
-                                            font.weight: Font.Bold
                                         }
                                     }
                                     PlasmaComponents.Label {
-                                        text: parent.parent.resident ? i18n("IN MEMORY") : root.localKindText(modelData.kind).toUpperCase()
-                                        color: root.quietColor
+                                        text: parent.parent.resident
+                                            ? i18n("In memory") : root.localKindText(modelData.kind)
+                                        color: root.mutedColor
                                         font.family: root.designFont
-                                        font.pixelSize: 9
+                                        font.pixelSize: 11
                                         font.weight: Font.Bold
-                                        font.letterSpacing: 0.8
                                     }
                                     Rectangle {
                                         Layout.fillWidth: true
@@ -3006,9 +4378,9 @@ PlasmoidItem {
                                     }
                                     PlasmaComponents.Label {
                                         text: parent.parent.resident ? i18n("%1 resident", root.localResidentCount()) : root.localKindCount(modelData.kind)
-                                        color: "#565b68"
+                                        color: root.quietColor
                                         font.family: root.designFont
-                                        font.pixelSize: 9
+                                        font.pixelSize: 11
                                     }
                                 }
 
@@ -3044,7 +4416,7 @@ PlasmoidItem {
                                         text: root.localModelMeta(modelData)
                                             color: root.quietColor
                                             font.family: root.designFont
-                                            font.pixelSize: 10
+                                            font.pixelSize: 11
                                             elide: Text.ElideRight
                                             Layout.fillWidth: true
                                         }
@@ -3090,14 +4462,14 @@ PlasmoidItem {
                                         text: root.localModelActivityText(modelData)
                                         color: modelData.state === "active" ? root.textColor : root.quietColor
                                         font.family: root.designFont
-                                        font.pixelSize: 10
+                                        font.pixelSize: 11
                                         horizontalAlignment: Text.AlignRight
                                         elide: Text.ElideRight
                                     }
 
                                     QQC2.ToolButton {
-                                        width: 26
-                                        height: 26
+                                        width: 44
+                                        height: 44
                                         visible: !!(modelData.capabilities && (modelData.capabilities.unmount || modelData.capabilities.mount))
                                         enabled: !!(!root.localModelsLoading && modelData.state !== "active"
                                             && ((modelData.state === "installed" && modelData.capabilities.mount)
@@ -3111,7 +4483,9 @@ PlasmoidItem {
                                         QQC2.ToolTip.text: modelData.state === "active" ? i18n("Unavailable while active")
                                             : !root.localModelActivityKnown(modelData) ? i18n("Unavailable until activity is known") : text
                                         contentItem: Kirigami.Icon {
-                                            source: modelData.state === "installed" && modelData.capabilities.mount ? "go-up" : "media-eject"
+                                            source: modelData.state === "installed" && modelData.capabilities.mount
+                                                ? root.signalIconSource("box")
+                                                : root.signalIconSource("package")
                                             color: parent.enabled ? root.mutedColor : root.quietColor
                                         }
                                     }
@@ -3134,17 +4508,19 @@ PlasmoidItem {
                                                 || (modelData.id + " · " + i18n("runtime-wide control"))
                                             color: root.quietColor
                                             font.family: root.designFont
-                                            font.pixelSize: 10
+                                            font.pixelSize: 11
                                             Layout.fillWidth: true
                                         }
                                         QQC2.Button {
                                             visible: !!(modelData.capabilities && modelData.capabilities.releaseRuntime)
+                                            Layout.preferredHeight: 44
                                             text: i18n("Release runtime")
                                             enabled: !root.localModelsLoading
                                             onClicked: { localReleaseDialog.runtime = modelData.id; localReleaseDialog.warning = modelData.releaseWarning || ""; localReleaseDialog.open() }
                                         }
                                         QQC2.Button {
                                             visible: !!(modelData.capabilities && modelData.capabilities.stopRuntime)
+                                            Layout.preferredHeight: 44
                                             text: i18n("Stop runtime")
                                             enabled: !root.localModelsLoading
                                             onClicked: {
@@ -3167,6 +4543,564 @@ PlasmoidItem {
                         font.family: root.designFont
                         font.pixelSize: 12
                         horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+            }
+
+            Item {
+                id: skillsContent
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: root.selectedPopupTab === "skills"
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 18
+                    anchors.rightMargin: 18
+                    anchors.topMargin: 14
+                    anchors.bottomMargin: 0
+                    spacing: 0
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 118
+                        color: "transparent"
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            spacing: 5
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 12
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+
+                                    PlasmaComponents.Label {
+                                        text: i18n("Skills")
+                                        color: root.textColor
+                                        font.family: root.designFont
+                                        font.pixelSize: 25
+                                        font.weight: Font.ExtraBold
+                                    }
+
+                                    PlasmaComponents.Label {
+                                        text: i18n("Synchronize reusable AI skills across providers.")
+                                        color: root.mutedColor
+                                        font.family: root.designFont
+                                        font.pixelSize: 13
+                                    }
+                                }
+
+                                Rectangle {
+                                    Layout.preferredWidth: 168
+                                    Layout.preferredHeight: 44
+                                    radius: 9
+                                    color: allSkillsCheck.down ? "#29233e"
+                                        : allSkillsCheck.hovered ? "#211d31" : "transparent"
+                                    border.width: 1
+                                    border.color: "#8064d8"
+
+                                    QQC2.CheckBox {
+                                        id: allSkillsCheck
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 10
+                                        anchors.rightMargin: 10
+                                        text: i18n("Sync all providers")
+                                        tristate: true
+                                        checkState: root.bulkSkillCheckState("")
+                                        enabled: !root.skillsLoading
+                                            && root.bulkSkillEligibleCount("") > 0
+                                        Accessible.name: text
+                                        Accessible.description: i18n("Select every missing or matching provider cell. Conflicts are excluded.")
+                                        onClicked: root.setBulkSkillDesired(
+                                            "",
+                                            checkState === Qt.Checked
+                                        )
+
+                                        contentItem: PlasmaComponents.Label {
+                                            text: parent.text
+                                            color: parent.enabled ? root.textColor : root.quietColor
+                                            font.family: root.designFont
+                                            font.pixelSize: 12
+                                            font.weight: Font.DemiBold
+                                            leftPadding: parent.indicator.width + parent.spacing
+                                            verticalAlignment: Text.AlignVCenter
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                Rectangle {
+                                    Layout.preferredWidth: 8
+                                    Layout.preferredHeight: 8
+                                    radius: 4
+                                    color: root.goodColor
+                                }
+                                PlasmaComponents.Label {
+                                    text: i18n("%1 synced", root.skillsSummary.synced || 0)
+                                    color: root.mutedColor
+                                    font.family: root.designFont
+                                    font.pixelSize: 12
+                                }
+                                PlasmaComponents.Label {
+                                    text: "•"
+                                    color: root.quietColor
+                                    font.pixelSize: 12
+                                }
+                                Rectangle {
+                                    Layout.preferredWidth: 8
+                                    Layout.preferredHeight: 8
+                                    radius: 4
+                                    color: root.warningColor
+                                }
+                                PlasmaComponents.Label {
+                                    text: i18n("%1 partial", root.skillsSummary.partial || 0)
+                                    color: root.mutedColor
+                                    font.family: root.designFont
+                                    font.pixelSize: 12
+                                }
+                                PlasmaComponents.Label {
+                                    text: "•"
+                                    color: root.quietColor
+                                    font.pixelSize: 12
+                                }
+                                Rectangle {
+                                    Layout.preferredWidth: 8
+                                    Layout.preferredHeight: 8
+                                    radius: 4
+                                    color: root.errorColor
+                                }
+                                PlasmaComponents.Label {
+                                    id: conflictSummaryLabel
+                                    text: i18np("%1 conflict", "%1 conflicts",
+                                        root.skillsSummary.conflicts || 0)
+                                    color: root.mutedColor
+                                    font.family: root.designFont
+                                    font.pixelSize: 12
+                                }
+                                Item { Layout.fillWidth: true }
+                                PlasmaComponents.Label {
+                                    text: i18n("%1 skills, %2 providers",
+                                        root.skillsSummary.uniqueSkills || 0,
+                                        root.skillsSummary.connectedProviders || 0)
+                                    color: root.quietColor
+                                    font.family: root.designFont
+                                    font.pixelSize: 12
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 1
+                        color: root.lineColor
+                    }
+
+                    PlasmaComponents.Label {
+                        visible: root.skillsError.length > 0
+                        Layout.fillWidth: true
+                        text: root.skillsError
+                        color: root.errorColor
+                        font.family: root.designFont
+                        font.pixelSize: 12
+                        wrapMode: Text.WordWrap
+                        Layout.topMargin: 8
+                        Layout.bottomMargin: 8
+                    }
+
+                    Rectangle {
+                        id: skillsMatrix
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        radius: 10
+                        color: root.surfaceColor
+                        border.color: root.lineColor
+                        border.width: 1
+                        clip: true
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            spacing: 0
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 58
+                                color: "#1a1d26"
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 10
+                                    anchors.rightMargin: 8
+                                    spacing: 0
+
+                                    PlasmaComponents.Label {
+                                        Layout.preferredWidth: 142
+                                        text: i18n("Skill")
+                                        color: root.mutedColor
+                                        font.family: root.designFont
+                                        font.pixelSize: 12
+                                        font.weight: Font.Bold
+                                    }
+
+                                    Repeater {
+                                        model: root.skillProviders.filter(function(provider) {
+                                            return provider.available
+                                        })
+
+                                        delegate: ColumnLayout {
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 32
+                                            Layout.maximumWidth: 52
+                                            spacing: 1
+
+                                            Rectangle {
+                                                Layout.alignment: Qt.AlignHCenter
+                                                Layout.preferredWidth: 22
+                                                Layout.preferredHeight: 20
+                                                radius: 5
+                                                color: modelData.id === "opencode"
+                                                    ? "#e7e9ef" : "transparent"
+
+                                                Image {
+                                                    anchors.centerIn: parent
+                                                    width: 18
+                                                    height: 18
+                                                    source: root.skillProviderIconSource(modelData.id)
+                                                    fillMode: Image.PreserveAspectFit
+                                                }
+                                            }
+
+                                            QQC2.CheckBox {
+                                                Layout.alignment: Qt.AlignHCenter
+                                                Layout.preferredWidth: 24
+                                                Layout.preferredHeight: 24
+                                                tristate: true
+                                                checkState: root.bulkSkillCheckState(modelData.id)
+                                                enabled: !root.skillsLoading
+                                                    && root.bulkSkillEligibleCount(modelData.id) > 0
+                                                Accessible.name: i18n("Sync all safe skills to %1", modelData.label)
+                                                onClicked: root.setBulkSkillDesired(
+                                                    modelData.id,
+                                                    checkState === Qt.Checked
+                                                )
+                                                QQC2.ToolTip.visible: hovered
+                                                QQC2.ToolTip.text: i18n("Select every safe skill for %1", modelData.label)
+                                            }
+                                        }
+                                    }
+
+                                    PlasmaComponents.Label {
+                                        Layout.preferredWidth: 96
+                                        text: i18n("Status")
+                                        color: root.mutedColor
+                                        font.family: root.designFont
+                                        font.pixelSize: 12
+                                        font.weight: Font.Bold
+                                        horizontalAlignment: Text.AlignRight
+                                    }
+
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 1
+                                color: root.lineColor
+                            }
+
+                            ListView {
+                                id: skillsList
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                model: root.skillsInventory
+                                clip: true
+                                spacing: 0
+                                boundsBehavior: Flickable.StopAtBounds
+
+                                delegate: Rectangle {
+                                    id: skillRow
+                                    required property var modelData
+                                    required property int index
+                                    property var skillItem: modelData
+                                    width: skillsList.width
+                                    height: 60
+                                    color: modelData.status === "conflict"
+                                        ? "#1d171c"
+                                        : (index % 2 === 0 ? "#12151c" : root.surfaceColor)
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 10
+                                        anchors.rightMargin: 8
+                                        spacing: 0
+
+                                        ColumnLayout {
+                                            Layout.preferredWidth: 142
+                                            spacing: 3
+
+                                            PlasmaComponents.Label {
+                                                Layout.fillWidth: true
+                                                text: skillRow.skillItem.name
+                                                color: root.textColor
+                                                font.family: "monospace"
+                                                font.pixelSize: 12
+                                                font.weight: Font.DemiBold
+                                                elide: Text.ElideRight
+                                            }
+
+                                            PlasmaComponents.Label {
+                                                Layout.fillWidth: true
+                                                text: skillRow.skillItem.description
+                                                    || i18n("Reusable AI instruction")
+                                                color: root.quietColor
+                                                font.family: root.designFont
+                                                font.pixelSize: 11
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+
+                                        Repeater {
+                                            model: root.skillProviders.filter(function(provider) {
+                                                return provider.available
+                                            })
+
+                                            delegate: Item {
+                                                required property var modelData
+                                                property var cellData: root.skillCell(
+                                                    skillRow.skillItem,
+                                                    modelData.id
+                                                )
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 32
+                                                Layout.maximumWidth: 52
+                                                Layout.fillHeight: true
+
+                                                QQC2.CheckBox {
+                                                    id: providerSkillCheck
+                                                    anchors.centerIn: parent
+                                                    width: 44
+                                                    height: 44
+                                                    tristate: true
+                                                    checkState: root.skillCellCheckState(
+                                                        skillRow.skillItem,
+                                                        modelData.id
+                                                    )
+                                                    enabled: !root.skillsLoading
+                                                        && parent.cellData
+                                                        && parent.cellData.toggleable
+                                                    opacity: enabled ? 1 : 0.55
+                                                    Accessible.name: i18n("%1 in %2",
+                                                        skillRow.skillItem.name,
+                                                        modelData.label)
+                                                    Accessible.description: root.skillCellHelp(
+                                                        skillRow.skillItem,
+                                                        modelData.id
+                                                    )
+                                                    onClicked: root.setSkillCellDesired(
+                                                        skillRow.skillItem,
+                                                        modelData.id,
+                                                        checkState === Qt.Checked
+                                                    )
+                                                    QQC2.ToolTip.visible: hovered
+                                                    QQC2.ToolTip.text: root.skillCellHelp(
+                                                        skillRow.skillItem,
+                                                        modelData.id
+                                                    )
+                                                }
+
+                                            }
+                                        }
+
+                                        RowLayout {
+                                            Layout.preferredWidth: 96
+                                            spacing: 6
+
+                                            Rectangle {
+                                                Layout.preferredWidth: 7
+                                                Layout.preferredHeight: 7
+                                                radius: 4
+                                                color: root.skillStatusColor(skillRow.skillItem)
+                                            }
+
+                                            PlasmaComponents.Label {
+                                                Layout.fillWidth: true
+                                                text: root.skillCompactStatusText(skillRow.skillItem)
+                                                color: root.skillStatusColor(skillRow.skillItem)
+                                                font.family: root.designFont
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                                horizontalAlignment: Text.AlignRight
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.bottom: parent.bottom
+                                        height: 1
+                                        color: "#1c2029"
+                                    }
+                                }
+                            }
+
+                            PlasmaComponents.Label {
+                                visible: !root.skillsLoading
+                                    && root.skillsInventory.length === 0
+                                    && root.skillsError.length === 0
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                text: i18n("No user skills were detected.")
+                                color: root.mutedColor
+                                font.family: root.designFont
+                                font.pixelSize: 12
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        id: skillsActionBar
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 64
+                        color: "#11141b"
+
+                        RowLayout {
+                            anchors.fill: parent
+                            spacing: 8
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                PlasmaComponents.Label {
+                                    text: root.skillsLoading
+                                        ? i18n("Preparing changes…")
+                                        : root.skillChangeCount() > 0
+                                            ? i18np("%1 pending change", "%1 pending changes",
+                                                root.skillChangeCount())
+                                            : i18n("Conflicts are locked")
+                                    color: root.skillsLoading ? root.accentColor
+                                        : root.skillChangeCount() > 0
+                                            ? root.textColor : root.mutedColor
+                                    font.family: root.designFont
+                                    font.pixelSize: 12
+                                    font.weight: Font.DemiBold
+                                }
+
+                                PlasmaComponents.Label {
+                                    text: root.skillsPreview
+                                        ? i18n("Preview ready")
+                                        : root.skillsGeneratedAt.length > 0
+                                            ? i18n("Last scan %1",
+                                                root.formatUpdatedTime(root.skillsGeneratedAt))
+                                            : i18n("No scan yet")
+                                    color: root.skillsPreview ? root.goodColor : root.quietColor
+                                    font.family: root.designFont
+                                    font.pixelSize: 11
+                                }
+                            }
+
+                            QQC2.Button {
+                                id: previewSkillChangesButton
+                                Layout.preferredWidth: 112
+                                Layout.preferredHeight: 44
+                                text: i18n("Preview changes")
+                                enabled: !root.skillsLoading && root.skillChangeCount() > 0
+                                onClicked: root.previewSkillChanges()
+
+                                contentItem: PlasmaComponents.Label {
+                                    text: parent.text
+                                    color: parent.enabled ? "#cbbfff" : root.quietColor
+                                    font.family: root.designFont
+                                    font.pixelSize: 12
+                                    font.weight: Font.DemiBold
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                background: Rectangle {
+                                    radius: 8
+                                    color: parent.down ? "#242035"
+                                        : parent.hovered ? "#1c1929" : "transparent"
+                                    border.width: 1
+                                    border.color: parent.enabled ? "#8064d8" : "#30333e"
+                                }
+                            }
+
+                            QQC2.Button {
+                                id: applySkillChangesButton
+                                Layout.preferredWidth: 108
+                                Layout.preferredHeight: 44
+                                text: i18n("Apply changes")
+                                enabled: !root.skillsLoading
+                                    && root.skillsPreview !== null
+                                    && root.skillsPendingChanges.length > 0
+                                onClicked: skillBatchDialog.open()
+
+                                contentItem: PlasmaComponents.Label {
+                                    text: parent.text
+                                    color: parent.enabled ? "#ffffff" : root.quietColor
+                                    font.family: root.designFont
+                                    font.pixelSize: 12
+                                    font.weight: Font.DemiBold
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                background: Rectangle {
+                                    radius: 8
+                                    color: parent.enabled
+                                        ? (parent.down ? "#5543d8"
+                                            : parent.hovered ? "#7a67ff" : root.accentColor)
+                                        : "#292c36"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            QQC2.Dialog {
+                id: skillBatchDialog
+                modal: true
+                title: i18n("Apply skill changes?")
+                standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
+                onAccepted: root.applySkillChanges()
+                contentItem: Item {
+                    implicitWidth: 360
+                    implicitHeight: skillBatchMessage.implicitHeight
+
+                    PlasmaComponents.Label {
+                        id: skillBatchMessage
+                        width: parent.width
+                        text: {
+                            if (!root.skillsPreview) {
+                                return ""
+                            }
+                            var added = root.skillChangeCountFor(true)
+                            var removed = root.skillChangeCountFor(false)
+                            return i18np(
+                                "%1 provider link will change.",
+                                "%1 provider links will change.",
+                                root.skillsPreview.plannedChanges || 0
+                            ) + " " + i18n("%1 added, %2 removed. Matching copies are backed up first. If any target changed after this preview, the whole batch is cancelled.",
+                                added, removed)
+                        }
+                        wrapMode: Text.WordWrap
+                        color: root.mutedColor
                     }
                 }
             }
@@ -3218,8 +5152,10 @@ PlasmoidItem {
             }
 
             Item {
+                id: compactPreviewSection
+                visible: false
                 Layout.fillWidth: true
-                Layout.preferredHeight: 88
+                Layout.preferredHeight: 0
 
                 Rectangle {
                     anchors.fill: parent
@@ -3652,6 +5588,62 @@ PlasmoidItem {
         }
     }
 
+    // kodexbar-skills owns provider discovery, tree fingerprints, backups and
+    // conflict-safe linking. The widget only renders its normalized contract.
+    Plasma5Support.DataSource {
+        id: skillsExecutable
+        engine: "executable"
+        onNewData: function(sourceName, data) {
+            disconnectSource(sourceName)
+            var completedOperation = root.skillsOperation
+            root.skillsLoading = false
+            root.skillSyncingName = ""
+            skillsWatchdog.stop()
+            var text = String(data.stdout || "").trim()
+            if (text === root.engineMissingSentinel()) {
+                root.skillsError = i18n("Skills engine not installed")
+                root.skillsOperation = ""
+                return
+            }
+            if (text.length === 0) {
+                root.skillsError = String(data.stderr || i18n("No output from skills engine")).trim()
+                root.skillsOperation = ""
+                return
+            }
+            try {
+                var payload = JSON.parse(text)
+                if (payload.ok === false) {
+                    var conflicts = payload.conflicts instanceof Array
+                        ? payload.conflicts.map(function(item) {
+                            var prefix = item.skill
+                                ? item.skill + " in " + root.skillProviderLabel(item.provider)
+                                : root.skillProviderLabel(item.provider)
+                            return prefix + ": " + item.reason
+                        }).join("\n")
+                        : ""
+                    root.skillsError = payload.error || conflicts || i18n("Skill synchronization failed")
+                    root.skillsOperation = ""
+                    return
+                }
+                root.skillsError = ""
+                if (payload.skills instanceof Array) {
+                    root.applySkillsInventory(payload)
+                    root.skillsOperation = ""
+                } else if (payload.operation === "batch"
+                        && completedOperation === "preview") {
+                    root.skillsPreview = payload
+                    root.skillsOperation = ""
+                } else if (payload.applied === true) {
+                    root.skillsOperation = ""
+                    root.refreshSkills()
+                }
+            } catch (error) {
+                root.skillsError = i18n("Invalid skills response")
+                root.skillsOperation = ""
+            }
+        }
+    }
+
     Timer {
         id: usageWatchdog
         interval: 120000
@@ -3712,6 +5704,18 @@ PlasmoidItem {
         }
     }
 
+    Timer {
+        id: skillsWatchdog
+        interval: 12000
+        repeat: false
+        onTriggered: {
+            root.skillsLoading = false
+            root.skillSyncingName = ""
+            root.skillsOperation = ""
+            root.skillsError = i18n("Skills scan timed out. Try refresh again.")
+        }
+    }
+
     onRefreshSecondsChanged: {
         refreshTimer.restart()
         refresh()
@@ -3727,6 +5731,7 @@ PlasmoidItem {
         refresh()
     }
     onAiControlCommandChanged: aiControlError = ""
+    onSkillsCommandChanged: skillsError = ""
     onSelectedSourceChanged: {
         cancelUsageRefresh()
         initialUsageSeedPending = true
@@ -3745,8 +5750,13 @@ PlasmoidItem {
         }
     }
     onExpandedChanged: {
-        if (expanded) {
+        if (root.expanded) {
             refreshCostIfDue(showCostSummary)
+            if (selectedPopupTab === "local") {
+                refreshLocalModels()
+            } else if (selectedPopupTab === "skills") {
+                refreshSkills()
+            }
         }
     }
     onShowCreditsInPanelChanged: panelText()

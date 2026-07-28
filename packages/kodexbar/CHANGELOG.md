@@ -2,6 +2,23 @@
 
 All notable fork-specific changes are documented here.
 
+## 0.12.0, 2026-07-27
+
+### Added
+
+- Add a compact Skills matrix with per-provider checkboxes, provider and global safe selection, mixed-copy states, locked conflicts, and one batch preview before apply.
+- Add the selected Signal Console visual system with labeled global navigation, a focused provider hero, grouped quota rows, condensed spend, and a bottom provider selector in a 520 by 560 popup.
+- Add one packaged Tabler icon family for global navigation, local model groups, settings navigation, and utility actions.
+### Changed
+
+- Keep the popup at a fixed 520 by 560 viewport across Providers, Local models, and Skills.
+- Rework Skills as a skill-first operational matrix with real provider marks, a global checkbox, per-provider selectors, status column, and persistent Preview and Apply actions.
+- Rework Local models and Preferences with the same dark surfaces, readable type scale, 44-pixel action targets, and consistent icon language.
+
+### Fixed
+
+- Fix the Plasma expanded-state handler so it no longer relies on deprecated injected signal parameters.
+
 ## 0.11.0, 2026-07-24
 
 ### Changed

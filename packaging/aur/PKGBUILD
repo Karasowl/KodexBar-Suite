@@ -41,6 +41,7 @@ package() {
     packages/ai-cli-control/kodexbar-panel \
     packages/ai-cli-control/kodexbar-tray \
     packages/ai-cli-control/local-ai \
+    packages/ai-cli-control/kodexbar-skills \
     packages/ai-cli-control/recover.py \
     "${payload}/"
 
@@ -57,6 +58,7 @@ package() {
   ln -s /usr/lib/kodexbar-suite/ai-cli-control/kodexbar-panel "${pkgdir}/usr/bin/kodexbar-panel"
   ln -s /usr/lib/kodexbar-suite/ai-cli-control/kodexbar-tray "${pkgdir}/usr/bin/kodexbar-tray"
   ln -s /usr/lib/kodexbar-suite/ai-cli-control/local-ai "${pkgdir}/usr/bin/local-ai"
+  ln -s /usr/lib/kodexbar-suite/ai-cli-control/kodexbar-skills "${pkgdir}/usr/bin/kodexbar-skills"
 
   # Distributable plasmoid only: metadata.json and contents/ (no tests, scripts,
   # docs of development, screenshots, or dotfiles).
