@@ -52,6 +52,8 @@ paru -S kodexbar-suite
 
 The same package also appears in graphical AUR helpers on CachyOS such as Shelly or Octopi. Packaging sources live in `packaging/aur/`.
 
+After an install or upgrade, the package detects active sessions that actually have KodexBar on a panel and reloads `plasmashell` automatically. Panels may disappear for a few seconds. Sessions that do not use the widget are not restarted.
+
 What the package installs under `/usr`:
 
 - Plasma widget, `ai`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray`, `local-ai`, `kodexbar-skills`, the built-in local model drivers, and tray icons.
@@ -99,7 +101,7 @@ git pull --ff-only
 ./install.sh
 ```
 
-The root installer is idempotent. It updates both packages without touching provider credentials or configuration.
+The root installer is idempotent. It updates both packages without touching provider credentials or configuration and reloads the current Plasma session when KodexBar is present on a panel.
 
 ## Uninstall
 

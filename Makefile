@@ -9,8 +9,8 @@ test:
 check:
 	$(MAKE) -C packages/ai-cli-control check
 	$(MAKE) kodexbar-check
-	bash -n install.sh uninstall.sh
-	if grep -n '[[:blank:]]$$' README.md README.es.md NOTICE.md LICENSE Makefile install.sh uninstall.sh .gitignore; then exit 1; fi
+	bash -n install.sh uninstall.sh packaging/aur/kodexbar-suite.install packaging/aur/reload-plasma-after-upgrade
+	if grep -n '[[:blank:]]$$' README.md README.es.md NOTICE.md LICENSE Makefile install.sh uninstall.sh packaging/aur/kodexbar-suite.install packaging/aur/reload-plasma-after-upgrade .gitignore; then exit 1; fi
 	git diff --check
 
 kodexbar-check:
