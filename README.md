@@ -69,9 +69,9 @@ How quotas work after install:
 
 GitHub Releases provides the matching source archive and release artifacts.
 
-### KDE Store (possible widget-only channel)
+### KDE Store (widget-only channel)
 
-KDE Store is a separate possible distribution channel for the Plasma widget only. It is not part of this release. If a widget-only `.plasmoid` is published there, it is built by `packaging/kde-store/build-plasmoid.sh`. That channel delivers the applet UI only. The data engine (`kodexbar-quotas` and related tools) still comes from the AUR package or from the repository `install.sh` below. If the widget is installed without the engine, the popup shows a clear setup card with `paru -S kodexbar-suite` and a link to the repository. After the suite is installed, the next refresh detects your CLIs and shows their quotas without manual provider configuration.
+KDE Store is a separate distribution channel for the Plasma widget only. The published `.plasmoid` is built by `packaging/kde-store/build-plasmoid.sh`, and its version comes from `packages/kodexbar/metadata.json`. That channel delivers the applet UI only. The data engine (`kodexbar-quotas` and related tools) still comes from the AUR package or from the repository `install.sh` below. If the widget is installed without the engine, the popup shows a clear setup card with `paru -S kodexbar-suite` and a link to the repository. After the suite is installed, the next refresh detects your CLIs and shows their quotas without manual provider configuration.
 
 ### Manual install from this repository
 
