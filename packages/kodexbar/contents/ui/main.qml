@@ -406,6 +406,14 @@ PlasmoidItem {
             && (!entry.dashboardSummary || entry.dashboardSummary.length === 0)
     }
 
+    function hasBankedResetsValue(entry) {
+        // A count the provider reported, zero included. Null or absent means the
+        // provider has no banked resets concept and the block stays hidden.
+        return !!entry
+            && typeof entry.bankedResetCount === "number"
+            && !isNaN(entry.bankedResetCount)
+    }
+
     function hasCreditsValue(entry) {
         // A balance the provider reported, zero included. Null or absent means the
         // provider has no credits concept and the block stays hidden.
@@ -3974,9 +3982,7 @@ PlasmoidItem {
                             ColumnLayout {
                                 visible: root.popupState.hasEntry
                                     && !root.activeEntry.errorMessage
-                                    && root.activeEntry.creditsRemaining !== null
-                                    && root.activeEntry.creditsRemaining !== undefined
-                                    && root.activeEntry.creditsRemaining > 0
+                                    && root.hasCreditsValue(root.activeEntry)
                                 Layout.fillWidth: true
                                 spacing: 14
 
@@ -4057,7 +4063,7 @@ PlasmoidItem {
                             ColumnLayout {
                                 visible: root.popupState.hasEntry
                                     && !root.activeEntry.errorMessage
-                                    && root.activeEntry.bankedResetCount > 0
+                                    && root.hasBankedResetsValue(root.activeEntry)
                                 Layout.fillWidth: true
                                 spacing: 8
 

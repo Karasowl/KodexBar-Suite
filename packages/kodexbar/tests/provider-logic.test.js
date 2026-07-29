@@ -1009,7 +1009,7 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.12.2", "package metadata uses version 0.12.2")
+assert.equal(metadata.KPlugin.Version, "0.12.3", "package metadata uses version 0.12.3")
 assert.equal(metadata.KPlugin.Website, "https://github.com/Karasowl/KodexBar-Suite", "package metadata links to the maintained suite repository")
 assert.match(mainQml, /var antigravityWindows = antigravity && Array\.isArray\(usage\.antigravityRateWindows\)/, "popup consumes the engine's Antigravity model windows")
 assert.match(mainQml, /compactLabel: antigravityKey === "gemini-weekly" \? "W"/, "compact Antigravity weekly uses W like other providers")
@@ -1085,14 +1085,16 @@ assert.match(
     /var hasBankedResets = typeof entry\.bankedResetCount === "number"\s*&& !isNaN\(entry\.bankedResetCount\)/,
     "activeIsEmpty treats any reported banked reset count as present, zero included"
 )
+// Any prefix, not just entry.*: a second popup view kept its own root.activeEntry
+// gate and slipped past a narrower pattern.
 assert.doesNotMatch(
     mainQml,
-    /entry\.creditsRemaining > 0/,
+    /creditsRemaining > 0/,
     "no gate may hide a reported credit balance because it is zero"
 )
 assert.doesNotMatch(
     mainQml,
-    /entry\.bankedResetCount > 0/,
+    /bankedResetCount > 0/,
     "no gate may hide a reported banked reset count because it is zero"
 )
 
