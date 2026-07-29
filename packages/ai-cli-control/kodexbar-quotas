@@ -969,17 +969,21 @@ def map_codex_additional_limits(items: Any) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         limit_id = item.get("limit_id") or item.get("limitId") or item.get("id")
-        metered = item.get("metered_feature") or item.get("meteredFeature") or item.get("limit_name") or item.get("limitName")
+        metered = item.get("metered_feature") or item.get("meteredFeature")
+        # limit_name carries the provider's readable label ("GPT-5.3-Codex-Spark"),
+        # metered_feature an internal slug ("codex_bengalfox"). Show the label and
+        # keep the slug for the stable window id.
+        display_name = item.get("limit_name") or item.get("limitName")
         if isinstance(limit_id, str) and limit_id in ("codex-spark", "codex-spark-weekly"):
             window_id = limit_id
             title = "Codex Spark" if limit_id == "codex-spark" else "Codex Spark Weekly"
         else:
-            slug_source = limit_id if isinstance(limit_id, str) and limit_id else metered
+            slug_source = limit_id if isinstance(limit_id, str) and limit_id else (metered or display_name)
             if not isinstance(slug_source, str) or not slug_source:
                 continue
             slug = re.sub(r"[^a-z0-9]+", "-", slug_source.lower()).strip("-")
             window_id = slug if slug.startswith("codex-") else f"codex-{slug}"
-            title = str(metered or limit_id or window_id)
+            title = str(display_name or metered or limit_id or window_id)
         raw_window = item.get("rate_limit") or item.get("window") or item
         if isinstance(raw_window, dict) and "primary_window" in raw_window:
             mapped = map_codex_window(raw_window.get("primary_window"))
@@ -992,14 +996,18 @@ def map_codex_additional_limits(items: Any) -> list[dict[str, Any]]:
 
 
 def map_codex_reset_credits(raw: Any) -> dict[str, Any] | None:
-    """Map rate_limit_reset_credits. Only when available_count > 0."""
+    """Map rate_limit_reset_credits whenever the provider reports the field.
+
+    Presence decides, not value. A reported zero is real data the widget shows,
+    so the count only drops out when the field is missing or unusable.
+    """
     if not isinstance(raw, dict):
         return None
     count_raw = raw.get("available_count")
     if count_raw is None:
         count_raw = raw.get("applicable_available_count")
     count_n = _coerce_finite_number(count_raw)
-    if count_n is None or count_n <= 0:
+    if count_n is None or count_n < 0:
         return None
     credits_out: list[dict[str, str]] = []
     for key in ("credits", "reset_credits", "items"):
@@ -1017,11 +1025,15 @@ def map_codex_reset_credits(raw: Any) -> dict[str, Any] | None:
 
 
 def map_codex_credits(raw: Any) -> dict[str, Any] | None:
-    """Top-level credits only when balance is a number > 0 (string balances coerced)."""
+    """Top-level credits whenever balance is a usable number (string balances coerced).
+
+    Presence decides, not value. A reported zero balance is real data, and the
+    provider dropping the field is what hides the block.
+    """
     if not isinstance(raw, dict):
         return None
     balance = _coerce_finite_number(raw.get("balance"))
-    if balance is None or balance <= 0:
+    if balance is None or balance < 0:
         return None
     return {"remaining": balance}
 

@@ -1009,7 +1009,7 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.12.1", "package metadata uses version 0.12.1")
+assert.equal(metadata.KPlugin.Version, "0.12.2", "package metadata uses version 0.12.2")
 assert.equal(metadata.KPlugin.Website, "https://github.com/Karasowl/KodexBar-Suite", "package metadata links to the maintained suite repository")
 assert.match(mainQml, /var antigravityWindows = antigravity && Array\.isArray\(usage\.antigravityRateWindows\)/, "popup consumes the engine's Antigravity model windows")
 assert.match(mainQml, /compactLabel: antigravityKey === "gemini-weekly" \? "W"/, "compact Antigravity weekly uses W like other providers")
@@ -1073,16 +1073,46 @@ assert.match(
     "missing-engine title is internationalized"
 )
 
-// activeIsEmpty: zero credits must not hide the empty state (gate is remaining > 0).
+// activeIsEmpty: presence decides, not value. A reported zero balance or zero
+// banked resets is data the provider sent, so the panel is not empty.
 assert.match(
     mainQml,
-    /var hasPositiveCredits = typeof entry\.creditsRemaining === "number"\s*&& !isNaN\(entry\.creditsRemaining\)\s*&& entry\.creditsRemaining > 0/,
-    "activeIsEmpty treats credits as present only when numeric and > 0"
+    /var hasCredits = typeof entry\.creditsRemaining === "number"\s*&& !isNaN\(entry\.creditsRemaining\)/,
+    "activeIsEmpty treats any reported credit balance as present, zero included"
 )
 assert.match(
     mainQml,
-    /&& !hasPositiveCredits/,
-    "activeIsEmpty does not treat creditsRemaining 0 as non-empty"
+    /var hasBankedResets = typeof entry\.bankedResetCount === "number"\s*&& !isNaN\(entry\.bankedResetCount\)/,
+    "activeIsEmpty treats any reported banked reset count as present, zero included"
+)
+assert.doesNotMatch(
+    mainQml,
+    /entry\.creditsRemaining > 0/,
+    "no gate may hide a reported credit balance because it is zero"
+)
+assert.doesNotMatch(
+    mainQml,
+    /entry\.bankedResetCount > 0/,
+    "no gate may hide a reported banked reset count because it is zero"
+)
+
+// The headline percent stays provider-agnostic: it must not branch on names.
+assert.doesNotMatch(
+    mainQml,
+    /id !== "codex" && id !== "grok"/,
+    "displayPercentLeft must not hardcode which providers own which windows"
+)
+assert.match(
+    mainQml,
+    /function displayPercentLeft\(provider, primary, secondary\) \{[^}]*?var primaryLeft = knownPercentLeft\(primary\)\s*if \(primaryLeft !== null\) \{\s*return primaryLeft\s*\}\s*return knownPercentLeft\(secondary\)/,
+    "displayPercentLeft follows the shortest reported window and falls back to the next"
+)
+
+// Spend and credit balance are different facts and must not hide each other.
+assert.doesNotMatch(
+    mainQml,
+    /visible: signalProviderView\.costRows\.length === 0\s*&& root\.activeEntry\.creditsRemaining > 0/,
+    "cost rows must not suppress the credit balance"
 )
 // compactPrimary must not fall back to secondary for Grok (avoids S+W duplicate of weekly).
 assert.doesNotMatch(

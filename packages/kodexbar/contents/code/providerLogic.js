@@ -67,7 +67,12 @@ function shouldRefreshCost(now, lastFetchedAt, ttlSeconds, loading, visible) {
 }
 
 function normalizeCodexResetCredits(value) {
-    var credits = value && typeof value === "object" ? value : {}
+    // availableCount stays null when the provider reported nothing, so the UI can
+    // tell "no such concept" apart from a real zero and render each accordingly.
+    if (!value || typeof value !== "object") {
+        return { availableCount: null, expiresAt: [] }
+    }
+    var credits = value
     var list = Array.isArray(credits.credits) ? credits.credits : []
     var expiresAt = []
     for (var i = 0; i < list.length; i++) {
@@ -79,7 +84,7 @@ function normalizeCodexResetCredits(value) {
         return new Date(left).getTime() - new Date(right).getTime()
     })
     return {
-        availableCount: typeof credits.availableCount === "number" ? credits.availableCount : 0,
+        availableCount: typeof credits.availableCount === "number" ? credits.availableCount : null,
         expiresAt: expiresAt
     }
 }
