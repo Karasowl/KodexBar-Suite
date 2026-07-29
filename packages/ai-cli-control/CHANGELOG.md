@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.12.3, 2026-07-29
+
+### Fixed
+
+- Close two leftover value gates in the second popup view that still hid a reported credit balance and a reported banked reset count when either was zero. The 0.12.2 guards only covered the `entry.*` form and missed the `root.activeEntry.*` one.
+- Drop the compact-provider-index patch from the AUR package. It backported work that shipped before the v0.12.1 tag, and applying it on top of a source tree that already contains that work duplicated QML functions.
+
 ## 0.12.2, 2026-07-29
 
 ### Fixed
