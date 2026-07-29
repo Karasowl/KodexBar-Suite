@@ -1877,19 +1877,27 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(as_string["usage"]["codexResetCredits"]["availableCount"], 1)
         self.assertEqual(as_string["usage"]["codexResetCredits"]["credits"], [])
 
-        # balance <= 0 or absent → no credits
+        # A reported zero is real data the widget shows. Presence decides, not value.
         zero = quotas.map_codex_usage({**base, "credits": {"balance": 0}})
-        self.assertNotIn("credits", zero)
+        self.assertEqual(zero["credits"]["remaining"], 0.0)
+        zero_resets = quotas.map_codex_usage({
+            **base,
+            "rate_limit_reset_credits": {"available_count": 0},
+        })
+        self.assertEqual(zero_resets["usage"]["codexResetCredits"]["availableCount"], 0)
+
+        # Only a field the provider never sends disappears from the envelope.
         missing = quotas.map_codex_usage({
             k: v for k, v in base.items() if k != "credits"
         })
         self.assertNotIn("credits", missing)
-        # available_count 0 → no codexResetCredits
         no_resets = quotas.map_codex_usage({
-            **base,
-            "rate_limit_reset_credits": {"available_count": 0},
+            k: v for k, v in base.items() if k != "rate_limit_reset_credits"
         })
         self.assertNotIn("codexResetCredits", no_resets["usage"])
+        # Unusable values are dropped too, they are not data.
+        unusable = quotas.map_codex_usage({**base, "credits": {"balance": "n/a"}})
+        self.assertNotIn("credits", unusable)
 
     def test_codex_401_is_auth_relogin_without_upstream_delegation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

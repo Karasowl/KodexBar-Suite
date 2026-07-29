@@ -69,9 +69,9 @@ Cómo funcionan las cuotas después de instalar:
 
 GitHub Releases proporciona el archivo fuente correspondiente y los artefactos del lanzamiento.
 
-### KDE Store (canal posible solo para el widget)
+### KDE Store (canal solo para el widget)
 
-KDE Store es un canal de distribución separado y posible solo para el widget de Plasma. No forma parte de este lanzamiento. Si allí se publica un `.plasmoid` solo para el widget, se genera con `packaging/kde-store/build-plasmoid.sh`. Ese canal entrega solo la interfaz del applet. El motor de datos (`kodexbar-quotas` y herramientas relacionadas) sigue viniendo del paquete AUR o del `install.sh` del repositorio que se describe abajo. Si el widget se instala sin el motor, el popup muestra una tarjeta de guía con `paru -S kodexbar-suite` y el enlace al repositorio. Cuando la suite ya está instalada, el siguiente refresco detecta tus CLI y muestra sus cuotas sin configurar proveedores a mano.
+KDE Store es un canal de distribución separado solo para el widget de Plasma. El `.plasmoid` que se publica se genera con `packaging/kde-store/build-plasmoid.sh` y su versión sale de `packages/kodexbar/metadata.json`. Ese canal entrega solo la interfaz del applet. El motor de datos (`kodexbar-quotas` y herramientas relacionadas) sigue viniendo del paquete AUR o del `install.sh` del repositorio que se describe abajo. Si el widget se instala sin el motor, el popup muestra una tarjeta de guía con `paru -S kodexbar-suite` y el enlace al repositorio. Cuando la suite ya está instalada, el siguiente refresco detecta tus CLI y muestra sus cuotas sin configurar proveedores a mano.
 
 ### Instalación manual desde este repositorio
 

@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.12.2, 2026-07-29
+
+### Fixed
+
+- Show the credit balance again when a provider also reports spend. Cost rows used to occupy that row and hide the balance entirely.
+- Show banked resets whenever the provider reports the count, zero included. Both the engine and the widget used to drop the field unless the count was above zero.
+- Name extra rate windows with the provider's readable label (`GPT-5.3-Codex-Spark`) instead of its internal metered-feature slug (`codex_bengalfox`).
+
+### Changed
+
+- The headline percent now follows the shortest window the provider actually reported, with no per-provider branching. A provider that gains or loses a rate window is reflected on the next refresh without a code change, so Codex regains its session headline the moment OpenAI restores the five-hour window.
+- Reported zero is treated as data everywhere. Only a field the provider never sends hides its block.
+
 ## 0.12.1, 2026-07-27
 
 ### Changed

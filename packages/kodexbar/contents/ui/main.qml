@@ -392,16 +392,26 @@ PlasmoidItem {
         if (!entry || !entry.provider || entry.errorMessage) {
             return false
         }
-        // Credits count as present only when numeric and > 0 (same gate as the Credits block).
-        // A zero balance must not suppress the "No usage reported" empty state.
-        var hasPositiveCredits = typeof entry.creditsRemaining === "number"
+        // Presence decides, not value. A reported zero balance or zero banked
+        // resets is data the provider sent, so the panel is not empty. Only a
+        // provider that reports neither field falls back to the empty state.
+        var hasCredits = typeof entry.creditsRemaining === "number"
             && !isNaN(entry.creditsRemaining)
-            && entry.creditsRemaining > 0
+        var hasBankedResets = typeof entry.bankedResetCount === "number"
+            && !isNaN(entry.bankedResetCount)
         return (!entry.rows || entry.rows.length === 0)
-            && !hasPositiveCredits
-            && (!entry.bankedResetCount || entry.bankedResetCount <= 0)
+            && !hasCredits
+            && !hasBankedResets
             && (!entry.costSummary)
             && (!entry.dashboardSummary || entry.dashboardSummary.length === 0)
+    }
+
+    function hasCreditsValue(entry) {
+        // A balance the provider reported, zero included. Null or absent means the
+        // provider has no credits concept and the block stays hidden.
+        return !!entry
+            && typeof entry.creditsRemaining === "number"
+            && !isNaN(entry.creditsRemaining)
     }
 
     function resetTimeFromDescription(value) {
@@ -1406,9 +1416,10 @@ PlasmoidItem {
                 detail: ""
             })
         }
+        // Reported count wins, zero included. Only a provider that never sends the
+        // field at all leaves bankedResetCount null and drops the row.
         if (typeof entry.bankedResetCount === "number"
-                && !isNaN(entry.bankedResetCount)
-                && entry.bankedResetCount > 0) {
+                && !isNaN(entry.bankedResetCount)) {
             rows.push({
                 label: i18n("Banked resets"),
                 value: formatCredits(entry.bankedResetCount),
@@ -1598,15 +1609,16 @@ PlasmoidItem {
     }
 
     function displayPercentLeft(provider, primary, secondary) {
+        // Provider-agnostic: the headline follows the shortest window the API
+        // actually reported. Any provider may ship both windows, only the weekly
+        // pool (Grok), or lose one when the vendor pauses it (Codex dropped its
+        // 5h window in July 2026). Nothing here is keyed on a provider name, so
+        // the widget adapts on its own when a window appears or disappears.
         var primaryLeft = knownPercentLeft(primary)
-        var id = String(provider || "").toLowerCase()
-        // Codex and Grok may emit weekly-only usage in secondary (Session slot empty).
-        if (id !== "codex" && id !== "grok") {
+        if (primaryLeft !== null) {
             return primaryLeft
         }
-
-        var weeklyLeft = knownPercentLeft(secondary)
-        return weeklyLeft !== null ? weeklyLeft : primaryLeft
+        return knownPercentLeft(secondary)
     }
 
     function resetAt(window) {
@@ -2527,7 +2539,7 @@ PlasmoidItem {
                         && !root.activeEntry.errorMessage
                         && signalProviderView.providerRows.length === 0
                         && signalProviderView.costRows.length === 0
-                        && !(root.activeEntry.creditsRemaining > 0)
+                        && !root.hasCreditsValue(root.activeEntry)
                         && signalProviderView.detailRows.length === 0
                     Layout.fillWidth: true
                     Layout.leftMargin: 18
@@ -2559,7 +2571,7 @@ PlasmoidItem {
 
                 Rectangle {
                     visible: signalProviderView.costRows.length > 0
-                        || root.activeEntry.creditsRemaining > 0
+                        || root.hasCreditsValue(root.activeEntry)
                     Layout.fillWidth: true
                     Layout.leftMargin: 18
                     Layout.rightMargin: 18
@@ -2569,7 +2581,7 @@ PlasmoidItem {
 
                 RowLayout {
                     visible: signalProviderView.costRows.length > 0
-                        || root.activeEntry.creditsRemaining > 0
+                        || root.hasCreditsValue(root.activeEntry)
                     Layout.fillWidth: true
                     Layout.leftMargin: 18
                     Layout.rightMargin: 18
@@ -2617,14 +2629,30 @@ PlasmoidItem {
                         }
                     }
 
-                    PlasmaComponents.Label {
-                        visible: signalProviderView.costRows.length === 0
-                            && root.activeEntry.creditsRemaining > 0
-                        text: root.formatCredits(root.activeEntry.creditsRemaining)
-                        color: root.textColor
-                        font.family: root.designFont
-                        font.pixelSize: 13
-                        font.weight: Font.Bold
+                    Row {
+                        // Spend and credit balance are different facts. Cost rows used
+                        // to hide the balance entirely, so both now share the row.
+                        visible: root.hasCreditsValue(root.activeEntry)
+                        spacing: 4
+
+                        PlasmaComponents.Label {
+                            // The row heading already reads "Credits" when no spend
+                            // rows exist. With both present it reads "Spend", so the
+                            // balance names itself instead of trailing unlabelled.
+                            visible: signalProviderView.costRows.length > 0
+                            text: i18n("Credits")
+                            color: root.quietColor
+                            font.family: root.designFont
+                            font.pixelSize: 12
+                        }
+
+                        PlasmaComponents.Label {
+                            text: root.formatCredits(root.activeEntry.creditsRemaining)
+                            color: root.textColor
+                            font.family: root.designFont
+                            font.pixelSize: 13
+                            font.weight: Font.Bold
+                        }
                     }
                 }
 
