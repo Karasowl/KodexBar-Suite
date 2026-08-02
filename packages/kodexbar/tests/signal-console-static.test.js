@@ -64,7 +64,7 @@ assert.match(qml, /root\.selectedEntryKey = selectionKey[\s\S]{0,80}root\.expand
 const compactStrip = qml.slice(compactStart, qml.indexOf("compactRepresentation: Item", compactStart))
 assert.doesNotMatch(compactStrip, /QQC2\.ToolTip/, "compact provider navigation never covers taskbar icons with hover overlays")
 assert.match(preferences, /function signalIcon\(name\)/, "preferences share the packaged icon family")
-assert.match(preferences, /palette\.base: "#14161d"[\s\S]{0,220}palette\.buttonText: "#e9ebf2"/, "preferences keep native controls legible on the dark surface")
+assert.match(preferences, /palette\.base: preferences\.th\("#14161d"\)[\s\S]{0,300}palette\.buttonText: preferences\.th\("#e9ebf2"\)/, "preferences keep native controls legible on the dark surface")
 assert.match(preferences, /text: i18n\("Panel preview"\)/, "preferences avoid inherited all-caps microtype")
 assert.match(preferences, /component PreferenceCard: Rectangle[\s\S]{0,260}color: "transparent"[\s\S]{0,80}border\.width: 0/, "preference groups use flat sections instead of card soup")
 
