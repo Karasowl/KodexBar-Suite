@@ -7,6 +7,7 @@ import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.plasma5support as Plasma5Support
 import "../code/providerLogic.js" as ProviderLogic
+import "../code/themePalette.js" as ThemePalette
 
 PlasmoidItem {
     id: root
@@ -97,17 +98,26 @@ PlasmoidItem {
     readonly property string designFont: manropeFont.status === FontLoader.Ready && manropeFont.name.length > 0
         ? manropeFont.name
         : Kirigami.Theme.defaultFont.family
-    readonly property color cardColor: "#14161d"
-    readonly property color surfaceColor: "#0f1116"
-    readonly property color raisedColor: "#1b1e28"
-    readonly property color lineColor: "#262a35"
-    readonly property color textColor: "#e9ebf2"
-    readonly property color mutedColor: "#8b91a3"
-    readonly property color quietColor: "#6b7080"
-    readonly property color accentColor: "#6e5aff"
-    readonly property color goodColor: "#45d483"
-    readonly property color warningColor: "#f0b429"
-    readonly property color errorColor: "#f76b6b"
+    // Dual custom palette: the design is authored dark. On a light system
+    // theme every color is swapped for a mirrored light equivalent, so dark
+    // mode keeps the exact authored values and light mode stays legible.
+    readonly property bool darkMode: ThemePalette.isDarkColor(Kirigami.Theme.backgroundColor)
+    readonly property color cardColor: root.th("#14161d")
+    readonly property color surfaceColor: root.th("#0f1116")
+    readonly property color raisedColor: root.th("#1b1e28")
+    readonly property color lineColor: root.th("#262a35")
+    readonly property color textColor: root.th("#e9ebf2")
+    readonly property color mutedColor: root.th("#8b91a3")
+    readonly property color quietColor: root.th("#6b7080")
+    readonly property color accentColor: root.th("#6e5aff")
+    readonly property color goodColor: root.th("#45d483")
+    readonly property color warningColor: root.th("#f0b429")
+    readonly property color errorColor: root.th("#f76b6b")
+
+    function th(hexColor) {
+        return ThemePalette.themed(hexColor, darkMode)
+    }
+
     readonly property var popupState: ProviderLogic.activeEntryData(entries, selectedEntryKey)
     readonly property var popupEntries: popupState.entries || []
     readonly property var activeEntry: popupState.entry || ({})
@@ -876,7 +886,7 @@ PlasmoidItem {
     }
 
     function localKindColor(kind) {
-        var colors = { "llm": "#8f7bff", "vision": "#5ac8fa", "image": "#f0b429", "video": "#f0b429", "audio": "#ffd166", "embedding": "#45d483", "unknown": "#6b7080" }
+        var colors = { "llm": root.th("#8f7bff"), "vision": root.th("#5ac8fa"), "image": root.th("#f0b429"), "video": root.th("#f0b429"), "audio": root.th("#ffd166"), "embedding": root.th("#45d483"), "unknown": root.th("#6b7080") }
         return colors[kind] || colors.unknown
     }
 
@@ -2019,7 +2029,7 @@ PlasmoidItem {
                             height: 20
                             anchors.verticalCenter: parent.verticalCenter
                             source: root.signalIconSource(signalDestination.modelData.icon)
-                            color: signalDestination.selected ? "#b4a5ff" : root.mutedColor
+                            color: signalDestination.selected ? root.th("#b4a5ff") : root.mutedColor
                         }
 
                         PlasmaComponents.Label {
@@ -2041,7 +2051,7 @@ PlasmoidItem {
                             anchors.rightMargin: 7
                             height: 3
                             radius: 2
-                            color: signalDestination.selected ? "#9b7cff" : "transparent"
+                            color: signalDestination.selected ? root.th("#9b7cff") : "transparent"
                         }
 
                         Rectangle {
@@ -2049,8 +2059,8 @@ PlasmoidItem {
                             anchors.margins: 7
                             radius: 9
                             color: signalDestination.down
-                                ? "#29253b"
-                                : signalDestination.hovered ? "#1a1d26" : "transparent"
+                                ? root.th("#29253b")
+                                : signalDestination.hovered ? root.th("#1a1d26") : "transparent"
                             z: -1
                         }
                     }
@@ -2096,8 +2106,8 @@ PlasmoidItem {
                 background: Rectangle {
                     radius: 9
                     color: signalRefresh.down
-                        ? "#29253b"
-                        : signalRefresh.hovered ? "#1a1d26" : "transparent"
+                        ? root.th("#29253b")
+                        : signalRefresh.hovered ? root.th("#1a1d26") : "transparent"
                 }
             }
 
@@ -2121,8 +2131,8 @@ PlasmoidItem {
                 background: Rectangle {
                     radius: 9
                     color: signalSettings.down
-                        ? "#29253b"
-                        : signalSettings.hovered ? "#1a1d26" : "transparent"
+                        ? root.th("#29253b")
+                        : signalSettings.hovered ? root.th("#1a1d26") : "transparent"
                 }
             }
         }
@@ -2143,7 +2153,7 @@ PlasmoidItem {
         readonly property real used: root.usedPercent(rowData.percentLeft) || 0
         readonly property color accent: used >= 80
             ? root.errorColor
-            : used >= 65 ? root.warningColor : "#9475ed"
+            : used >= 65 ? root.warningColor : root.th("#9475ed")
         readonly property bool hasSegments: !!(rowData.segments && rowData.segments.length)
         readonly property var legendItems: rowData.segmentLegendItems || []
         readonly property string absoluteReset: root.formatResetDateTime(rowData.resetsAt)
@@ -2203,7 +2213,7 @@ PlasmoidItem {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 6
                 radius: 3
-                color: "#343943"
+                color: root.th("#343943")
                 clip: true
 
                 Rectangle {
@@ -2228,7 +2238,7 @@ PlasmoidItem {
                             width: signalQuotaTrack.width
                                 * Math.min(100, Math.max(0, modelData.points)) / 100
                             height: signalQuotaTrack.height
-                            color: root.segmentColor(modelData.title, index)
+                            color: root.th(root.segmentColor(modelData.title, index))
                         }
                     }
                 }
@@ -2265,7 +2275,7 @@ PlasmoidItem {
                             width: 7
                             height: 7
                             radius: 4
-                            color: root.segmentColor(modelData.title, index)
+                            color: root.th(root.segmentColor(modelData.title, index))
                             anchors.verticalCenter: parent.verticalCenter
                         }
 
@@ -2494,7 +2504,7 @@ PlasmoidItem {
                             : (root.errorDetail.length > 0
                                 ? root.errorMessage + " " + root.errorDetail
                                 : root.errorMessage)
-                        color: "#d5a7ad"
+                        color: root.th("#d5a7ad")
                         font.family: root.designFont
                         font.pixelSize: 13
                         wrapMode: Text.WordWrap
@@ -2598,7 +2608,7 @@ PlasmoidItem {
 
                     Kirigami.Icon {
                         source: root.signalIconSource("currency-dollar")
-                        color: "#9b7cff"
+                        color: root.th("#9b7cff")
                         Layout.preferredWidth: 20
                         Layout.preferredHeight: 20
                     }
@@ -2822,7 +2832,7 @@ PlasmoidItem {
                             width: visible ? 1 : 0
                             height: 16
                             anchors.verticalCenter: parent.verticalCenter
-                            color: "#333844"
+                            color: root.th("#333844")
                         }
 
                         Rectangle {
@@ -2877,8 +2887,8 @@ PlasmoidItem {
                     background: Rectangle {
                         radius: 6
                         color: compactProviderButton.down
-                            ? "#29243d"
-                            : compactProviderButton.hovered ? "#201d2d" : "transparent"
+                            ? root.th("#29243d")
+                            : compactProviderButton.hovered ? root.th("#201d2d") : "transparent"
                     }
                 }
             }
@@ -2892,7 +2902,7 @@ PlasmoidItem {
                     width: visible ? 1 : 0
                     height: 16
                     anchors.verticalCenter: parent.verticalCenter
-                    color: "#333844"
+                    color: root.th("#333844")
                 }
 
                 Rectangle {
@@ -3087,7 +3097,7 @@ PlasmoidItem {
                                     ? i18n("%1 across %2 providers", root.skillsSummary.uniqueSkills || 0,
                                         root.skillsSummary.connectedProviders || 0)
                                 : (root.activeEntry.plan || root.activeEntry.accountLabel || root.activeEntry.source || i18n("Usage"))
-                            color: "#7a8093"
+                            color: root.th("#7a8093")
                             font.family: root.designFont
                             font.pixelSize: 12
                             elide: Text.ElideRight
@@ -3117,7 +3127,7 @@ PlasmoidItem {
                             font.family: root.designFont
                             font.pixelSize: 11
                         }
-                        PlasmaComponents.Label { text: "·"; color: "#3a3f4d"; font.pixelSize: 11 }
+                        PlasmaComponents.Label { text: "·"; color: root.th("#3a3f4d"); font.pixelSize: 11 }
                         PlasmaComponents.Label {
                             text: String(root.selectedPopupTab === "provider"
                                 ? (root.activeEntry.source || root.activeSource || "")
@@ -3161,7 +3171,7 @@ PlasmoidItem {
 
                     background: Rectangle {
                         radius: 9
-                        color: parent.hovered ? "#20232d" : "transparent"
+                        color: parent.hovered ? root.th("#20232d") : "transparent"
                     }
                 }
 
@@ -3189,13 +3199,13 @@ PlasmoidItem {
                             width: 16
                             height: 16
                             source: "utilities-terminal"
-                            color: aiControlButton.enabled ? "#a898ff" : root.quietColor
+                            color: aiControlButton.enabled ? root.th("#a898ff") : root.quietColor
                         }
                     }
 
                     background: Rectangle {
                         radius: 9
-                        color: aiControlPopup.visible ? "#292343" : (parent.hovered ? "#20232d" : "transparent")
+                        color: aiControlPopup.visible ? root.th("#292343") : (parent.hovered ? root.th("#20232d") : "transparent")
                     }
                 }
 
@@ -3255,7 +3265,7 @@ PlasmoidItem {
 
                     background: Rectangle {
                         radius: 9
-                        color: parent.hovered ? "#20232d" : "transparent"
+                        color: parent.hovered ? root.th("#20232d") : "transparent"
                     }
                 }
 
@@ -3266,7 +3276,7 @@ PlasmoidItem {
                     anchors.right: aiControlButton.left
                     anchors.rightMargin: 8
                     y: 21
-                    color: "#282b34"
+                    color: root.th("#282b34")
                 }
 
                 Row {
@@ -3291,7 +3301,7 @@ PlasmoidItem {
                                 height: 18
                                 anchors.left: parent.left
                                 anchors.verticalCenter: parent.verticalCenter
-                                color: "#282b34"
+                                color: root.th("#282b34")
                             }
 
                             QQC2.ToolButton {
@@ -3330,7 +3340,7 @@ PlasmoidItem {
                                         color: parent.parent.parent.selected ? root.textColor : root.quietColor
                                     }
                                 }
-                                background: Rectangle { radius: 9; color: parent.parent.selected ? "#262a35" : (parent.hovered ? "#20232d" : "transparent") }
+                                background: Rectangle { radius: 9; color: parent.parent.selected ? root.th("#262a35") : (parent.hovered ? root.th("#20232d") : "transparent") }
                             }
                         }
                         id: headerTabsRepeater
@@ -3354,7 +3364,7 @@ PlasmoidItem {
                     anchors.leftMargin: 16
                     anchors.rightMargin: 16
                     height: 1
-                    color: "#20232b"
+                    color: root.th("#20232b")
                 }
 
                 Rectangle {
@@ -3408,7 +3418,7 @@ PlasmoidItem {
                                     visible: modelData.kind !== "provider" && providerTabs.count > 1
                                     Layout.preferredWidth: visible ? 1 : 0
                                     Layout.preferredHeight: 18
-                                    color: "#282b34"
+                                    color: root.th("#282b34")
                                 }
 
                                 Item {
@@ -3430,13 +3440,13 @@ PlasmoidItem {
                                     Layout.preferredWidth: visible ? 16 : 0
                                     Layout.preferredHeight: 16
                                     source: modelData.icon
-                                    color: parent.parent.selected ? "#f2f3f8" : root.mutedColor
+                                    color: parent.parent.selected ? root.th("#f2f3f8") : root.mutedColor
                                 }
 
                                 PlasmaComponents.Label {
                                     visible: false
                                     text: modelData.tabLabel
-                                    color: parent.parent.selected ? "#f2f3f8" : root.mutedColor
+                                    color: parent.parent.selected ? root.th("#f2f3f8") : root.mutedColor
                                     font.family: root.designFont
                                     font.pixelSize: 13
                                     font.weight: Font.DemiBold
@@ -3451,8 +3461,8 @@ PlasmoidItem {
 
                             background: Rectangle {
                                 radius: 9
-                                color: parent.selected ? "#242836" : "transparent"
-                                border.color: parent.selected ? "#333a4c" : "transparent"
+                                color: parent.selected ? root.th("#242836") : "transparent"
+                                border.color: parent.selected ? root.th("#333a4c") : "transparent"
                                 border.width: 1
                             }
                         }
@@ -3531,13 +3541,13 @@ PlasmoidItem {
                             Layout.preferredWidth: sourcePillLabel.implicitWidth + 18
                             Layout.preferredHeight: 22
                             radius: 11
-                            color: "#211d3d"
+                            color: root.th("#211d3d")
 
                             PlasmaComponents.Label {
                                 id: sourcePillLabel
                                 anchors.centerIn: parent
                                 text: String(root.activeEntry.source || root.activeSource || "").toUpperCase()
-                                color: "#9787ff"
+                                color: root.th("#9787ff")
                                 font.family: root.designFont
                                 font.pixelSize: 11
                                 font.weight: Font.DemiBold
@@ -3699,8 +3709,8 @@ PlasmoidItem {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: errorContent.implicitHeight + 30
                                 radius: 13
-                                color: "#2b2027"
-                                border.color: "#6b3943"
+                                color: root.th("#2b2027")
+                                border.color: root.th("#6b3943")
                                 border.width: 1
 
                                 RowLayout {
@@ -3723,7 +3733,7 @@ PlasmoidItem {
 
                                         PlasmaComponents.Label {
                                             text: i18n("Couldn't load usage · ERR")
-                                            color: "#ff8888"
+                                            color: root.th("#ff8888")
                                             font.family: root.designFont
                                             font.pixelSize: 13
                                             font.weight: Font.Bold
@@ -3736,7 +3746,7 @@ PlasmoidItem {
                                                 : (root.errorDetail.length > 0
                                                     ? root.errorMessage + " " + root.errorDetail
                                                     : root.errorMessage)
-                                            color: "#cc9999"
+                                            color: root.th("#cc9999")
                                             font.family: root.designFont
                                             font.pixelSize: 12
                                             lineHeight: 1.45
@@ -3805,7 +3815,7 @@ PlasmoidItem {
                                             Layout.preferredHeight: 20
                                             radius: 5
                                             color: root.raisedColor
-                                            border.color: "#2b303c"
+                                            border.color: root.th("#2b303c")
                                             border.width: 1
 
                                             PlasmaComponents.Label {
@@ -3852,7 +3862,7 @@ PlasmoidItem {
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: 6
                                         radius: 3
-                                        color: "#20232d"
+                                        color: root.th("#20232d")
                                         clip: true
 
                                         Rectangle {
@@ -3874,7 +3884,7 @@ PlasmoidItem {
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: 6
                                         radius: 3
-                                        color: "#20232d"
+                                        color: root.th("#20232d")
                                         clip: true
 
                                         Row {
@@ -3892,7 +3902,7 @@ PlasmoidItem {
 
                                                     Rectangle {
                                                         anchors.fill: parent
-                                                        color: root.segmentColor(modelData.title, index)
+                                                        color: root.th(root.segmentColor(modelData.title, index))
                                                     }
 
                                                     // Dark 1px divider on internal frontiers only.
@@ -3902,7 +3912,7 @@ PlasmoidItem {
                                                         height: parent.height
                                                         anchors.left: parent.left
                                                         z: 1
-                                                        color: "#0b0c10"
+                                                        color: root.th("#0b0c10")
                                                     }
                                                 }
                                             }
@@ -3947,7 +3957,7 @@ PlasmoidItem {
                                                     width: 8
                                                     height: 8
                                                     radius: 4
-                                                    color: root.segmentColor(modelData.title, index)
+                                                    color: root.th(root.segmentColor(modelData.title, index))
                                                     anchors.verticalCenter: parent.verticalCenter
                                                 }
 
@@ -3989,7 +3999,7 @@ PlasmoidItem {
                                 Rectangle {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 1
-                                    color: "#22252f"
+                                    color: root.th("#22252f")
                                 }
 
                                 RowLayout {
@@ -4035,7 +4045,7 @@ PlasmoidItem {
                                 Rectangle {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 1
-                                    color: "#22252f"
+                                    color: root.th("#22252f")
                                 }
 
                                 RowLayout {
@@ -4070,7 +4080,7 @@ PlasmoidItem {
                                 Rectangle {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 1
-                                    color: "#22252f"
+                                    color: root.th("#22252f")
                                 }
 
                                 RowLayout {
@@ -4116,7 +4126,7 @@ PlasmoidItem {
                                 Rectangle {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 1
-                                    color: "#22252f"
+                                    color: root.th("#22252f")
                                 }
 
                                 PlasmaComponents.Label {
@@ -4290,7 +4300,7 @@ PlasmoidItem {
                             Layout.preferredWidth: 126
                             Layout.preferredHeight: 54
                             radius: 10
-                            color: "#171a23"
+                            color: root.th("#171a23")
                             border.width: 1
                             border.color: root.lineColor
 
@@ -4375,8 +4385,8 @@ PlasmoidItem {
                                 height: groupStart ? 78 : 58
                                 radius: 0
                                 color: modelData.state === "active"
-                                    ? "#111b19"
-                                    : (index % 2 === 0 ? "#12151c" : root.surfaceColor)
+                                    ? root.th("#111b19")
+                                    : (index % 2 === 0 ? root.th("#12151c") : root.surfaceColor)
                                 border.width: 0
                                 opacity: modelData.state === "installed" ? 0.58 : 1
 
@@ -4416,7 +4426,7 @@ PlasmoidItem {
                                     Rectangle {
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: 1
-                                        color: "#20232d"
+                                        color: root.th("#20232d")
                                     }
                                     PlasmaComponents.Label {
                                         text: parent.parent.resident ? i18n("%1 resident", root.localResidentCount()) : root.localKindCount(modelData.kind)
@@ -4474,7 +4484,7 @@ PlasmoidItem {
                                             onPaint: {
                                                 var context = getContext("2d")
                                                 context.clearRect(0, 0, width, height)
-                                                context.strokeStyle = modelData.state === "active" ? root.goodColor : "#2f333d"
+                                                context.strokeStyle = modelData.state === "active" ? root.goodColor : root.th("#2f333d")
                                                 context.lineWidth = 1.4
                                                 context.beginPath()
                                                 var values = root.localModelHistory[modelData.id] || []
@@ -4494,7 +4504,7 @@ PlasmoidItem {
                                                 context.stroke()
                                                 context.setLineDash([])
                                             }
-                                            Connections { target: root; function onLocalModelHistoryChanged() { localSparkCanvas.requestPaint() } }
+                                            Connections { target: root; function onLocalModelHistoryChanged() { localSparkCanvas.requestPaint() } function onDarkModeChanged() { localSparkCanvas.requestPaint() } }
                                         }
                                     }
 
@@ -4640,10 +4650,10 @@ PlasmoidItem {
                                     Layout.preferredWidth: 168
                                     Layout.preferredHeight: 44
                                     radius: 9
-                                    color: allSkillsCheck.down ? "#29233e"
-                                        : allSkillsCheck.hovered ? "#211d31" : "transparent"
+                                    color: allSkillsCheck.down ? root.th("#29233e")
+                                        : allSkillsCheck.hovered ? root.th("#211d31") : "transparent"
                                     border.width: 1
-                                    border.color: "#8064d8"
+                                    border.color: root.th("#8064d8")
 
                                     QQC2.CheckBox {
                                         id: allSkillsCheck
@@ -4776,7 +4786,7 @@ PlasmoidItem {
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 58
-                                color: "#1a1d26"
+                                color: root.th("#1a1d26")
 
                                 RowLayout {
                                     anchors.fill: parent
@@ -4811,7 +4821,7 @@ PlasmoidItem {
                                                 Layout.preferredHeight: 20
                                                 radius: 5
                                                 color: modelData.id === "opencode"
-                                                    ? "#e7e9ef" : "transparent"
+                                                    ? root.th("#e7e9ef") : "transparent"
 
                                                 Image {
                                                     anchors.centerIn: parent
@@ -4877,8 +4887,8 @@ PlasmoidItem {
                                     width: skillsList.width
                                     height: 60
                                     color: modelData.status === "conflict"
-                                        ? "#1d171c"
-                                        : (index % 2 === 0 ? "#12151c" : root.surfaceColor)
+                                        ? root.th("#1d171c")
+                                        : (index % 2 === 0 ? root.th("#12151c") : root.surfaceColor)
 
                                     RowLayout {
                                         anchors.fill: parent
@@ -4992,7 +5002,7 @@ PlasmoidItem {
                                         anchors.right: parent.right
                                         anchors.bottom: parent.bottom
                                         height: 1
-                                        color: "#1c2029"
+                                        color: root.th("#1c2029")
                                     }
                                 }
                             }
@@ -5017,7 +5027,7 @@ PlasmoidItem {
                         id: skillsActionBar
                         Layout.fillWidth: true
                         Layout.preferredHeight: 64
-                        color: "#11141b"
+                        color: root.th("#11141b")
 
                         RowLayout {
                             anchors.fill: parent
@@ -5065,7 +5075,7 @@ PlasmoidItem {
 
                                 contentItem: PlasmaComponents.Label {
                                     text: parent.text
-                                    color: parent.enabled ? "#cbbfff" : root.quietColor
+                                    color: parent.enabled ? root.th("#cbbfff") : root.quietColor
                                     font.family: root.designFont
                                     font.pixelSize: 12
                                     font.weight: Font.DemiBold
@@ -5075,10 +5085,10 @@ PlasmoidItem {
 
                                 background: Rectangle {
                                     radius: 8
-                                    color: parent.down ? "#242035"
-                                        : parent.hovered ? "#1c1929" : "transparent"
+                                    color: parent.down ? root.th("#242035")
+                                        : parent.hovered ? root.th("#1c1929") : "transparent"
                                     border.width: 1
-                                    border.color: parent.enabled ? "#8064d8" : "#30333e"
+                                    border.color: parent.enabled ? root.th("#8064d8") : root.th("#30333e")
                                 }
                             }
 
@@ -5105,9 +5115,9 @@ PlasmoidItem {
                                 background: Rectangle {
                                     radius: 8
                                     color: parent.enabled
-                                        ? (parent.down ? "#5543d8"
-                                            : parent.hovered ? "#7a67ff" : root.accentColor)
-                                        : "#292c36"
+                                        ? (parent.down ? root.th("#5543d8")
+                                            : parent.hovered ? root.th("#7a67ff") : root.accentColor)
+                                        : root.th("#292c36")
                                 }
                             }
                         }
@@ -5206,8 +5216,8 @@ PlasmoidItem {
                     anchors.topMargin: 16
                     anchors.bottomMargin: 12
                     radius: 12
-                    color: "#0f1015"
-                    border.color: "#20232b"
+                    color: root.th("#0f1015")
+                    border.color: root.th("#20232b")
                     border.width: 1
                     clip: true
 
@@ -5232,12 +5242,12 @@ PlasmoidItem {
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 1
-                            color: "#20232d"
+                            color: root.th("#20232d")
                         }
 
                         PlasmaComponents.Label {
                             text: i18n("compact view")
-                            color: "#565b68"
+                            color: root.th("#565b68")
                             font.family: root.designFont
                             font.pixelSize: 10
                         }
@@ -5292,8 +5302,8 @@ PlasmoidItem {
 
             background: Rectangle {
                 radius: 14
-                color: "#131419"
-                border.color: "#2a2d37"
+                color: root.th("#131419")
+                border.color: root.th("#2a2d37")
                 border.width: 1
             }
 
@@ -5328,11 +5338,11 @@ PlasmoidItem {
                         Accessible.name: text
                         onClicked: aiControlMenu.open()
                         contentItem: Kirigami.Icon { source: "application-menu"; color: root.mutedColor }
-                        background: Rectangle { radius: 8; color: parent.hovered ? "#20232d" : "transparent" }
+                        background: Rectangle { radius: 8; color: parent.hovered ? root.th("#20232d") : "transparent" }
                     }
                 }
 
-                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#20232b" }
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.th("#20232b") }
 
                 QQC2.ScrollView {
                     Layout.fillWidth: true
@@ -5374,8 +5384,8 @@ PlasmoidItem {
                                     PlasmaComponents.Label { anchors.centerIn: parent; text: parent.parent.parent.resident ? "●" : root.localKindGlyph(modelData.kind); color: parent.parent.parent.resident ? root.accentColor : root.localKindColor(modelData.kind); font.family: "monospace"; font.pixelSize: 9 }
                                 }
                                 PlasmaComponents.Label { text: parent.parent.resident ? i18n("IN MEMORY") : root.localKindText(modelData.kind).toUpperCase(); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; font.weight: Font.Bold }
-                                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#20232d" }
-                                PlasmaComponents.Label { text: parent.parent.resident ? i18n("%1 resident", root.localResidentCount()) : root.localKindCount(modelData.kind); color: "#565b68"; font.family: root.designFont; font.pixelSize: 9 }
+                                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.th("#20232d") }
+                                PlasmaComponents.Label { text: parent.parent.resident ? i18n("%1 resident", root.localResidentCount()) : root.localKindCount(modelData.kind); color: root.th("#565b68"); font.family: root.designFont; font.pixelSize: 9 }
                             }
 
                             RowLayout {
@@ -5386,10 +5396,10 @@ PlasmoidItem {
                                 anchors.rightMargin: 3
                                 anchors.bottomMargin: 6
                                 spacing: 7
-                                Rectangle { Layout.preferredWidth: 7; Layout.preferredHeight: 7; radius: 4; color: modelData.state === "active" ? root.goodColor : (modelData.state === "loaded" ? root.mutedColor : "transparent"); border.width: modelData.state === "installed" ? 1 : 0; border.color: "#33384d" }
+                                Rectangle { Layout.preferredWidth: 7; Layout.preferredHeight: 7; radius: 4; color: modelData.state === "active" ? root.goodColor : (modelData.state === "loaded" ? root.mutedColor : "transparent"); border.width: modelData.state === "installed" ? 1 : 0; border.color: root.th("#33384d") }
                                 ColumnLayout {
                                     Layout.fillWidth: true; spacing: 1
-                                    PlasmaComponents.Label { text: modelData.name; color: modelData.state === "installed" ? "#565b68" : root.textColor; font.family: "monospace"; font.pixelSize: 10; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
+                                    PlasmaComponents.Label { text: modelData.name; color: modelData.state === "installed" ? root.th("#565b68") : root.textColor; font.family: "monospace"; font.pixelSize: 10; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
                                     PlasmaComponents.Label { text: root.localModelMeta(modelData); color: root.quietColor; font.family: root.designFont; font.pixelSize: 8; elide: Text.ElideRight; Layout.fillWidth: true }
                                 }
                                 Item {
@@ -5401,7 +5411,7 @@ PlasmoidItem {
                                         onPaint: {
                                             var context = getContext("2d")
                                             context.clearRect(0, 0, width, height)
-                                            context.strokeStyle = modelData.state === "active" ? root.goodColor : "#2f333d"
+                                            context.strokeStyle = modelData.state === "active" ? root.goodColor : root.th("#2f333d")
                                             context.lineWidth = 1.3
                                             context.beginPath()
                                             var values = root.localModelHistory[modelData.id] || []
@@ -5421,7 +5431,7 @@ PlasmoidItem {
                                             context.stroke()
                                             context.setLineDash([])
                                         }
-                                        Connections { target: root; function onLocalModelHistoryChanged() { aiControlSparkCanvas.requestPaint() } }
+                                        Connections { target: root; function onLocalModelHistoryChanged() { aiControlSparkCanvas.requestPaint() } function onDarkModeChanged() { aiControlSparkCanvas.requestPaint() } }
                                     }
                                 }
                                 Row {
@@ -5443,14 +5453,14 @@ PlasmoidItem {
                                     Accessible.name: text
                                     onClicked: root.localModelAction(modelData.state === "installed" ? "mount" : "unmount", modelData.runtime, modelData.id, false)
                                     contentItem: Kirigami.Icon { source: modelData.state === "installed" ? "go-up" : "media-eject"; color: parent.enabled ? root.mutedColor : root.quietColor }
-                                    background: Rectangle { radius: 8; color: parent.hovered ? "#20232d" : "transparent" }
+                                    background: Rectangle { radius: 8; color: parent.hovered ? root.th("#20232d") : "transparent" }
                                 }
                             }
                         }
                     }
                 }
 
-                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#20232b" }
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.th("#20232b") }
                 RowLayout {
                     Layout.fillWidth: true
                     Layout.leftMargin: 12; Layout.rightMargin: 10

@@ -19,7 +19,7 @@ node tests/skills-static.test.js
 node tests/signal-console-static.test.js
 
 if command -v qmllint >/dev/null 2>&1; then
-    qmllint contents/code/providerLogic.js contents/ui/main.qml contents/ui/PreferencesWindow.qml
+    qmllint contents/code/providerLogic.js contents/code/themePalette.js contents/ui/main.qml contents/ui/PreferencesWindow.qml
 else
     echo "qmllint is required" >&2
     exit 1

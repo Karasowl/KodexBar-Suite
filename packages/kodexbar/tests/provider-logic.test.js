@@ -1181,7 +1181,7 @@ assert.match(
 )
 assert.match(
     mainQml,
-    /Rectangle \{\s*width: 8\s*height: 8\s*radius: 4\s*color: root\.segmentColor\(modelData\.title, index\)/,
+    /Rectangle \{\s*width: 8\s*height: 8\s*radius: 4\s*color: root\.th\(root\.segmentColor\(modelData\.title, index\)\)/,
     "each legend item has an 8px circular color dot"
 )
 assert.match(
@@ -1224,7 +1224,7 @@ assert.ok(
 )
 assert.match(
     mainQml,
-    /visible: index > 0[\s\S]*width: 1[\s\S]*color: "#0b0c10"/,
+    /visible: index > 0[\s\S]*width: 1[\s\S]*color: root\.th\("#0b0c10"\)/,
     "segment track draws a 1px dark divider on internal frontiers only"
 )
 assert.doesNotMatch(
