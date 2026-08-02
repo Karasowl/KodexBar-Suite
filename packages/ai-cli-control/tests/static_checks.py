@@ -22,8 +22,8 @@ AUR_PKGBUILD = ROOT.parents[1] / "packaging" / "aur" / "PKGBUILD"
 AUR_INSTALL = ROOT.parents[1] / "packaging" / "aur" / "kodexbar-suite.install"
 PLASMOID_METADATA = ROOT.parent / "kodexbar" / "metadata.json"
 PLASMA_RELOAD = ROOT.parents[1] / "packaging" / "aur" / "reload-plasma-after-upgrade"
-RELEASE_VERSION = "0.12.1"
-AUR_RELEASE_VERSION = "0.12.1"
+RELEASE_VERSION = "0.12.4"
+AUR_RELEASE_VERSION = "0.12.4"
 FORBIDDEN = ("eval(", "shell=True", "shell = True", "os.system(")
 SECRET_PATTERNS = {
     "private key": re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"),
@@ -114,8 +114,6 @@ def main() -> int:
         print("AUR package version does not match its pinned release", file=sys.stderr)
         return 1
     required_payload_statements = (
-        r"(?m)^\s*'kodexbar-compact-provider-index\.patch'$",
-        r"(?m)^\s*patch -Np1 -i \"\$\{srcdir\}/kodexbar-compact-provider-index\.patch\"$",
         r"(?m)^\s*packages/ai-cli-control/local-ai\s+\\$",
         r"(?m)^\s*packages/ai-cli-control/kodexbar-skills\s+\\$",
         r'(?m)^\s*install -d "\$\{payload\}/local_ai_drivers"$',
