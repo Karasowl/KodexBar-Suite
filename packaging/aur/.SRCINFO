@@ -16,11 +16,9 @@ pkgbase = kodexbar-suite
 	optdepends = wl-clipboard: Wayland clipboard support for ai recover --copy
 	optdepends = xclip: X11 clipboard support for ai recover --copy
 	optdepends = xsel: alternate X11 clipboard support for ai recover --copy
-	source = kodexbar-suite-0.12.1.tar.gz::https://github.com/Karasowl/KodexBar-Suite/archive/refs/tags/v0.12.1.tar.gz
+	source = kodexbar-suite-0.12.4.tar.gz::https://github.com/Karasowl/KodexBar-Suite/archive/refs/tags/v0.12.4.tar.gz
 	source = reload-plasma-after-upgrade
-	source = kodexbar-compact-provider-index.patch
-	sha256sums = 2e4398277ba9240fc46fa7434c95688346b8da899fc87ac4dd411ef3d2bbc848
+	sha256sums = 264e7807f39c3c34fc12c14bf22afb638dba5811645d2b29b1305f789e7c7e5c
 	sha256sums = b8c7d720603f43fddeefb891ace7780a1ef7716aa4125d0fa3cfa48a6e96a095
-	sha256sums = 5230bd90888790205bf133eb56dd6513c3c711f1d1a7bc52a8764d7f2cff26ca
 
 pkgname = kodexbar-suite

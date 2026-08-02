@@ -30,7 +30,7 @@ source=(
   'reload-plasma-after-upgrade'
 )
 sha256sums=(
-  '2e4398277ba9240fc46fa7434c95688346b8da899fc87ac4dd411ef3d2bbc848'
+  '264e7807f39c3c34fc12c14bf22afb638dba5811645d2b29b1305f789e7c7e5c'
   'b8c7d720603f43fddeefb891ace7780a1ef7716aa4125d0fa3cfa48a6e96a095'
 )
 
