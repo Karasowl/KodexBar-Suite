@@ -85,7 +85,7 @@ PlasmoidItem {
     property bool includeStatus: Plasmoid.configuration.includeStatus === undefined ? false : Plasmoid.configuration.includeStatus
     property bool showCostSummary: Plasmoid.configuration.showCostSummary === undefined ? true : Plasmoid.configuration.showCostSummary
     property int costRefreshSeconds: Math.max(1, Plasmoid.configuration.costRefreshSeconds || 900)
-    readonly property string defaultCompactProviderOrder: "codex,claude,grok,antigravity"
+    readonly property string defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego"
     property string compactProviderOrder: Plasmoid.configuration.compactProviderOrder === undefined
         ? defaultCompactProviderOrder
         : Plasmoid.configuration.compactProviderOrder
@@ -142,6 +142,11 @@ PlasmoidItem {
             text: i18n("Open AI CLI Control")
             icon.name: "applications-development"
             onTriggered: root.launchAiControl([])
+        },
+        PlasmaCore.Action {
+            text: i18n("Manage AI accounts")
+            icon.name: "user-identity"
+            onTriggered: root.launchAiControl(["--accounts"], true)
         },
         PlasmaCore.Action {
             text: i18n("Update all AI CLIs")
@@ -1719,6 +1724,32 @@ PlasmoidItem {
         return summary
     }
 
+    function providerWindowTitle(provider, quotaKey) {
+        if (ProviderLogic.providerId(provider) === "opencodego") {
+            if (quotaKey === "primary") {
+                return i18n("5-hour")
+            }
+            if (quotaKey === "weekly") {
+                return i18n("Weekly")
+            }
+            if (quotaKey === "tertiary") {
+                return i18n("Monthly")
+            }
+        }
+        if (ProviderLogic.providerId(provider) === "cursor") {
+            if (quotaKey === "secondary" || quotaKey === "weekly") {
+                return i18n("Monthly")
+            }
+        }
+        if (quotaKey === "primary") {
+            return i18n("Session")
+        }
+        if (quotaKey === "weekly") {
+            return i18n("Weekly")
+        }
+        return i18n("Tertiary")
+    }
+
     function normalizeEntry(entry) {
         var usage = entry.usage && typeof entry.usage === "object" ? entry.usage : {}
         var identity = usage.identity && typeof usage.identity === "object" ? usage.identity : {}
@@ -1734,9 +1765,9 @@ PlasmoidItem {
         var bankedResets = ProviderLogic.normalizeCodexResetCredits(usage.codexResetCredits)
         var rows = []
         var windows = antigravity ? [] : [
-            { key: "primary", title: i18n("Session"), data: primary },
-            { key: "weekly", title: i18n("Weekly"), data: secondary },
-            { key: "tertiary", title: i18n("Tertiary"), data: tertiary }
+            { key: "primary", title: providerWindowTitle(entry.provider, "primary"), data: primary },
+            { key: "weekly", title: providerWindowTitle(entry.provider, "weekly"), data: secondary },
+            { key: "tertiary", title: providerWindowTitle(entry.provider, "tertiary"), data: tertiary }
         ]
         for (var i = 0; i < windows.length; i++) {
             var left = knownPercentLeft(windows[i].data)
@@ -1843,7 +1874,10 @@ PlasmoidItem {
             version: entry.version,
             source: entry.source,
             account: entry.account || usage.accountEmail || identity.accountEmail || "",
-            plan: usage.loginMethod || identity.loginMethod || dashboard.accountPlan || "",
+            profileId: entry.profileId || "",
+            profileLabel: entry.profileLabel || "",
+            plan: usage.loginMethod || identity.loginMethod || dashboard.accountPlan
+                || (ProviderLogic.providerId(entry.provider) === "opencodego" ? i18n("OpenCode Go") : ""),
             primaryPercentLeft: displayPercentLeft(entry.provider, primary, secondary),
             compactPrimaryPercentLeft: antigravity ? null : primaryLeft,
             primaryResetsAt: antigravity ? null : resetAt(primary),
@@ -2367,6 +2401,10 @@ PlasmoidItem {
                                 if (root.activeEntry.plan) {
                                     details.push(root.activeEntry.plan)
                                 }
+                                if (root.activeEntry.profileLabel
+                                        && details.indexOf(root.activeEntry.profileLabel) === -1) {
+                                    details.push(root.activeEntry.profileLabel)
+                                }
                                 var source = root.activeEntry.source || root.activeSource || ""
                                 if (source && details.indexOf(source) === -1) {
                                     details.push(source)
@@ -2797,6 +2835,7 @@ PlasmoidItem {
         property var blocks: []
         property bool preview: false
         property int activeLocalCount: 0
+        readonly property bool dense: blocks.length > 4
         signal providerActivated(string selectionKey)
 
         implicitWidth: stripRow.implicitWidth
@@ -2806,7 +2845,7 @@ PlasmoidItem {
         Row {
             id: stripRow
             height: parent.height
-            spacing: 10
+            spacing: strip.dense ? 6 : 10
 
             Repeater {
                 model: strip.blocks
@@ -2816,16 +2855,16 @@ PlasmoidItem {
                     required property int index
                     required property var modelData
                     height: stripRow.height
-                    implicitWidth: compactProviderContent.implicitWidth + 10
-                    leftPadding: 5
-                    rightPadding: 5
+                    implicitWidth: compactProviderContent.implicitWidth + (strip.dense ? 6 : 10)
+                    leftPadding: strip.dense ? 3 : 5
+                    rightPadding: strip.dense ? 3 : 5
                     Accessible.name: modelData.fullText || modelData.displayText || modelData.provider
                     Accessible.description: i18n("Open %1 usage", modelData.provider || i18n("provider"))
                     onClicked: strip.providerActivated(modelData.selectionKey || "")
 
                     contentItem: Row {
                         id: compactProviderContent
-                        spacing: 7
+                        spacing: strip.dense ? 4 : 7
 
                         Rectangle {
                             visible: index > 0
@@ -2879,7 +2918,7 @@ PlasmoidItem {
                             font.pixelSize: 13
                             font.weight: modelData.error ? Font.Bold : Font.DemiBold
                             elide: Text.ElideRight
-                            width: Math.min(implicitWidth, strip.preview ? 112 : 126)
+                            width: Math.min(implicitWidth, strip.preview ? 112 : (strip.dense ? 104 : 126))
                             anchors.verticalCenter: parent.verticalCenter
                         }
                     }
@@ -3216,6 +3255,12 @@ PlasmoidItem {
                         text: i18n("Open AI CLI Control")
                         icon.name: "applications-development"
                         onTriggered: root.launchAiControl([])
+                    }
+
+                    QQC2.MenuItem {
+                        text: i18n("Manage AI accounts")
+                        icon.name: "user-identity"
+                        onTriggered: root.launchAiControl(["--accounts"], true)
                     }
 
                     QQC2.MenuItem {

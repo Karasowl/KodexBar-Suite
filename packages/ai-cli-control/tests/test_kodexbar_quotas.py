@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sqlite3
 import struct
 import subprocess
 import tempfile
@@ -28,6 +29,7 @@ spec.loader.exec_module(quotas)
 # Synthetic secrets used only in hermetic tests. Must never appear in engine output.
 TEST_CODEX_TOKEN = "test-codex-access-token-SECRET-do-not-leak"
 TEST_GROK_KEY = "test-grok-key-SECRET-do-not-leak"
+TEST_CURSOR_TOKEN = "test-cursor-token-SECRET-do-not-leak"
 
 
 def _encode_varint(value: int) -> bytes:
@@ -88,6 +90,60 @@ def build_grpc_web_trailer_frame(status: int, message: str = "") -> bytes:
         lines.append(f"grpc-message: {message}\r\n")
     payload = "".join(lines).encode("utf-8")
     return b"\x80" + len(payload).to_bytes(4, "big") + payload
+
+
+def build_cursor_plan_usage_message(
+    total_percent: float,
+    auto_percent: float | None = None,
+    api_percent: float | None = None,
+) -> bytes:
+    """GetCurrentPeriodUsageResponse.PlanUsage: doubles at fields 12/13/14."""
+    body = b""
+    if auto_percent is not None:
+        body += _protobuf_key(12, 1) + struct.pack("<d", auto_percent)
+    if api_percent is not None:
+        body += _protobuf_key(13, 1) + struct.pack("<d", api_percent)
+    body += _protobuf_key(14, 1) + struct.pack("<d", total_percent)
+    return body
+
+
+def build_cursor_period_usage_message(
+    start_ms: int,
+    end_ms: int,
+    total_percent: float,
+    auto_percent: float | None = None,
+    api_percent: float | None = None,
+) -> bytes:
+    """GetCurrentPeriodUsageResponse: cycle ms at fields 1/2, plan usage at field 3."""
+    body = _protobuf_key(1, 0) + _encode_varint(start_ms)
+    body += _protobuf_key(2, 0) + _encode_varint(end_ms)
+    plan_usage = build_cursor_plan_usage_message(total_percent, auto_percent, api_percent)
+    body += _protobuf_key(3, 2) + _encode_varint(len(plan_usage)) + plan_usage
+    return body
+
+
+def build_cursor_period_usage_frame(
+    start_ms: int,
+    end_ms: int,
+    total_percent: float,
+    auto_percent: float | None = None,
+    api_percent: float | None = None,
+) -> bytes:
+    """gRPC-web data frame for GetCurrentPeriodUsageResponse."""
+    message = build_cursor_period_usage_message(
+        start_ms, end_ms, total_percent, auto_percent, api_percent
+    )
+    return b"\x00" + len(message).to_bytes(4, "big") + message
+
+
+def build_cursor_plan_info_frame(plan: str, display_name: str | None = None) -> bytes:
+    """gRPC-web data frame for GetPlanInfoResponse with a nested plan entry."""
+    entry = _protobuf_key(1, 2) + _encode_varint(len(plan.encode("utf-8"))) + plan.encode("utf-8")
+    if display_name:
+        encoded = display_name.encode("utf-8")
+        entry += _protobuf_key(2, 2) + _encode_varint(len(encoded)) + encoded
+    message = _protobuf_key(1, 2) + _encode_varint(len(entry)) + entry
+    return b"\x00" + len(message).to_bytes(4, "big") + message
 
 
 def sample_codex_usage_payload() -> dict:
@@ -540,7 +596,10 @@ class QuotasEngineTests(unittest.TestCase):
                 check=True,
             )
         entries = json.loads(result.stdout)
-        self.assertEqual(entries, expected)
+        self.assertEqual(
+            entries,
+            [{**expected[0], "profileId": "default"}],
+        )
         self.assertNotEqual(entries[0]["error"]["message"], "upstream codexbar failed to provide usage data")
 
     def test_cost_is_empty_without_upstream(self) -> None:
@@ -1536,6 +1595,7 @@ class QuotasEngineTests(unittest.TestCase):
                 self.assertFalse(quotas.detect_codex_installed(home))
                 self.assertFalse(quotas.detect_grok_installed(home))
                 self.assertFalse(quotas.detect_antigravity_installed(home))
+                self.assertFalse(quotas.detect_opencodego_installed(home))
 
                 credentials = home / ".claude" / ".credentials.json"
                 credentials.parent.mkdir(parents=True)
@@ -1555,6 +1615,14 @@ class QuotasEngineTests(unittest.TestCase):
                 self._place_fake_cli(bin_dir, "agy")
                 self.assertTrue(quotas.detect_antigravity_installed(home))
 
+                opencode_auth = home / ".local" / "share" / "opencode" / "auth.json"
+                opencode_auth.parent.mkdir(parents=True)
+                opencode_auth.write_text(
+                    json.dumps({"opencode-go": {"type": "oauth", "key": "synthetic-opencode-key"}}),
+                    encoding="utf-8",
+                )
+                self.assertTrue(quotas.detect_opencodego_installed(home))
+
                 # PATH-only signals (no home side effects beyond what we set).
                 self._place_fake_cli(bin_dir, "claude")
                 self._place_fake_cli(bin_dir, "codex")
@@ -1567,22 +1635,74 @@ class QuotasEngineTests(unittest.TestCase):
                 self.assertTrue(quotas.detect_grok_installed(empty_home))
                 self.assertTrue(quotas.detect_antigravity_installed(empty_home))
 
-    def test_build_auto_config_includes_version_and_four_ids(self) -> None:
+    def test_build_auto_config_includes_version_and_six_ids(self) -> None:
         payload = quotas.build_auto_config({
             "claude": True,
             "codex": False,
             "grok": True,
             "antigravity": False,
+            "opencodego": True,
+            "cursor": True,
         })
         self.assertEqual(payload["version"], 1)
         self.assertEqual(
             [item["id"] for item in payload["providers"]],
-            ["claude", "codex", "grok", "antigravity"],
+            ["claude", "codex", "grok", "antigravity", "opencodego", "cursor"],
         )
         self.assertEqual(
             [item["enabled"] for item in payload["providers"]],
-            [True, False, True, False],
+            [True, False, True, False, True, True],
         )
+
+    def test_existing_config_adds_detected_opencodego_without_writing_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            config = home / ".config/codexbar/config.json"
+            auth = home / ".local/share/opencode/auth.json"
+            config.parent.mkdir(parents=True)
+            auth.parent.mkdir(parents=True)
+            config.write_text(json.dumps({"providers": [
+                {"id": "claude", "enabled": True},
+                {"id": "codex", "enabled": True},
+            ]}), encoding="utf-8")
+            auth.write_text(
+                json.dumps({"opencode-go": {"type": "oauth", "key": "synthetic-opencode-key"}}),
+                encoding="utf-8",
+            )
+            original = config.read_text(encoding="utf-8")
+
+            self.assertEqual(quotas.enabled_providers(home), ["claude", "codex", "opencodego"])
+            self.assertEqual(config.read_text(encoding="utf-8"), original)
+
+    def test_explicitly_disabled_opencodego_stays_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "home"
+            config = home / ".config/codexbar/config.json"
+            auth = home / ".local/share/opencode/auth.json"
+            config.parent.mkdir(parents=True)
+            auth.parent.mkdir(parents=True)
+            config.write_text(json.dumps({"providers": [
+                {"id": "claude", "enabled": True},
+                {"id": "opencodego", "enabled": False},
+            ]}), encoding="utf-8")
+            auth.write_text(
+                json.dumps({"opencode-go": {"type": "oauth", "key": "synthetic-opencode-key"}}),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(quotas.enabled_providers(home), ["claude"])
+
+    def test_opencodego_normalizes_subscription_identity_without_changing_limits(self) -> None:
+        fixture = json.loads((FIXTURES / "opencodego-widget-entry.json").read_text(encoding="utf-8"))
+        entry = quotas.normalize_opencodego_entry(fixture)
+        self.assertEqual(entry["usage"]["identity"], {
+            "providerID": "opencodego",
+            "loginMethod": "OpenCode Go",
+        })
+        self.assertEqual(entry["usage"]["primary"]["usedPercent"], 1.9)
+        self.assertEqual(entry["usage"]["secondary"]["usedPercent"], 7.1)
+        self.assertEqual(entry["usage"]["tertiary"]["usedPercent"], 3.5)
 
     def test_existing_config_is_never_overwritten_byte_for_byte(self) -> None:
         """Config present (valid): remains intact after a full usage invoke."""
@@ -1658,7 +1778,7 @@ class QuotasEngineTests(unittest.TestCase):
             by_id = {item["id"]: item["enabled"] for item in payload["providers"]}
             self.assertEqual(
                 by_id,
-                {"claude": True, "codex": True, "grok": True, "antigravity": False},
+                {"claude": True, "codex": True, "grok": True, "antigravity": False, "opencodego": False, "cursor": False},
             )
             # Normal path: only detected/enabled providers are queried.
             entries = json.loads(result.stdout)
@@ -1737,7 +1857,7 @@ class QuotasEngineTests(unittest.TestCase):
             self.assertEqual(payload["version"], 1)
             self.assertEqual(
                 {item["id"]: item["enabled"] for item in payload["providers"]},
-                {"claude": False, "codex": True, "grok": False, "antigravity": False},
+                {"claude": False, "codex": True, "grok": False, "antigravity": False, "opencodego": False, "cursor": False},
             )
             entries = json.loads(result.stdout)
             self.assertEqual([entry["provider"] for entry in entries], ["codex"])
@@ -1816,6 +1936,20 @@ class QuotasEngineTests(unittest.TestCase):
             }),
             encoding="utf-8",
         )
+
+    def _write_cursor_state_db(self, home: Path, token: str = TEST_CURSOR_TOKEN) -> None:
+        path = quotas.cursor_state_db_path(home)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(path)
+        try:
+            connection.execute("CREATE TABLE ItemTable (key TEXT, value TEXT)")
+            connection.execute(
+                "INSERT INTO ItemTable (key, value) VALUES (?, ?)",
+                ("cursorAuth/accessToken", token),
+            )
+            connection.commit()
+        finally:
+            connection.close()
 
     def test_codex_native_oauth_maps_weekly_and_spark(self) -> None:
         payload = sample_codex_usage_payload()
@@ -2268,6 +2402,180 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertTrue(entries[0]["error"]["retryable"])
         self.assertEqual(entries[0]["error"]["message"], quotas.GROK_TIMEOUT)
         self.assertNotIn(TEST_GROK_KEY, json.dumps(entries))
+
+    def test_cursor_detection_requires_a_nonempty_state_db_token(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self.assertFalse(quotas.detect_cursor_installed(home))
+            self._write_cursor_state_db(home)
+            self.assertTrue(quotas.detect_cursor_installed(home))
+            self.assertEqual(quotas.cursor_access_token(home), TEST_CURSOR_TOKEN)
+            # Missing key behaves like no sign-in, not like a permanent failure.
+            empty = quotas.cursor_state_db_path(home)
+            empty.unlink()
+            empty.parent.mkdir(parents=True, exist_ok=True)
+            connection = sqlite3.connect(empty)
+            try:
+                connection.execute("CREATE TABLE ItemTable (key TEXT, value TEXT)")
+                connection.commit()
+            finally:
+                connection.close()
+            self.assertFalse(quotas.detect_cursor_installed(home))
+
+    def test_cursor_corrupt_state_db_is_permanent_not_auth(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            path = quotas.cursor_state_db_path(home)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"this is not a sqlite database")
+            with self.assertRaises(quotas.FetchFallback) as raised:
+                quotas.cursor_access_token(home)
+            self.assertEqual(raised.exception.category, "permanent")
+            self.assertFalse(raised.exception.retryable)
+            self.assertEqual(raised.exception.args[0], quotas.CURSOR_AUTH_UNREADABLE)
+
+    def test_cursor_native_grpc_web_maps_monthly_secondary(self) -> None:
+        start_ms = 1784733973000
+        end_ms = start_ms + 31 * 24 * 3600 * 1000
+        frame = build_cursor_period_usage_frame(start_ms, end_ms, 12.5, auto_percent=8.0, api_percent=4.5)
+        plan_frame = build_cursor_plan_info_frame("Free", "Free")
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_cursor_state_db(home)
+            urls: list[str] = []
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                urls.append(url)
+                self.assertEqual(method.upper(), "POST")
+                self.assertEqual(body, quotas.CURSOR_EMPTY_FRAME)
+                self.assertEqual(headers["Content-Type"], "application/grpc-web+proto")
+                self.assertEqual(headers["Authorization"], f"Bearer {TEST_CURSOR_TOKEN}")
+                if url == quotas.CURSOR_USAGE_URL:
+                    return 200, {"content-type": "application/grpc-web+proto"}, frame
+                return 200, {"content-type": "application/grpc-web+proto"}, plan_frame
+
+            with patch.object(quotas, "http_request", side_effect=fake_http):
+                entry = quotas.fetch_cursor(home)
+
+        self.assertEqual(entry["provider"], "cursor")
+        self.assertEqual(entry["source"], "cursor")
+        self.assertEqual(entry["engine"], "kodexbar")
+        self.assertIsNone(entry["usage"]["primary"])
+        self.assertEqual(entry["usage"]["identity"]["loginMethod"], "Free")
+        secondary = entry["usage"]["secondary"]
+        self.assertAlmostEqual(secondary["usedPercent"], 12.5, places=6)
+        self.assertEqual(secondary["windowMinutes"], 31 * 24 * 60)
+        self.assertEqual(secondary["resetsAt"], "2026-08-22T15:26:13Z")
+        extras = {item["title"]: item["window"]["usedPercent"] for item in entry["usage"]["extraRateWindows"]}
+        self.assertEqual(extras, {"Auto": 8.0, "API": 4.5})
+        self.assertNotIn(TEST_CURSOR_TOKEN, json.dumps(entry))
+        self.assertEqual(urls, [quotas.CURSOR_USAGE_URL, quotas.CURSOR_PLAN_URL])
+
+    def test_cursor_plan_failure_keeps_quota_data(self) -> None:
+        start_ms = 1784733973000
+        end_ms = start_ms + 30 * 24 * 3600 * 1000
+        frame = build_cursor_period_usage_frame(start_ms, end_ms, 0.0)
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_cursor_state_db(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                if url == quotas.CURSOR_USAGE_URL:
+                    return 200, {"content-type": "application/grpc-web+proto"}, frame
+                raise quotas.FetchFallback("HTTP network failure for POST", "network", True)
+
+            with patch.object(quotas, "http_request", side_effect=fake_http):
+                entry = quotas.fetch_cursor(home)
+        self.assertAlmostEqual(entry["usage"]["secondary"]["usedPercent"], 0.0, places=6)
+        self.assertNotIn("loginMethod", entry["usage"]["identity"])
+
+    def test_cursor_401_is_auth_relogin_without_upstream_delegation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_cursor_state_db(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 401, {}, b""
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("must not delegate on auth")
+            ):
+                entries = quotas.fetch_provider("cursor", None, home)
+        self.assertEqual(entries[0]["error"]["category"], "authentication")
+        self.assertFalse(entries[0]["error"]["retryable"])
+        self.assertEqual(entries[0]["error"]["message"], quotas.CURSOR_AUTH_RELOGIN)
+        self.assertNotIn(TEST_CURSOR_TOKEN, json.dumps(entries))
+
+    def test_cursor_timeout_is_retryable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_cursor_state_db(home)
+            calls = {"n": 0}
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                calls["n"] += 1
+                raise quotas.FetchFallback("HTTP timeout failure for POST", "timeout", True)
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value=None
+            ):
+                entries = quotas.fetch_provider("cursor", None, home)
+
+        self.assertEqual(calls["n"], 2)  # one retry on timeout
+        self.assertEqual(entries[0]["error"]["category"], "timeout")
+        self.assertTrue(entries[0]["error"]["retryable"])
+        self.assertEqual(entries[0]["error"]["message"], quotas.CURSOR_TIMEOUT)
+        self.assertNotIn(TEST_CURSOR_TOKEN, json.dumps(entries))
+
+    def test_cursor_invalid_percent_raises_invalid_response(self) -> None:
+        start_ms = 1784733973000
+        end_ms = start_ms + 30 * 24 * 3600 * 1000
+        frame = build_cursor_period_usage_frame(start_ms, end_ms, 250.0)
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_cursor_state_db(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                return 200, {"content-type": "application/grpc-web+proto"}, frame
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value=None
+            ):
+                entries = quotas.fetch_provider("cursor", None, home)
+        self.assertEqual(entries[0]["error"]["category"], "invalid_response")
+        self.assertTrue(entries[0]["error"]["retryable"])
+        self.assertEqual(entries[0]["error"]["message"], quotas.CURSOR_INVALID_RESPONSE)
+
+    def test_cursor_grpc_status_16_is_auth(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_cursor_state_db(home)
+
+            def fake_http(method, url, headers=None, body=None, timeout=None):
+                if url == quotas.CURSOR_USAGE_URL:
+                    trailer = build_grpc_web_trailer_frame(16, "token expired")
+                    return 200, {"content-type": "application/grpc-web+proto"}, trailer
+                return 500, {}, b""
+
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value=None
+            ):
+                entries = quotas.fetch_provider("cursor", None, home)
+        self.assertEqual(entries[0]["error"]["category"], "authentication")
+        self.assertEqual(entries[0]["error"]["message"], quotas.CURSOR_AUTH_RELOGIN)
+
+    def test_cursor_missing_state_db_is_auth_relogin(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            with patch.object(quotas, "upstream_path", return_value="/fake/codexbar"), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("must not delegate on auth")
+            ):
+                entries = quotas.fetch_provider("cursor", None, home)
+        self.assertEqual(entries[0]["error"]["category"], "authentication")
+        self.assertFalse(entries[0]["error"]["retryable"])
+        self.assertEqual(entries[0]["error"]["message"], quotas.CURSOR_AUTH_RELOGIN)
 
     def test_antigravity_still_delegates_to_upstream(self) -> None:
         with patch.object(
@@ -3133,7 +3441,7 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(entries[0]["usage"]["primary"]["usedPercent"], 22.0)
         self.assertEqual(entries[0]["source"], "auto")
         self.assertEqual(entries[0]["engine"], "kodexbar")
-        self.assertEqual(set(entries[0].keys()), {"provider", "source", "usage", "engine"})
+        self.assertEqual(set(entries[0].keys()), {"provider", "source", "usage", "engine", "profileId"})
 
     def test_fallback_usage_null_is_not_usable(self) -> None:
         """F3 root: usage: null for requested provider → dual failure."""
@@ -3185,7 +3493,7 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(entries[0]["usage"]["primary"]["usedPercent"], 5.0)
         self.assertEqual(entries[0]["source"], "auto")
         self.assertEqual(entries[0]["engine"], "kodexbar")
-        self.assertEqual(set(entries[0].keys()), {"provider", "source", "usage", "engine"})
+        self.assertEqual(set(entries[0].keys()), {"provider", "source", "usage", "engine", "profileId"})
 
     def test_fallback_used_percent_out_of_range_is_not_usable(self) -> None:
         """F3 root: usedPercent 101 in companion usage → dual failure."""
@@ -3256,7 +3564,7 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(entry["provider"], "codex")
         self.assertEqual(entry["source"], "auto")
         self.assertEqual(entry["engine"], "kodexbar")
-        self.assertEqual(set(entry.keys()), {"provider", "source", "usage", "engine"})
+        self.assertEqual(set(entry.keys()), {"provider", "source", "usage", "engine", "profileId"})
         self.assertEqual(set(entry["usage"].keys()), {"primary", "secondary"})
         self.assertEqual(
             entry["usage"]["primary"],
@@ -3386,6 +3694,246 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertNotIn("were ignored", quotas.CODEX_CONFIG_TOML_INVALID.lower())
         self.assertIn("fix or remove", quotas.CODEX_CONFIG_TOML_INVALID.lower())
 
+
+
+
+    def test_profiles_missing_sidecar_yields_synthetic_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            profiles = quotas.resolve_provider_profiles(["codex", "claude"], home)
+            self.assertEqual([p.profile_id for p in profiles], ["default", "default"])
+            self.assertTrue(all(p.allows_upstream_fallback for p in profiles))
+
+    def test_profiles_json_two_codex_accounts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            suite = home / ".config" / "kodexbar-suite"
+            suite.mkdir(parents=True)
+            auth_a = home / "a" / "auth.json"
+            auth_b = home / "b" / "auth.json"
+            auth_a.parent.mkdir()
+            auth_b.parent.mkdir()
+            auth_a.write_text("{}", encoding="utf-8")
+            auth_b.write_text("{}", encoding="utf-8")
+            (suite / "profiles.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "providers": {
+                            "codex": {
+                                "profiles": [
+                                    {
+                                        "id": "work",
+                                        "label": "Trabajo",
+                                        "credentialSource": {
+                                            "kind": "codex-auth",
+                                            "authFile": str(auth_a),
+                                        },
+                                    },
+                                    {
+                                        "id": "personal",
+                                        "label": "Personal",
+                                        "credentialSource": {
+                                            "kind": "codex-auth",
+                                            "authFile": str(auth_b),
+                                        },
+                                    },
+                                ]
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            profiles = quotas.resolve_provider_profiles(["codex"], home)
+            self.assertEqual([p.profile_id for p in profiles], ["work", "personal"])
+            self.assertEqual(profiles[0].profile_label, "Trabajo")
+            self.assertFalse(profiles[0].allows_upstream_fallback)
+            self.assertEqual(profiles[0].credential_source.auth_file, auth_a.resolve())
+
+    def test_profiles_invalid_json_is_config_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            suite = home / ".config" / "kodexbar-suite"
+            suite.mkdir(parents=True)
+            (suite / "profiles.json").write_text("{not-json", encoding="utf-8")
+            with self.assertRaises(quotas.ProfilesConfigError):
+                quotas.load_profiles_document(home)
+
+    def test_multi_profile_codex_two_auth_files(self) -> None:
+        """Two codex-auth profiles produce two stamped entries with independent credentials."""
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            suite = home / ".config" / "kodexbar-suite"
+            suite.mkdir(parents=True)
+            work_auth = home / "work" / "auth.json"
+            personal_auth = home / "personal" / "auth.json"
+            work_auth.parent.mkdir()
+            personal_auth.parent.mkdir()
+            work_auth.write_text(
+                json.dumps({"tokens": {"access_token": TEST_CODEX_TOKEN, "account_id": "acct-work"}}),
+                encoding="utf-8",
+            )
+            personal_auth.write_text(
+                json.dumps({"tokens": {"access_token": TEST_CODEX_TOKEN + "-2", "account_id": "acct-personal"}}),
+                encoding="utf-8",
+            )
+            (suite / "profiles.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "providers": {
+                            "codex": {
+                                "profiles": [
+                                    {
+                                        "id": "work",
+                                        "label": "Trabajo",
+                                        "credentialSource": {
+                                            "kind": "codex-auth",
+                                            "authFile": str(work_auth),
+                                        },
+                                    },
+                                    {
+                                        "id": "personal",
+                                        "label": "Personal",
+                                        "credentialSource": {
+                                            "kind": "codex-auth",
+                                            "authFile": str(personal_auth),
+                                        },
+                                    },
+                                ]
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            seen_account_headers: list[str | None] = []
+
+            def fake_http(method, url, headers, body, timeout):
+                seen_account_headers.append(headers.get("ChatGPT-Account-Id"))
+                payload = {
+                    "rate_limit": {
+                        "primary_window": {
+                            "used_percent": 10 if headers.get("ChatGPT-Account-Id") == "acct-work" else 40,
+                            "reset_at": 1_800_000_000,
+                            "limit_window_seconds": 18000,
+                        },
+                        "secondary_window": {
+                            "used_percent": 20,
+                            "reset_at": 1_800_100_000,
+                            "limit_window_seconds": 604800,
+                        },
+                    },
+                    "plan_type": "pro",
+                }
+                return 200, {}, json.dumps(payload).encode("utf-8")
+
+            with patch.object(quotas, "http_request", side_effect=fake_http):
+                profiles = quotas.resolve_provider_profiles(["codex"], home)
+                entries = quotas.fetch_profiles(profiles, "auto", home)
+            self.assertEqual(len(entries), 2)
+            self.assertEqual([e["profileId"] for e in entries], ["work", "personal"])
+            self.assertEqual([e.get("profileLabel") for e in entries], ["Trabajo", "Personal"])
+            # Parallel workers may complete out of order; identity of both accounts still fetched.
+            self.assertEqual(set(seen_account_headers), {"acct-work", "acct-personal"})
+            self.assertNotIn(TEST_CODEX_TOKEN, json.dumps(entries))
+            self.assertNotIn(str(work_auth), json.dumps(entries))
+
+    def test_secondary_profile_skips_unscoped_upstream_fallback(self) -> None:
+        profile = quotas.ProviderProfile(
+            provider="codex",
+            profile_id="personal",
+            profile_label="Personal",
+            credential_source=quotas.CredentialSource(kind="default"),
+            provider_order=0,
+            profile_order=1,
+        )
+        with patch.object(
+            quotas,
+            "fetch_codex",
+            side_effect=quotas.FetchFallback("network boom", "network", True),
+        ), patch.object(quotas, "upstream_path", return_value="/fake/codexbar") as upstream:
+            entries = quotas.fetch_provider("codex", "auto", profile=profile)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["profileId"], "personal")
+        self.assertIn("error", entries[0])
+        upstream.assert_not_called()
+
+    def test_profiles_validate_and_list_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            env = os.environ.copy()
+            env["HOME"] = str(home)
+            result = subprocess.run(
+                [os.sys.executable, str(ENGINE), "profiles", "validate"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("no profiles.json", result.stdout)
+            result_list = subprocess.run(
+                [os.sys.executable, str(ENGINE), "profiles", "list", "--json"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            rows = json.loads(result_list.stdout)
+            self.assertTrue(any(row.get("profileId") == "default" for row in rows))
+
+
+    def test_add_managed_profile_writes_sidecar_and_login_skips_secondary_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            with patch.object(quotas, "home_directory", return_value=home), patch.dict(
+                os.environ, {"HOME": str(home)}, clear=False
+            ):
+                profile = quotas.add_managed_profile("codex", "Personal", home)
+                self.assertEqual(profile.profile_id, "personal")
+                self.assertEqual(profile.credential_source.kind, "codex-auth")
+                self.assertTrue(profile.credential_source.auth_file.parent.is_dir())
+                document = quotas.load_profiles_document(home)
+                self.assertIsNotNone(document)
+                assert document is not None
+                ids = [item.profile_id for item in document["codex"]]
+                self.assertEqual(ids[0], "default")
+                self.assertIn("personal", ids)
+                # Secondary profile must not use ambient upstream fallback.
+                self.assertFalse(
+                    next(item for item in document["codex"] if item.profile_id == "personal").allows_upstream_fallback
+                )
+                quotas.remove_managed_profile("codex", "personal", home)
+                remaining = quotas.load_profiles_document(home)
+                self.assertTrue(remaining is None or "codex" not in remaining)
+
+    def test_profiles_add_cli_creates_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            env = os.environ.copy()
+            env["HOME"] = str(home)
+            result = subprocess.run(
+                [
+                    os.sys.executable,
+                    str(ENGINE),
+                    "profiles",
+                    "add",
+                    "--provider",
+                    "claude",
+                    "--label",
+                    "Work",
+                ],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout.strip().splitlines()[0])
+            self.assertEqual(payload["provider"], "claude")
+            self.assertEqual(payload["profileId"], "work")
 
 if __name__ == "__main__":
     unittest.main()

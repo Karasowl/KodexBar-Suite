@@ -105,7 +105,30 @@ TRANSLATIONS = {
         "help_text": "use menus in the terminal",
         "help_language": "use English or Spanish interface text",
         "help_update": "update codex, claude, grok, and antigravity, or a comma-separated list",
+        "help_accounts": "manage extra Codex or Claude accounts for KodexBar quotas",
         "help_recover": "use 'ai recover' to recover local conversations from provider CLIs",
+        "accounts_label": "Accounts",
+        "accounts_description": "Add or sign in to extra Codex and Claude accounts for quota display",
+        "accounts_title": "Accounts",
+        "accounts_prompt": "What do you want to do?",
+        "accounts_add": "Add another account",
+        "accounts_add_description": "Create a new account and open sign-in",
+        "accounts_login": "Sign in again",
+        "accounts_login_description": "Open sign-in for an existing extra account",
+        "accounts_remove": "Remove an extra account",
+        "accounts_remove_description": "Stop showing an extra account in KodexBar",
+        "accounts_provider_prompt": "Which provider?",
+        "accounts_label_prompt": "Name for this account",
+        "accounts_label_personal": "Personal",
+        "accounts_label_work": "Work",
+        "accounts_label_extra": "Extra",
+        "accounts_pick_prompt": "Which account?",
+        "accounts_none": "There are no extra accounts yet. Choose Add another account.",
+        "accounts_added": "Account ready. Finish sign-in in the terminal, then refresh KodexBar.",
+        "accounts_removed": "Account removed. Refresh KodexBar to update the panel.",
+        "accounts_login_started": "Sign-in opened. Finish it in the terminal, then refresh KodexBar.",
+        "accounts_failed": "Could not manage accounts: {detail}",
+        "accounts_quotas_missing": "kodexbar-quotas was not found next to ai. Reinstall AI CLI Control.",
         "field_provider": "provider",
         "field_model": "model",
         "field_effort": "effort",
@@ -194,7 +217,30 @@ TRANSLATIONS = {
         "help_text": "usa menús dentro de la terminal",
         "help_language": "usa texto de interfaz en inglés o español",
         "help_update": "actualiza codex, claude, grok y antigravity, o una lista separada por comas",
+        "help_accounts": "gestiona cuentas extra de Codex o Claude para las cuotas de KodexBar",
         "help_recover": "usa 'ai recover' para recuperar conversaciones locales de las CLI de proveedores",
+        "accounts_label": "Cuentas",
+        "accounts_description": "Añade o inicia sesión en cuentas extra de Codex y Claude para ver sus límites",
+        "accounts_title": "Cuentas",
+        "accounts_prompt": "¿Qué quieres hacer?",
+        "accounts_add": "Añadir otra cuenta",
+        "accounts_add_description": "Crear una cuenta nueva y abrir el inicio de sesión",
+        "accounts_login": "Volver a iniciar sesión",
+        "accounts_login_description": "Abrir el inicio de sesión de una cuenta extra ya creada",
+        "accounts_remove": "Quitar una cuenta extra",
+        "accounts_remove_description": "Dejar de mostrar una cuenta extra en KodexBar",
+        "accounts_provider_prompt": "¿Qué proveedor?",
+        "accounts_label_prompt": "Nombre de esta cuenta",
+        "accounts_label_personal": "Personal",
+        "accounts_label_work": "Trabajo",
+        "accounts_label_extra": "Extra",
+        "accounts_pick_prompt": "¿Qué cuenta?",
+        "accounts_none": "Todavía no hay cuentas extra. Elige Añadir otra cuenta.",
+        "accounts_added": "Cuenta lista. Termina el inicio de sesión en la terminal y luego actualiza KodexBar.",
+        "accounts_removed": "Cuenta quitada. Actualiza KodexBar para refrescar el panel.",
+        "accounts_login_started": "Inicio de sesión abierto. Termínalo en la terminal y luego actualiza KodexBar.",
+        "accounts_failed": "No se pudieron gestionar las cuentas: {detail}",
+        "accounts_quotas_missing": "No se encontró kodexbar-quotas junto a ai. Reinstala AI CLI Control.",
         "field_provider": "proveedor",
         "field_model": "modelo",
         "field_effort": "esfuerzo",
@@ -400,6 +446,10 @@ def providers(language: str) -> list[Option]:
 
 def update_option(language: str) -> Option:
     return Option("update", message(language, "update_label"), message(language, "update_description"))
+
+
+def accounts_option(language: str) -> Option:
+    return Option("accounts", message(language, "accounts_label"), message(language, "accounts_description"))
 
 
 def claude_models(language: str) -> list[Option]:
@@ -672,7 +722,139 @@ def parse_arguments(language: str) -> argparse.Namespace:
     parser.add_argument("--effort", help=argparse.SUPPRESS)
     parser.add_argument("--permissions", help=argparse.SUPPRESS)
     parser.add_argument("--update", metavar="LIST", help=message(language, "help_update"))
+    parser.add_argument("--accounts", action="store_true", help=message(language, "help_accounts"))
     return parser.parse_args()
+
+
+def kodexbar_quotas_executable() -> Path | None:
+    """Prefer the engine shipped beside this script, then PATH."""
+    sibling = Path(__file__).resolve().with_name("kodexbar-quotas")
+    if sibling.is_file() and os.access(sibling, os.X_OK):
+        return sibling
+    if sibling.is_file():
+        return sibling
+    which = shutil.which("kodexbar-quotas")
+    return Path(which) if which else None
+
+
+def run_quotas_profiles(arguments: Sequence[str], language: str) -> subprocess.CompletedProcess[str]:
+    engine = kodexbar_quotas_executable()
+    if engine is None:
+        die(language, "accounts_quotas_missing")
+    command = [sys.executable, str(engine), "profiles", *arguments]
+    return subprocess.run(command, text=True, capture_output=True, check=False)
+
+
+def managed_account_options(language: str) -> list[Option]:
+    """List only extra (non-default) accounts for login/remove menus."""
+    result = run_quotas_profiles(["list", "--json"], language)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip() or f"code {result.returncode}"
+        die(language, "accounts_failed", detail=detail)
+    try:
+        rows = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError as error:
+        die(language, "accounts_failed", detail=error)
+    options: list[Option] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if row.get("profileId") in {None, "", "default"}:
+            continue
+        if row.get("provider") not in {"codex", "claude"}:
+            continue
+        provider = str(row["provider"])
+        profile_id = str(row["profileId"])
+        label = str(row.get("label") or profile_id)
+        options.append(
+            Option(
+                f"{provider}:{profile_id}",
+                f"{provider.capitalize()} · {label}",
+                profile_id,
+            )
+        )
+    return options
+
+
+def run_accounts_menu(ui: SelectorUI, language: str, dry_run: bool) -> int:
+    """Interactive multi-account management reusing the existing ai selector UI."""
+    action = ui.choose(
+        message(language, "accounts_title"),
+        message(language, "accounts_prompt"),
+        [
+            Option("add", message(language, "accounts_add"), message(language, "accounts_add_description")),
+            Option("login", message(language, "accounts_login"), message(language, "accounts_login_description")),
+            Option("remove", message(language, "accounts_remove"), message(language, "accounts_remove_description")),
+        ],
+    )
+    if action == "add":
+        provider = ui.choose(
+            message(language, "accounts_title"),
+            message(language, "accounts_provider_prompt"),
+            [
+                Option("codex", "Codex", message(language, "codex_description")),
+                Option("claude", "Claude", message(language, "claude_description")),
+            ],
+        )
+        label = ui.choose(
+            message(language, "accounts_title"),
+            message(language, "accounts_label_prompt"),
+            [
+                Option("Personal", message(language, "accounts_label_personal")),
+                Option("Work", message(language, "accounts_label_work")),
+                Option("Extra", message(language, "accounts_label_extra")),
+            ],
+        )
+        argv = ["add", "--provider", provider, "--label", label, "--login"]
+        if dry_run:
+            engine = kodexbar_quotas_executable()
+            print(shlex.join([sys.executable, str(engine or "kodexbar-quotas"), "profiles", *argv]))
+            return 0
+        result = run_quotas_profiles(argv, language)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip() or f"code {result.returncode}"
+            die(language, "accounts_failed", detail=detail)
+        if result.stdout.strip():
+            print(result.stdout.strip())
+        print(message(language, "accounts_added"))
+        return 0
+
+    accounts = managed_account_options(language)
+    if not accounts:
+        print(message(language, "accounts_none"), file=sys.stderr)
+        return 0
+    selected = ui.choose(
+        message(language, "accounts_title"),
+        message(language, "accounts_pick_prompt"),
+        accounts,
+    )
+    provider, profile_id = selected.split(":", 1)
+    if action == "login":
+        argv = ["login", "--provider", provider, "--id", profile_id]
+        if dry_run:
+            engine = kodexbar_quotas_executable()
+            print(shlex.join([sys.executable, str(engine or "kodexbar-quotas"), "profiles", *argv]))
+            return 0
+        result = run_quotas_profiles(argv, language)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip() or f"code {result.returncode}"
+            die(language, "accounts_failed", detail=detail)
+        if result.stdout.strip():
+            print(result.stdout.strip())
+        print(message(language, "accounts_login_started"))
+        return 0
+
+    argv = ["remove", "--provider", provider, "--id", profile_id]
+    if dry_run:
+        engine = kodexbar_quotas_executable()
+        print(shlex.join([sys.executable, str(engine or "kodexbar-quotas"), "profiles", *argv]))
+        return 0
+    result = run_quotas_profiles(argv, language)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip() or f"code {result.returncode}"
+        die(language, "accounts_failed", detail=detail)
+    print(message(language, "accounts_removed"))
+    return 0
 
 
 def run_recover(arguments: Sequence[str]) -> int:
@@ -693,15 +875,26 @@ def main() -> int:
     if args.update is not None:
         return run_updates(parse_update_list(args.update, language), args.dry_run, language)
     ui = select_ui(args.text, language)
+    if args.accounts:
+        try:
+            return run_accounts_menu(ui, language, args.dry_run)
+        except Cancelled:
+            return 0
     provider_options = providers(language)
     try:
         if args.provider is None:
-            provider = ui.choose("ai", message(language, "provider_prompt"), [*provider_options, update_option(language)])
+            provider = ui.choose(
+                "ai",
+                message(language, "provider_prompt"),
+                [*provider_options, update_option(language), accounts_option(language)],
+            )
         else:
             provider = choose_or_validate(ui, args.provider, "ai", message(language, "provider_prompt"), provider_options, "field_provider", language)
         if provider == update_option(language).value:
             selected = ui.choose_many(message(language, "update_title"), message(language, "update_prompt"), provider_options)
             return run_updates(selected, args.dry_run, language)
+        if provider == accounts_option(language).value:
+            return run_accounts_menu(ui, language, args.dry_run)
         if provider == "codex":
             models, codex_efforts = load_codex_models(language)
         elif provider == "claude":
