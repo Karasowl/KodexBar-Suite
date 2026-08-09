@@ -18,7 +18,7 @@ pkgbase = kodexbar-suite
 	optdepends = xsel: alternate X11 clipboard support for ai recover --copy
 	source = kodexbar-suite-0.12.5.tar.gz::https://github.com/Karasowl/KodexBar-Suite/archive/refs/tags/v0.12.5.tar.gz
 	source = reload-plasma-after-upgrade
-	sha256sums = SKIP
+	sha256sums = 9d1c925d07313684adaf6515c52b9b7f51715e80a291ea0ee37484d79ff2faa0
 	sha256sums = b8c7d720603f43fddeefb891ace7780a1ef7716aa4125d0fa3cfa48a6e96a095
 
 pkgname = kodexbar-suite
