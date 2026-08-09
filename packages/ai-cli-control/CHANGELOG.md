@@ -4,11 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.12.5, 2026-08-08
+
 ### Added
 
 - Multi-account quota profiles via `~/.config/kodexbar-suite/profiles.json`. The engine iterates local credential profiles (not only providers), stamps `profileId` / `profileLabel` on every entry, and fetches Codex and Claude (plus path-based Grok and Cursor) from explicit auth paths without storing secrets. Secondary profiles never fall back to unscoped upstream.
-- Guided account management reuses AI CLI Control menus: `ai --accounts` (also listed as **Accounts** in the main selector) can add, sign in, or remove extra Codex/Claude accounts. It writes managed paths under `~/.config/kodexbar-suite/accounts/` and opens the existing Konsole login flow. Engine commands: `kodexbar-quotas profiles add|remove|login|list|validate`.
-- Native Cursor support: read the session token from the Cursor app SQLite DB (`state.vscdb`) and fetch the monthly billing-cycle usage from the `DashboardService` gRPC-web endpoint, with Auto and API splits as extra windows. Works on the free plan and paid plans; no keyring or network OAuth flow required.
+- Guided account management: Preferences **Accounts** page and `ai --accounts` can add, sign in, or remove extra Codex/Claude accounts. It writes managed paths under `~/.config/kodexbar-suite/accounts/` and opens the existing Konsole login flow. Engine commands: `kodexbar-quotas profiles add|remove|login|list|validate`.
+- Native Cursor support: read the session token from the Cursor app SQLite DB (`state.vscdb`) and fetch the monthly billing-cycle usage from the `DashboardService` gRPC-web endpoint, with Auto and API splits as extra windows. Works on the free plan and paid plans. No keyring or network OAuth flow is required.
 - Native OpenCode Go support: detect an OpenCode Go credential, fetch quota through the existing OpenCode path, and stamp a stable `opencodego` identity so the widget can show it beside other providers.
 
 ### Changed
