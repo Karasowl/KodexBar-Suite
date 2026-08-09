@@ -146,7 +146,7 @@ PlasmoidItem {
         PlasmaCore.Action {
             text: i18n("Manage AI accounts")
             icon.name: "user-identity"
-            onTriggered: root.launchAiControl(["--accounts"], true)
+            onTriggered: root.openPreferences("accounts")
         },
         PlasmaCore.Action {
             text: i18n("Update all AI CLIs")
@@ -203,8 +203,8 @@ PlasmoidItem {
         return compactResult().text
     }
 
-    function openPreferences() {
-        preferencesWindow.openPreferences()
+    function openPreferences(page) {
+        preferencesWindow.openPreferences(page || "general")
     }
 
     function formatNumber(value) {
@@ -1155,18 +1155,32 @@ PlasmoidItem {
         }
         var incoming = filtered.entries
         var cached = ProviderLogic.withoutProviders(lastGoodEntries, filtered.droppedProviderIds)
+        var providers = activeQueryReplacesAll ? [] : [activeProvider].concat(filtered.droppedProviderIds)
+        // Drop removed multi-account rows from the last-good cache whenever a
+        // provider is refreshed, otherwise deleted profiles stay on the panel.
+        lastGoodEntries = ProviderLogic.retainLiveAccountCache(
+            cached, incoming, providers, activeQueryReplacesAll)
         if (activeQueryReplacesAll) {
-            lastGoodEntries = ProviderLogic.reconcileSeedCache(cached, incoming)
             fastRefreshCyclesSinceSeed = 0
             lastSuccessfulSeedAt = Date.now()
-        } else {
-            lastGoodEntries = ProviderLogic.cacheLastGoodEntries(cached, incoming)
         }
         var merged = ProviderLogic.mergeEntriesWithCache(incoming, lastGoodEntries)
-        var providers = activeQueryReplacesAll ? [] : [activeProvider].concat(filtered.droppedProviderIds)
         var updatedEntries = ProviderLogic.replaceProviderEntries(
             entries, merged, providers, activeQueryReplacesAll)
         entries = ProviderLogic.attachProviderCostSummaries(updatedEntries, costSummaries)
+    }
+
+    // Preferences account add/remove must replace the whole panel immediately.
+    // A normal Refresh often only re-queries known providers and can keep stale
+    // multi-account rows until a full seed runs.
+    function refreshAccountsUsage() {
+        startupRetryTimer.stop()
+        startupRetryPending = false
+        startupRetryWindowOpen = false
+        activeStartupRetry = false
+        initialUsageSeedPending = false
+        fastRefreshCyclesSinceSeed = 10
+        beginUsageRefresh(commandCandidatesForSeed())
     }
 
     function scheduleStartupProviderRetries(normalized) {
@@ -1737,8 +1751,9 @@ PlasmoidItem {
             }
         }
         if (ProviderLogic.providerId(provider) === "cursor") {
+            // Matches cursor.com: Cursor Models is the main included pool.
             if (quotaKey === "secondary" || quotaKey === "weekly") {
-                return i18n("Monthly")
+                return i18n("Cursor Models")
             }
         }
         if (quotaKey === "primary") {
@@ -2835,12 +2850,17 @@ PlasmoidItem {
         property var blocks: []
         property bool preview: false
         property int activeLocalCount: 0
+        // Keep every provider block fully sized. Dense only tightens spacing so more
+        // accounts still push the panel item wider instead of clipping siblings.
         readonly property bool dense: blocks.length > 4
         signal providerActivated(string selectionKey)
 
         implicitWidth: stripRow.implicitWidth
         implicitHeight: 28
-        clip: true
+        // Never clip provider blocks: the panel representation grows with content.
+        clip: false
+        width: implicitWidth
+        height: implicitHeight
 
         Row {
             id: stripRow
@@ -2917,8 +2937,9 @@ PlasmoidItem {
                             font.family: root.designFont
                             font.pixelSize: 13
                             font.weight: modelData.error ? Font.Bold : Font.DemiBold
-                            elide: Text.ElideRight
-                            width: Math.min(implicitWidth, strip.preview ? 112 : (strip.dense ? 104 : 126))
+                            // Panel strip keeps full quota text. Preferences preview only may elide.
+                            elide: strip.preview ? Text.ElideRight : Text.ElideNone
+                            width: strip.preview ? Math.min(implicitWidth, 112) : implicitWidth
                             anchors.verticalCenter: parent.verticalCenter
                         }
                     }
@@ -2975,22 +2996,32 @@ PlasmoidItem {
     compactRepresentation: Item {
         id: compact
         readonly property var compactState: root.compactResult()
+        // Grow with every provider/account block so later chips push the panel
+        // item wider instead of disappearing under a fixed 520px clip.
+        readonly property int compactContentWidth: Math.max(
+            compactStrip.implicitWidth + 18,
+            (!compactState.blocks || compactState.blocks.length === 0) ? 96 : 0)
 
-        Layout.minimumWidth: Math.min(compactBackground.implicitWidth, 520)
-        Layout.preferredWidth: Math.min(compactBackground.implicitWidth, 520)
-        Layout.maximumWidth: 520
+        Layout.minimumWidth: compactContentWidth
+        Layout.preferredWidth: compactContentWidth
         Layout.minimumHeight: 30
+        Layout.preferredHeight: 30
+        implicitWidth: compactContentWidth
+        implicitHeight: 30
 
         Rectangle {
             id: compactBackground
-            anchors.fill: parent
-            implicitWidth: Math.min(compactStrip.implicitWidth + 18, 520)
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: Math.max(compactContentWidth, parent.width)
+            implicitWidth: compactContentWidth
             implicitHeight: 30
             radius: 9
             color: root.cardColor
             border.color: root.lineColor
             border.width: 1
-            clip: true
+            clip: false
 
             MouseArea {
                 anchors.fill: parent
@@ -3001,9 +3032,7 @@ PlasmoidItem {
                 id: compactStrip
                 z: 1
                 anchors.left: parent.left
-                anchors.right: parent.right
                 anchors.leftMargin: 9
-                anchors.rightMargin: 9
                 anchors.verticalCenter: parent.verticalCenter
                 blocks: compact.compactState.blocks || []
                 activeLocalCount: root.localModels.filter(function(item) { return item.state === "active" }).length
@@ -3260,7 +3289,7 @@ PlasmoidItem {
                     QQC2.MenuItem {
                         text: i18n("Manage AI accounts")
                         icon.name: "user-identity"
-                        onTriggered: root.launchAiControl(["--accounts"], true)
+                        onTriggered: root.openPreferences("accounts")
                     }
 
                     QQC2.MenuItem {

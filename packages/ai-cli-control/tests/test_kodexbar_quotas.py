@@ -113,12 +113,25 @@ def build_cursor_period_usage_message(
     total_percent: float,
     auto_percent: float | None = None,
     api_percent: float | None = None,
+    *,
+    included_display: str | None = None,
+    total_display: str | None = None,
+    api_display: str | None = None,
 ) -> bytes:
     """GetCurrentPeriodUsageResponse: cycle ms at fields 1/2, plan usage at field 3."""
     body = _protobuf_key(1, 0) + _encode_varint(start_ms)
     body += _protobuf_key(2, 0) + _encode_varint(end_ms)
     plan_usage = build_cursor_plan_usage_message(total_percent, auto_percent, api_percent)
     body += _protobuf_key(3, 2) + _encode_varint(len(plan_usage)) + plan_usage
+    for field, text in (
+        (7, included_display),
+        (11, total_display),
+        (12, api_display),
+    ):
+        if not text:
+            continue
+        encoded = text.encode("utf-8")
+        body += _protobuf_key(field, 2) + _encode_varint(len(encoded)) + encoded
     return body
 
 
@@ -128,10 +141,21 @@ def build_cursor_period_usage_frame(
     total_percent: float,
     auto_percent: float | None = None,
     api_percent: float | None = None,
+    *,
+    included_display: str | None = None,
+    total_display: str | None = None,
+    api_display: str | None = None,
 ) -> bytes:
     """gRPC-web data frame for GetCurrentPeriodUsageResponse."""
     message = build_cursor_period_usage_message(
-        start_ms, end_ms, total_percent, auto_percent, api_percent
+        start_ms,
+        end_ms,
+        total_percent,
+        auto_percent,
+        api_percent,
+        included_display=included_display,
+        total_display=total_display,
+        api_display=api_display,
     )
     return b"\x00" + len(message).to_bytes(4, "big") + message
 
@@ -2463,13 +2487,61 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertIsNone(entry["usage"]["primary"])
         self.assertEqual(entry["usage"]["identity"]["loginMethod"], "Free")
         secondary = entry["usage"]["secondary"]
-        self.assertAlmostEqual(secondary["usedPercent"], 12.5, places=6)
+        # secondary is Cursor Models (plan double f12); Other Models / Total are extras.
+        self.assertAlmostEqual(secondary["usedPercent"], 8.0, places=6)
         self.assertEqual(secondary["windowMinutes"], 31 * 24 * 60)
         self.assertEqual(secondary["resetsAt"], "2026-08-22T15:26:13Z")
         extras = {item["title"]: item["window"]["usedPercent"] for item in entry["usage"]["extraRateWindows"]}
-        self.assertEqual(extras, {"Auto": 8.0, "API": 4.5})
+        self.assertEqual(extras, {"Other Models": 4.5, "Total": 12.5})
         self.assertNotIn(TEST_CURSOR_TOKEN, json.dumps(entry))
         self.assertEqual(urls, [quotas.CURSOR_USAGE_URL, quotas.CURSOR_PLAN_URL])
+
+    def test_cursor_plan_doubles_match_website_pools(self) -> None:
+        """Website Cursor Models / Other Models follow PlanUsage doubles, not the 42% included banner."""
+        start_ms = 1784733973000
+        end_ms = start_ms + 31 * 24 * 3600 * 1000
+        frame = build_cursor_period_usage_frame(
+            start_ms,
+            end_ms,
+            3.234065934065934,
+            auto_percent=1.0175,
+            api_percent=19.354545454545455,
+            included_display="You've used 42% of your included usage",
+            total_display="You've used 3% of your included total usage",
+            api_display="You've used 19% of your included API usage",
+        )
+        period = quotas.parse_cursor_period_usage(frame[5:])
+        self.assertAlmostEqual(period["autoPercent"], 1.0175, places=6)
+        self.assertAlmostEqual(period["apiPercent"], 19.354545454545455, places=6)
+        self.assertAlmostEqual(period["totalPercent"], 3.234065934065934, places=6)
+        mapped = quotas.map_cursor_usage(period, {"displayName": "Pro+"})
+        self.assertAlmostEqual(mapped["usage"]["secondary"]["usedPercent"], 1.0175, places=6)
+        extras = {
+            item["title"]: item["window"]["usedPercent"]
+            for item in mapped["usage"]["extraRateWindows"]
+        }
+        self.assertAlmostEqual(extras["Other Models"], 19.354545454545455, places=6)
+        self.assertAlmostEqual(extras["Total"], 3.234065934065934, places=6)
+        self.assertNotIn("Auto", extras)
+
+    def test_cursor_tiny_total_double_falls_back_to_banner(self) -> None:
+        start_ms = 1784733973000
+        end_ms = start_ms + 31 * 24 * 3600 * 1000
+        frame = build_cursor_period_usage_frame(
+            start_ms,
+            end_ms,
+            0.021978021978021976,
+            auto_percent=0.025,
+            api_percent=0.0,
+            included_display="You've used 0% of your included usage",
+            total_display="You've used 1% of your included total usage",
+            api_display="You've used 0% of your included API usage",
+        )
+        period = quotas.parse_cursor_period_usage(frame[5:])
+        # Tiny models double kept; total uses rounded banner when double is sub-0.5 noise.
+        self.assertAlmostEqual(period["autoPercent"], 0.025, places=6)
+        self.assertEqual(period["apiPercent"], 0.0)
+        self.assertEqual(period["totalPercent"], 1.0)
 
     def test_cursor_plan_failure_keeps_quota_data(self) -> None:
         start_ms = 1784733973000

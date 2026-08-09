@@ -1,6 +1,6 @@
 # Diseño normativo: perfiles multi-cuenta de cuotas
 
-**Estado:** normativo. MVP implementado en engine + widget (Codex/Claude first-class, Grok/Cursor por paths, Antigravity/OpenCode Go passthrough). Gestión guiada sin JSON: menús de `ai --accounts` y acción **Manage AI accounts** del widget (reutiliza AI CLI Control + Konsole).
+**Estado:** normativo. MVP implementado en engine + widget (Codex/Claude first-class, Grok/Cursor por paths, Antigravity/OpenCode Go passthrough). Gestión guiada sin JSON: página **Accounts** en Preferencias (mismo diseño del widget) y acción **Manage AI accounts**. `ai --accounts` queda como vía de terminal opcional.
 **Alcance:** `kodexbar-quotas` (engine) + widget KodexBar (caché, selección, etiquetas).
 **Fecha:** 2026-08-05.
 **Origen:** diseño revisado a partir del código actual de KodexBar Suite y del modelo de instancias de [T3 Code](https://github.com/pingdotgg/t3code) (docs de [Codex](https://github.com/pingdotgg/t3code/blob/main/docs/user/providers-codex.md) y [Claude](https://github.com/pingdotgg/t3code/blob/main/docs/user/providers-claude.md)).

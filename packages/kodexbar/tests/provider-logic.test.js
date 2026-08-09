@@ -138,6 +138,34 @@ assert.deepEqual(
     "seed reconciliation drops removed profiles from cache"
 )
 
+
+assert.deepEqual(
+    plain(context.retainLiveAccountCache(
+        [
+            { provider: "codex", profileId: "default", compactPrimaryPercentLeft: 10 },
+            { provider: "codex", profileId: "personal", compactPrimaryPercentLeft: 20 },
+            { provider: "grok", profileId: "default", compactPrimaryPercentLeft: 30 }
+        ],
+        [{ provider: "codex", profileId: "default", compactPrimaryPercentLeft: 11 }],
+        ["codex"],
+        false
+    )).map(entry => entry.profileId + ":" + entry.provider),
+    ["default:codex", "default:grok"],
+    "a live codex refresh drops removed codex profiles from cache while keeping other providers"
+)
+assert.deepEqual(
+    plain(context.retainLiveAccountCache(
+        [
+            { provider: "codex", profileId: "personal", compactPrimaryPercentLeft: 20 }
+        ],
+        [{ provider: "codex", profileId: "default", compactPrimaryPercentLeft: 11 }],
+        [],
+        true
+    )).map(entry => entry.profileId),
+    ["default"],
+    "a full seed cache only keeps the live account set"
+)
+
 assert.deepEqual(
     plain(context.acquisitionCandidates("detect")),
     [{ provider: "", source: "detect" }],
@@ -1148,8 +1176,9 @@ assert.doesNotMatch(mainQml, /\barguments\b/, "QML command construction never ca
 assert.doesNotMatch(mainQml, /readonly property var configureAction:/, "the popup no longer keeps an unused Plasma configure action")
 assert.match(mainQml, /id: configureButton/, "the popup exposes a discoverable configuration button")
 assert.match(mainQml, /PreferencesWindow \{\s*id: preferencesWindow\s*appletRoot: root/, "the widget owns one reusable preferences window")
-assert.match(mainQml, /function openPreferences\(\) \{\s*preferencesWindow\.openPreferences\(\)/, "the widget routes preference requests to the reusable window")
+assert.match(mainQml, /function openPreferences\(page\) \{\s*preferencesWindow\.openPreferences\(page \|\| "general"\)/, "the widget routes preference requests to the reusable window")
 assert.match(mainQml, /onClicked: root\.openPreferences\(\)/, "the popup gear opens the dedicated preferences window")
+assert.match(mainQml, /openPreferences\("accounts"\)/, "manage accounts opens the preferences accounts page")
 assert.match(mainQml, /text: i18n\("Configure"\)/, "the configuration button has a translated tooltip label")
 assert.match(mainQml, /id: aiControlButton/, "the popup exposes a discoverable AI CLI Control button")
 assert.match(mainQml, /id: aiControlMenu/, "the popup AI button offers selector and update actions")
@@ -1721,11 +1750,16 @@ assert.match(
 )
 assert.match(
     mainQml,
-    /if \(activeQueryReplacesAll\) \{\s*lastGoodEntries = ProviderLogic\.reconcileSeedCache\(cached, incoming\)\s*fastRefreshCyclesSinceSeed = 0\s*lastSuccessfulSeedAt = Date\.now\(\)/,
+    /lastGoodEntries = ProviderLogic\.retainLiveAccountCache\([\s\S]*activeQueryReplacesAll\)/,
+    "live refreshes purge removed multi-account rows from the last-good cache"
+)
+assert.match(
+    mainQml,
+    /if \(activeQueryReplacesAll\) \{\s*fastRefreshCyclesSinceSeed = 0\s*lastSuccessfulSeedAt = Date\.now\(\)/,
     "only a successful full seed advances its time gate"
 )
 assert.match(mainQml, /ProviderLogic\.excludeUnfetchableProviderEntries\(normalized\)/, "unfetchable provider responses are excluded before state is updated")
-assert.match(mainQml, /ProviderLogic\.reconcileSeedCache\(cached, incoming\)/, "a successful full seed purges stale cached providers")
+assert.match(mainQml, /function refreshAccountsUsage\(\)/, "account preferences can force a full panel seed after add or remove")
 assert.match(mainQml, /id: startupRetryTimer[\s\S]*interval: 5000/, "transient startup failures wait five seconds before retrying")
 assert.match(mainQml, /ProviderLogic\.startupRetryProviderIds\([\s\S]*lastGoodEntries[\s\S]*startupRetryAttemptedProviders/, "startup retry selection is cache-aware and records completed attempts")
 assert.match(mainQml, /pendingCandidates = providerCandidates\(providers, true\)/, "startup retries target only the failed providers")
@@ -1755,7 +1789,12 @@ assert.match(mainQml, /i18n\("Banked resets"\)/, "the Codex popup labels banked 
 assert.match(mainQml, /root\.activeEntry\.isCached === true/, "cached popup data has a visible staleness note")
 assert.match(preferencesQml, /QQC2\.ApplicationWindow/, "preferences use a Wayland-capable top-level Qt Quick window")
 assert.match(preferencesQml, /title: i18n\("KodexBar Suite Preferences"\)/, "preferences use the requested window title")
-assert.match(preferencesQml, /function openPreferences\(\) \{[\s\S]*raise\(\)[\s\S]*requestActivate\(\)/, "reopening preferences focuses the single window instance")
+assert.match(preferencesQml, /function openPreferences\(page\) \{[\s\S]*raise\(\)[\s\S]*requestActivate\(\)/, "reopening preferences focuses the single window instance")
+assert.match(preferencesQml, /id: "accounts"/, "preferences expose an Accounts page")
+assert.match(preferencesQml, /Open login for %1/, "the Accounts page names the service and label on the primary action")
+assert.match(preferencesQml, /Stop showing this account/, "removal uses plain language instead of a bare Remove label")
+assert.match(preferencesQml, /PreferenceActionButton/, "Accounts actions reuse styled preference buttons")
+assert.match(preferencesQml, /id: accountsExecutable/, "the Accounts page runs kodexbar-quotas profiles through the executable engine")
 assert.match(preferencesQml, /function load\(\) \{[\s\S]*Plasmoid\.configuration\.codexbarCommand/, "preferences read the command setting")
 assert.match(preferencesQml, /Plasmoid\.configuration\.codexbarCommand = workingCommand/, "preferences write the command setting")
 assert.match(preferencesQml, /function load\(\) \{[\s\S]*Plasmoid\.configuration\.sourceDefault/, "preferences read the selected source")

@@ -2454,20 +2454,92 @@ def cursor_billing_cycle_minutes(start_ms: Any, end_ms: Any) -> int | None:
     return minutes
 
 
+# Cursor billing page (Pro+) shows two included pools:
+#   Cursor Models  ← PlanUsage double field 12
+#   Other Models   ← PlanUsage double field 13
+# Field 14 is an overall total. Banner strings also exist (7/11/12) but
+# "You've used N% of your included usage" is NOT the Cursor Models bar (it can
+# be a different internal pool, e.g. 42% while Cursor Models is 1%).
+_CURSOR_USED_PERCENT_RE = re.compile(
+    r"You've used\s+(\d+(?:\.\d+)?)\s*%",
+    re.IGNORECASE,
+)
+_CURSOR_USAGE_KIND_RE = re.compile(
+    r"of your included\s+(total usage|API usage|usage)\s*$",
+    re.IGNORECASE,
+)
+
+
+def extract_cursor_display_used_percent(message: str) -> float | None:
+    """Return the used percent from a Cursor display sentence, if present."""
+    if not isinstance(message, str) or not message.strip():
+        return None
+    match = _CURSOR_USED_PERCENT_RE.search(message.strip())
+    if match is None:
+        return None
+    try:
+        value = float(match.group(1))
+    except ValueError:
+        return None
+    if not math.isfinite(value) or value < 0 or value > 100:
+        return None
+    return value
+
+
+def classify_cursor_display_usage_message(message: str) -> str | None:
+    """Map a Cursor banner to total / other / legacy-included, or None."""
+    if not isinstance(message, str) or not message.strip():
+        return None
+    match = _CURSOR_USAGE_KIND_RE.search(message.strip())
+    if match is None:
+        return None
+    kind = match.group(1).lower()
+    if kind == "total usage":
+        return "total"
+    if kind == "api usage":
+        # Website labels this pool "Other Models" (not only raw API keys).
+        return "other"
+    if kind == "usage":
+        # Do not treat as Cursor Models; it is a separate internal included pool.
+        return "legacy_included"
+    return None
+
+
+def resolve_cursor_plan_percent(
+    plan_double: float | None,
+    display_percent: float | None,
+) -> float | None:
+    """Choose PlanUsage chart percent vs banner percent for one pool.
+
+    PlanUsage doubles (1.02, 19.3, 3.2) match the website charts. Banners are
+    used when the double is missing, or when the double is a sub-0.5 residue
+    while the banner already rounds to a whole percent (early-cycle noise).
+    """
+    if plan_double is None:
+        return display_percent
+    if not math.isfinite(plan_double) or plan_double < 0 or plan_double > 100:
+        return display_percent
+    if display_percent is None:
+        return plan_double
+    if plan_double == 0 or plan_double >= 0.5:
+        return plan_double
+    # Tiny positive double with a rounded banner (e.g. 0.022 vs "1%").
+    return display_percent
+
+
 def parse_cursor_period_usage(body: bytes) -> dict[str, Any]:
     """Parse GetCurrentPeriodUsageResponse (directed protobuf scan).
 
-    Returns {billingCycleStartMs, billingCycleEndMs, totalPercent, autoPercent,
-    apiPercent, displayMessage}. Unknown or absent fields stay None; corrupt
-    numerics raise invalid_response so the widget can retry or fall back.
+    Returns billing cycle bounds plus models/other/total used percents aligned
+    with cursor.com (Cursor Models / Other Models / overall total).
     """
     view = memoryview(body)
     cycle_start: int | None = None
     cycle_end: int | None = None
+    models_percent: float | None = None
+    other_percent: float | None = None
     total_percent: float | None = None
-    auto_percent: float | None = None
-    api_percent: float | None = None
-    display_message: str | None = None
+    display_messages: dict[str, str] = {}
     index = 0
     try:
         while index < len(view):
@@ -2488,17 +2560,24 @@ def parse_cursor_period_usage(body: bytes) -> dict[str, Any]:
                 payload = bytes(view[index:end])
                 index = end
                 if field == 3:
+                    # parse_cursor_plan_usage: f12 models, f13 other, f14 total
                     parsed = parse_cursor_plan_usage(payload)
-                    auto_percent = parsed.get("autoPercent")
-                    api_percent = parsed.get("apiPercent")
+                    models_percent = parsed.get("autoPercent")
+                    other_percent = parsed.get("apiPercent")
                     total_percent = parsed.get("totalPercent")
-                elif field == 7:
+                elif field in (7, 11, 12):
                     try:
-                        display_message = payload.decode("utf-8")
+                        text = payload.decode("utf-8")
                     except UnicodeDecodeError:
-                        display_message = None
-            elif wire in (1, 5):
+                        text = None
+                    if text:
+                        kind = classify_cursor_display_usage_message(text)
+                        if kind is not None:
+                            display_messages[kind] = text
+            elif wire == 1:
                 index += 8
+            elif wire == 5:
+                index += 4
             else:
                 raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
     except FetchFallback:
@@ -2512,12 +2591,27 @@ def parse_cursor_period_usage(body: bytes) -> dict[str, Any]:
         CURSOR_TS_MIN <= cycle_end <= CURSOR_TS_MAX
     ):
         raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+
+    display_total = extract_cursor_display_used_percent(display_messages.get("total") or "")
+    display_other = extract_cursor_display_used_percent(display_messages.get("other") or "")
+    # legacy_included intentionally ignored for models: it is not Cursor Models.
+
+    models_percent = resolve_cursor_plan_percent(models_percent, None)
+    other_percent = resolve_cursor_plan_percent(other_percent, display_other)
+    total_percent = resolve_cursor_plan_percent(total_percent, display_total)
+
+    display_message = (
+        display_messages.get("total")
+        or display_messages.get("other")
+        or display_messages.get("legacy_included")
+    )
     return {
         "billingCycleStartMs": cycle_start,
         "billingCycleEndMs": cycle_end,
+        # Keep legacy key names for map_cursor_usage / tests.
         "totalPercent": total_percent,
-        "autoPercent": auto_percent,
-        "apiPercent": api_percent,
+        "autoPercent": models_percent,
+        "apiPercent": other_percent,
         "displayMessage": display_message,
     }
 
@@ -2652,18 +2746,25 @@ def map_cursor_usage(
 ) -> dict[str, Any]:
     """Map GetCurrentPeriodUsage to the widget envelope.
 
-    Cursor has a single billing-cycle pool, so the weekly-percent total becomes
-    secondary (the compact W slot) and auto/API splits become extra windows.
+    Align with cursor.com Pro+ billing:
+      Cursor Models  → secondary (compact M)
+      Other Models   → extra window
+      Total          → extra window when present and distinct
+    autoPercent/apiPercent keys still carry models/other for compatibility.
     """
+    models_percent = period.get("autoPercent")
+    other_percent = period.get("apiPercent")
     total_percent = period.get("totalPercent")
-    if total_percent is None:
+    # Headline pool: Cursor Models, else overall total.
+    headline = models_percent if models_percent is not None else total_percent
+    if headline is None:
         raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
     cycle_end_ms = period.get("billingCycleEndMs")
     cycle_start_ms = period.get("billingCycleStartMs")
     resets_at = unix_seconds_to_iso(cycle_end_ms / 1000) if cycle_end_ms is not None else None
     window_minutes = cursor_billing_cycle_minutes(cycle_start_ms, cycle_end_ms)
 
-    secondary: dict[str, Any] = {"usedPercent": total_percent}
+    secondary: dict[str, Any] = {"usedPercent": headline}
     if resets_at is not None:
         secondary["resetsAt"] = resets_at
     if window_minutes is not None:
@@ -2671,10 +2772,13 @@ def map_cursor_usage(
 
     extras: list[dict[str, Any]] = []
     for key, title, value in (
-        ("cursor-auto", "Auto", period.get("autoPercent")),
-        ("cursor-api", "API", period.get("apiPercent")),
+        ("cursor-other-models", "Other Models", other_percent),
+        ("cursor-total", "Total", total_percent),
     ):
         if value is None:
+            continue
+        # Skip Total when it is the same number already shown as Cursor Models.
+        if key == "cursor-total" and models_percent is not None and abs(value - models_percent) < 1e-9:
             continue
         window: dict[str, Any] = {"usedPercent": value}
         if resets_at is not None:

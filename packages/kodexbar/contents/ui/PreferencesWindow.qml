@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.kquickcontrols
 import org.kde.plasma.plasmoid
+import org.kde.plasma.plasma5support as Plasma5Support
 
 QQC2.ApplicationWindow {
     id: preferences
@@ -31,11 +32,20 @@ QQC2.ApplicationWindow {
     property bool workingShowEmailInWidget: false
     property bool workingShowCostSummary: true
     property string workingShortcut: ""
+    // Extra Codex/Claude accounts managed by kodexbar-quotas profiles (not kdialog).
+    property var accountRows: []
+    property bool accountsLoading: false
+    property string accountsMessage: ""
+    property string accountsError: ""
+    property string accountsNewProvider: "codex"
+    property string accountsNewLabel: "Personal"
+    property string accountsPendingAction: ""
     readonly property bool showAllProviders: workingCompactProviderOrder.trim().length === 0
     readonly property var providerIds: providerList()
     readonly property var activeProviderIds: normalizedProviderIds(workingCompactProviderOrder)
     readonly property var activeKnownProviderIds: knownActiveProviderIds()
     readonly property var compactProviderChipIds: orderedProviderIds()
+    readonly property var extraAccountRows: filteredExtraAccounts()
     readonly property bool dirty: snapshot() !== savedState
     readonly property var previewState: appletRoot
         ? appletRoot.compactResultForOrder(workingCompactProviderOrder, {
@@ -176,7 +186,7 @@ QQC2.ApplicationWindow {
         workingClaudeRefreshInterval = Math.max(60, Math.min(3600,
             Number(Plasmoid.configuration.claudeRefreshInterval || 300)))
         workingCompactProviderOrder = Plasmoid.configuration.compactProviderOrder === undefined
-            ? "codex,claude,grok,antigravity"
+            ? "codex,claude,grok,antigravity,opencodego"
             : String(Plasmoid.configuration.compactProviderOrder)
         workingCompactQuotaSelection = Plasmoid.configuration.compactQuotaSelection === undefined
             ? "primary,weekly"
@@ -239,11 +249,116 @@ QQC2.ApplicationWindow {
         visible = false
     }
 
-    function openPreferences() {
+    function openPreferences(page) {
         load()
+        currentPage = page && String(page).length > 0 ? String(page) : "general"
+        if (currentPage === "accounts") {
+            refreshAccounts()
+        }
         visible = true
         raise()
         requestActivate()
+    }
+
+    function shellQuote(value) {
+        return "'" + String(value || "").replace(/'/g, "'\\''") + "'"
+    }
+
+    function quotasProfilesCommand(argv) {
+        var command = shellQuote(workingCommand || "kodexbar-quotas")
+        command += " profiles"
+        for (var i = 0; i < argv.length; i++) {
+            command += " " + shellQuote(argv[i])
+        }
+        return command
+    }
+
+    function filteredExtraAccounts() {
+        var rows = Array.isArray(accountRows) ? accountRows : []
+        var extras = []
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i] || {}
+            var provider = String(row.provider || "").toLowerCase()
+            var profileId = String(row.profileId || "")
+            if ((provider === "codex" || provider === "claude")
+                    && profileId.length > 0 && profileId !== "default") {
+                extras.push(row)
+            }
+        }
+        return extras
+    }
+
+    function accountDisplayName(row) {
+        var label = String(row && row.label || "").trim()
+        if (label.length > 0) {
+            return label
+        }
+        return String(row && row.profileId || i18n("Account"))
+    }
+
+    function accountCredentialText(row) {
+        if (row && row.credentialPresent === true) {
+            return i18n("Signed in")
+        }
+        if (row && row.credentialPresent === false) {
+            return i18n("Needs sign-in")
+        }
+        return i18n("Ready")
+    }
+
+    function refreshAccounts() {
+        accountsLoading = true
+        accountsError = ""
+        accountsPendingAction = "list"
+        accountsExecutable.connectedSources = []
+        accountsExecutable.connectSource(quotasProfilesCommand(["list", "--json"]))
+    }
+
+    function addAccountAndSignIn() {
+        accountsLoading = true
+        accountsError = ""
+        accountsMessage = ""
+        accountsPendingAction = "add"
+        accountsExecutable.connectedSources = []
+        accountsExecutable.connectSource(quotasProfilesCommand([
+            "add",
+            "--provider", accountsNewProvider,
+            "--label", accountsNewLabel,
+            "--login"
+        ]))
+    }
+
+    function signInAccount(provider, profileId) {
+        accountsLoading = true
+        accountsError = ""
+        accountsMessage = ""
+        accountsPendingAction = "login"
+        accountsExecutable.connectedSources = []
+        accountsExecutable.connectSource(quotasProfilesCommand([
+            "login",
+            "--provider", provider,
+            "--id", profileId
+        ]))
+    }
+
+    function removeAccount(provider, profileId) {
+        accountsLoading = true
+        accountsError = ""
+        accountsMessage = ""
+        accountsPendingAction = "remove"
+        accountsExecutable.connectedSources = []
+        accountsExecutable.connectSource(quotasProfilesCommand([
+            "remove",
+            "--provider", provider,
+            "--id", profileId,
+            "--delete-files"
+        ]))
+    }
+
+    function notifyAppletAccountsChanged() {
+        if (appletRoot && typeof appletRoot.refreshAccountsUsage === "function") {
+            appletRoot.refreshAccountsUsage()
+        }
     }
 
     function isProviderActive(providerId) {
@@ -348,6 +463,7 @@ QQC2.ApplicationWindow {
                     Repeater {
                         model: [
                             { id: "general", text: i18n("General"), icon: "adjustments" },
+                            { id: "accounts", text: i18n("Accounts"), icon: "user-cog" },
                             { id: "shortcuts", text: i18n("Keyboard shortcuts"), icon: "keyboard" },
                             { id: "about", text: i18n("About"), icon: "info-circle" }
                         ]
@@ -359,7 +475,12 @@ QQC2.ApplicationWindow {
                             text: modelData.text
                             checkable: true
                             checked: preferences.currentPage === modelData.id
-                            onClicked: preferences.currentPage = modelData.id
+                            onClicked: {
+                                preferences.currentPage = modelData.id
+                                if (modelData.id === "accounts") {
+                                    preferences.refreshAccounts()
+                                }
+                            }
 
                             contentItem: RowLayout {
                                 spacing: 10
@@ -430,7 +551,8 @@ QQC2.ApplicationWindow {
                                 StackLayout {
                                     Layout.fillWidth: true
                                     currentIndex: preferences.currentPage === "general" ? 0
-                                        : preferences.currentPage === "shortcuts" ? 1 : 2
+                                        : preferences.currentPage === "accounts" ? 1
+                                        : preferences.currentPage === "shortcuts" ? 2 : 3
 
                                     ColumnLayout {
                                         spacing: 18
@@ -967,6 +1089,343 @@ QQC2.ApplicationWindow {
                                         }
                                     }
 
+                                    // Accounts page: same Signal Console chrome as General.
+                                    ColumnLayout {
+                                        spacing: 18
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+
+                                                QQC2.Label {
+                                                    text: i18n("Accounts")
+                                                    color: preferences.th("#e9ebf2")
+                                                    font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeTitle
+                                                    font.bold: true
+                                                }
+
+                                                QQC2.Label {
+                                                    text: i18n("Add a second Codex or Claude login so the panel can show both quotas. Your current login stays as the main one.")
+                                                    color: preferences.th("#8b91a3")
+                                                    font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeBody
+                                                    wrapMode: Text.WordWrap
+                                                    Layout.fillWidth: true
+                                                }
+                                            }
+                                        }
+
+                                        PreferenceCard {
+                                            title: i18n("New extra account")
+                                            subtitle: i18n("Three steps: choose the service, pick a name, then open the official login. After you finish login in the terminal, refresh the widget.")
+
+                                            ColumnLayout {
+                                                width: parent.width
+                                                spacing: 14
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 6
+
+                                                    QQC2.Label {
+                                                        text: i18n("1 · Which service?")
+                                                        color: preferences.th("#c3c7d2")
+                                                        font.family: appletRoot ? appletRoot.designFont : ""
+                                                        font.pixelSize: preferences.fontSizeBody
+                                                        font.weight: Font.DemiBold
+                                                    }
+
+                                                    Flow {
+                                                        Layout.fillWidth: true
+                                                        spacing: 8
+
+                                                        Repeater {
+                                                            model: [
+                                                                { id: "codex", label: i18n("Codex") },
+                                                                { id: "claude", label: i18n("Claude") }
+                                                            ]
+                                                            delegate: Rectangle {
+                                                                required property var modelData
+                                                                height: 36
+                                                                width: chipRow.implicitWidth + 24
+                                                                radius: 18
+                                                                color: preferences.accountsNewProvider === modelData.id
+                                                                    ? preferences.th("#6e5aff") : preferences.th("#1b1e28")
+                                                                border.color: preferences.accountsNewProvider === modelData.id
+                                                                    ? preferences.th("#8f72ff") : preferences.th("#262a35")
+                                                                border.width: 1
+
+                                                                Row {
+                                                                    id: chipRow
+                                                                    anchors.centerIn: parent
+                                                                    spacing: 8
+
+                                                                    Image {
+                                                                        width: 16
+                                                                        height: 16
+                                                                        anchors.verticalCenter: parent.verticalCenter
+                                                                        source: preferences.providerIcon(modelData.id)
+                                                                        fillMode: Image.PreserveAspectFit
+                                                                    }
+
+                                                                    QQC2.Label {
+                                                                        text: modelData.label
+                                                                        anchors.verticalCenter: parent.verticalCenter
+                                                                        color: preferences.accountsNewProvider === modelData.id
+                                                                            ? "#ffffff" : preferences.th("#c3c7d2")
+                                                                        font.family: appletRoot ? appletRoot.designFont : ""
+                                                                        font.pixelSize: preferences.fontSizeBody
+                                                                    }
+                                                                }
+
+                                                                TapHandler {
+                                                                    onTapped: preferences.accountsNewProvider = modelData.id
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 6
+
+                                                    QQC2.Label {
+                                                        text: i18n("2 · What should KodexBar call it?")
+                                                        color: preferences.th("#c3c7d2")
+                                                        font.family: appletRoot ? appletRoot.designFont : ""
+                                                        font.pixelSize: preferences.fontSizeBody
+                                                        font.weight: Font.DemiBold
+                                                    }
+
+                                                    Flow {
+                                                        Layout.fillWidth: true
+                                                        spacing: 8
+
+                                                        Repeater {
+                                                            model: [
+                                                                { id: "Personal", label: i18n("Personal") },
+                                                                { id: "Work", label: i18n("Work") },
+                                                                { id: "Extra", label: i18n("Extra") }
+                                                            ]
+                                                            delegate: Rectangle {
+                                                                required property var modelData
+                                                                height: 36
+                                                                width: nameLabel.implicitWidth + 28
+                                                                radius: 18
+                                                                color: preferences.accountsNewLabel === modelData.id
+                                                                    ? preferences.th("#292343") : preferences.th("#1b1e28")
+                                                                border.color: preferences.accountsNewLabel === modelData.id
+                                                                    ? preferences.th("#6e5aff") : preferences.th("#262a35")
+                                                                border.width: 1
+
+                                                                QQC2.Label {
+                                                                    id: nameLabel
+                                                                    anchors.centerIn: parent
+                                                                    text: modelData.label
+                                                                    color: preferences.accountsNewLabel === modelData.id
+                                                                        ? preferences.th("#e9ebf2") : preferences.th("#c3c7d2")
+                                                                    font.family: appletRoot ? appletRoot.designFont : ""
+                                                                    font.pixelSize: preferences.fontSizeBody
+                                                                }
+
+                                                                TapHandler {
+                                                                    onTapped: preferences.accountsNewLabel = modelData.id
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 8
+
+                                                    QQC2.Label {
+                                                        text: i18n("3 · Open the login for that account")
+                                                        color: preferences.th("#c3c7d2")
+                                                        font.family: appletRoot ? appletRoot.designFont : ""
+                                                        font.pixelSize: preferences.fontSizeBody
+                                                        font.weight: Font.DemiBold
+                                                    }
+
+                                                    QQC2.Label {
+                                                        Layout.fillWidth: true
+                                                        text: i18n("A terminal opens with the official %1 login. Use the other email or plan there.",
+                                                            preferences.providerLabel(preferences.accountsNewProvider))
+                                                        color: preferences.th("#8b91a3")
+                                                        font.family: appletRoot ? appletRoot.designFont : ""
+                                                        font.pixelSize: preferences.fontSizeSecondary
+                                                        wrapMode: Text.WordWrap
+                                                    }
+
+                                                    PreferenceActionButton {
+                                                        text: preferences.accountsLoading
+                                                            ? i18n("Opening…")
+                                                            : i18n("Open login for %1 · %2",
+                                                                preferences.providerLabel(preferences.accountsNewProvider),
+                                                                preferences.accountsNewLabel === "Personal" ? i18n("Personal")
+                                                                    : preferences.accountsNewLabel === "Work" ? i18n("Work")
+                                                                    : i18n("Extra"))
+                                                        enabled: !preferences.accountsLoading
+                                                        emphasis: "primary"
+                                                        onClicked: preferences.addAccountAndSignIn()
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        PreferenceCard {
+                                            title: i18n("Extra accounts on this computer")
+                                            subtitle: i18n("Your main Codex and Claude sessions are unchanged. Only extra logins for the panel appear below.")
+
+                                            ColumnLayout {
+                                                width: parent.width
+                                                spacing: 10
+
+                                                RowLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 10
+
+                                                    QQC2.Label {
+                                                        visible: preferences.accountsMessage.length > 0
+                                                        Layout.fillWidth: true
+                                                        text: preferences.accountsMessage
+                                                        color: preferences.th("#a98cff")
+                                                        font.family: appletRoot ? appletRoot.designFont : ""
+                                                        font.pixelSize: preferences.fontSizeSecondary
+                                                        wrapMode: Text.WordWrap
+                                                    }
+
+                                                    PreferenceActionButton {
+                                                        text: preferences.accountsLoading ? i18n("Updating…") : i18n("Update list")
+                                                        enabled: !preferences.accountsLoading
+                                                        emphasis: "ghost"
+                                                        onClicked: preferences.refreshAccounts()
+                                                    }
+                                                }
+
+                                                QQC2.Label {
+                                                    visible: preferences.accountsError.length > 0
+                                                    Layout.fillWidth: true
+                                                    text: preferences.accountsError
+                                                    color: preferences.th("#ff7b72")
+                                                    font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeSecondary
+                                                    wrapMode: Text.WordWrap
+                                                }
+
+                                                QQC2.Label {
+                                                    visible: !preferences.accountsLoading
+                                                        && preferences.extraAccountRows.length === 0
+                                                        && preferences.accountsError.length === 0
+                                                    Layout.fillWidth: true
+                                                    text: i18n("No extra accounts yet. Use the section above when you want a second set of limits next to your main one.")
+                                                    color: preferences.th("#8b91a3")
+                                                    font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeBody
+                                                    wrapMode: Text.WordWrap
+                                                }
+
+                                                Repeater {
+                                                    model: preferences.extraAccountRows
+
+                                                    delegate: Rectangle {
+                                                        required property var modelData
+                                                        Layout.fillWidth: true
+                                                        implicitHeight: accountRow.implicitHeight + 24
+                                                        radius: 10
+                                                        color: preferences.th("#14161d")
+                                                        border.color: preferences.th("#22252f")
+                                                        border.width: 1
+
+                                                        ColumnLayout {
+                                                            id: accountRow
+                                                            anchors.left: parent.left
+                                                            anchors.right: parent.right
+                                                            anchors.verticalCenter: parent.verticalCenter
+                                                            anchors.leftMargin: 14
+                                                            anchors.rightMargin: 12
+                                                            spacing: 10
+
+                                                            RowLayout {
+                                                                Layout.fillWidth: true
+                                                                spacing: 12
+
+                                                                Image {
+                                                                    Layout.preferredWidth: 28
+                                                                    Layout.preferredHeight: 28
+                                                                    source: preferences.providerIcon(modelData.provider)
+                                                                    fillMode: Image.PreserveAspectFit
+                                                                }
+
+                                                                ColumnLayout {
+                                                                    Layout.fillWidth: true
+                                                                    spacing: 2
+
+                                                                    QQC2.Label {
+                                                                        text: preferences.providerLabel(modelData.provider)
+                                                                            + " · " + preferences.accountDisplayName(modelData)
+                                                                        color: preferences.th("#e9ebf2")
+                                                                        font.family: appletRoot ? appletRoot.designFont : ""
+                                                                        font.pixelSize: preferences.fontSizeBody
+                                                                        font.weight: Font.DemiBold
+                                                                        elide: Text.ElideRight
+                                                                        Layout.fillWidth: true
+                                                                    }
+
+                                                                    QQC2.Label {
+                                                                        text: modelData.credentialPresent === true
+                                                                            ? i18n("Ready to show quotas after the next widget refresh")
+                                                                            : modelData.credentialPresent === false
+                                                                            ? i18n("Login still needed for this account")
+                                                                            : i18n("Account registered")
+                                                                        color: modelData.credentialPresent === false
+                                                                            ? preferences.th("#ffb454")
+                                                                            : preferences.th("#8b91a3")
+                                                                        font.family: appletRoot ? appletRoot.designFont : ""
+                                                                        font.pixelSize: preferences.fontSizeSecondary
+                                                                        wrapMode: Text.WordWrap
+                                                                        Layout.fillWidth: true
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            RowLayout {
+                                                                Layout.fillWidth: true
+                                                                spacing: 8
+
+                                                                PreferenceActionButton {
+                                                                    text: modelData.credentialPresent === false
+                                                                        ? i18n("Open login now")
+                                                                        : i18n("Open login again")
+                                                                    enabled: !preferences.accountsLoading
+                                                                    emphasis: modelData.credentialPresent === false
+                                                                        ? "primary" : "secondary"
+                                                                    onClicked: preferences.signInAccount(
+                                                                        modelData.provider, modelData.profileId)
+                                                                }
+
+                                                                PreferenceActionButton {
+                                                                    text: i18n("Stop showing this account")
+                                                                    enabled: !preferences.accountsLoading
+                                                                    emphasis: "danger"
+                                                                    onClicked: preferences.removeAccount(
+                                                                        modelData.provider, modelData.profileId)
+                                                                }
+
+                                                                Item { Layout.fillWidth: true }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     ColumnLayout {
                                         spacing: 18
 
@@ -1209,6 +1668,125 @@ QQC2.ApplicationWindow {
         RowLayout {
             id: fieldContainer
             Layout.fillWidth: true
+        }
+    }
+
+    Plasma5Support.DataSource {
+        id: accountsExecutable
+        engine: "executable"
+        onNewData: function(sourceName, data) {
+            disconnectSource(sourceName)
+            preferences.accountsLoading = false
+            var stdout = String(data.stdout || "").trim()
+            var stderr = String(data.stderr || "").trim()
+            var exitCode = data["exit code"]
+            var action = preferences.accountsPendingAction
+            preferences.accountsPendingAction = ""
+
+            if (exitCode && exitCode !== 0) {
+                preferences.accountsError = stderr || stdout
+                    || i18n("Account action failed (exit code %1)", exitCode)
+                preferences.accountsMessage = ""
+                if (action === "list") {
+                    preferences.accountRows = []
+                }
+                return
+            }
+
+            if (action === "list") {
+                try {
+                    var parsed = JSON.parse(stdout.length > 0 ? stdout : "[]")
+                    preferences.accountRows = Array.isArray(parsed) ? parsed : []
+                    preferences.accountsError = ""
+                } catch (error) {
+                    preferences.accountRows = []
+                    preferences.accountsError = i18n("Could not read the account list.")
+                }
+                return
+            }
+
+            if (action === "add") {
+                preferences.accountsMessage = i18n("Next: finish the official login in the terminal window. The panel will refresh on its own.")
+                preferences.accountsError = ""
+                preferences.refreshAccounts()
+                preferences.notifyAppletAccountsChanged()
+                return
+            }
+            if (action === "login") {
+                preferences.accountsMessage = i18n("Login window opened. Finish it in the terminal. The panel will refresh on its own.")
+                preferences.accountsError = ""
+                preferences.refreshAccounts()
+                preferences.notifyAppletAccountsChanged()
+                return
+            }
+            if (action === "remove") {
+                preferences.accountsMessage = i18n("Extra account removed. Updating the panel now.")
+                preferences.accountsError = ""
+                preferences.refreshAccounts()
+                preferences.notifyAppletAccountsChanged()
+                return
+            }
+        }
+    }
+
+    // Shared action control for Accounts so buttons match Signal Console chrome
+    // instead of raw QQC2 defaults that look unrelated to the rest of Preferences.
+    component PreferenceActionButton: QQC2.AbstractButton {
+        id: actionButton
+        property string emphasis: "secondary" // primary | secondary | ghost | danger
+
+        leftPadding: 14
+        rightPadding: 14
+        topPadding: 8
+        bottomPadding: 8
+        implicitHeight: 34
+
+        contentItem: QQC2.Label {
+            text: actionButton.text
+            color: {
+                if (!actionButton.enabled) {
+                    return preferences.th("#6b7080")
+                }
+                if (actionButton.emphasis === "primary") {
+                    return "#ffffff"
+                }
+                if (actionButton.emphasis === "danger") {
+                    return preferences.th("#ff9b94")
+                }
+                return preferences.th("#e9ebf2")
+            }
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            font.family: appletRoot ? appletRoot.designFont : ""
+            font.pixelSize: preferences.fontSizeBody
+            font.weight: actionButton.emphasis === "primary" ? Font.DemiBold : Font.Normal
+        }
+
+        background: Rectangle {
+            radius: 8
+            color: {
+                if (!actionButton.enabled) {
+                    return preferences.th("#171a22")
+                }
+                if (actionButton.emphasis === "primary") {
+                    return actionButton.hovered || actionButton.down
+                        ? preferences.th("#7d6bff") : preferences.th("#6e5aff")
+                }
+                if (actionButton.emphasis === "danger") {
+                    return actionButton.hovered || actionButton.down
+                        ? preferences.th("#3a1f24") : preferences.th("#24181c")
+                }
+                if (actionButton.emphasis === "ghost") {
+                    return actionButton.hovered || actionButton.down
+                        ? preferences.th("#1b1e28") : "transparent"
+                }
+                return actionButton.hovered || actionButton.down
+                    ? preferences.th("#22252f") : preferences.th("#1b1e28")
+            }
+            border.width: actionButton.emphasis === "ghost" || actionButton.emphasis === "secondary" ? 1 : 0
+            border.color: actionButton.emphasis === "danger"
+                ? preferences.th("#5a3036")
+                : preferences.th("#262a35")
         }
     }
 }

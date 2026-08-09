@@ -403,6 +403,46 @@ function replaceProviderEntries(currentEntries, incomingEntries, providers, repl
     return result
 }
 
+// After a live fetch for one or more providers, drop cached account rows that are
+// no longer present so removed multi-account profiles cannot reappear on the panel.
+function retainLiveAccountCache(cachedEntries, liveEntries, providers, replaceAll) {
+    var cached = Array.isArray(cachedEntries) ? cachedEntries : []
+    var live = Array.isArray(liveEntries) ? liveEntries : []
+    if (replaceAll === true) {
+        return cacheLastGoodEntries([], live)
+    }
+    var targets = {}
+    var list = Array.isArray(providers) ? providers : []
+    for (var i = 0; i < list.length; i++) {
+        var id = providerId(list[i])
+        if (id.length > 0 && id !== "all") {
+            targets[id] = true
+        }
+    }
+    var liveKeys = {}
+    var liveProvidersSeen = {}
+    for (var j = 0; j < live.length; j++) {
+        var liveProvider = providerId(live[j] && live[j].provider)
+        liveProvidersSeen[liveProvider] = true
+        liveKeys[providerAccountKey(live[j])] = true
+    }
+    var retained = []
+    for (var k = 0; k < cached.length; k++) {
+        var entry = cached[k]
+        var provider = providerId(entry && entry.provider)
+        if (!targets[provider]) {
+            retained.push(entry)
+            continue
+        }
+        // Provider was refreshed: keep only identities that the live response still has.
+        if (liveKeys[providerAccountKey(entry)] === true) {
+            retained.push(entry)
+        }
+    }
+    // Ensure every healthy live row is in the cache even if it was never cached before.
+    return cacheLastGoodEntries(retained, live)
+}
+
 function compactQuotaKey(value) {
     return String(value || "")
         .trim()

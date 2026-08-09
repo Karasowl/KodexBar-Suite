@@ -7,8 +7,10 @@ All notable fork-specific changes are documented here.
 ### Added
 
 - Multi-account profile identity from the engine: stable `profileId` cache and selection keys (`codex:work`), popup tabs like `Codex · Trabajo` when a profile label is present, and profile-aware seed reconciliation so removed profiles leave the cache.
-- **Manage AI accounts** in the contextual menu and AI CLI Control menu reuses the existing AI CLI Control launcher (`ai --accounts`) so users can add Codex/Claude accounts without editing JSON.
+- **Accounts** page in Preferences (same Signal Console chrome as General) to add, sign in, or remove extra Codex/Claude accounts without editing JSON. **Manage AI accounts** opens that page.
+- The compact panel grows with every provider and account block instead of clipping later chips under a fixed 520px width.
 - Native Cursor provider: monthly billing-cycle quota (M badge) with Auto and API splits, the official logo, and compact label `Cr`.
+- Native OpenCode Go provider: official mark, compact label `Og`, and inclusion in the default compact provider order.
 
 ### Fixed
 
