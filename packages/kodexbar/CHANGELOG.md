@@ -4,8 +4,20 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+## 0.12.5, 2026-08-08
+
+### Added
+
+- Multi-account profile identity from the engine: stable `profileId` cache and selection keys (`codex:work`), popup tabs like `Codex · Trabajo` when a profile label is present, and profile-aware seed reconciliation so removed profiles leave the cache.
+- **Accounts** page in Preferences (same Signal Console chrome as General) to add, sign in, or remove extra Codex/Claude accounts without editing JSON. **Manage AI accounts** opens that page.
+- The compact panel grows with every provider and account block instead of clipping later chips under a fixed 520px width.
+- Native Cursor provider: monthly billing-cycle quota (M badge) with Auto and API splits, the official logo, and compact label `Cr`.
+- Native OpenCode Go provider: official mark, compact label `Og`, and inclusion in the default compact provider order.
+- Dual color palette so the widget follows the system light or dark theme.
+
 ### Fixed
 
+- Show the provider error instead of the last cached quota when the failure is permanent, such as an expired subscription or revoked access. Transient failures (network, timeout, invalid response, rate limit) still keep the last good state visible.
 - Reduce the fixed Signal Console height from 560 to 400 pixels, preserving a stable window across providers while dense content scrolls vertically.
 - Restore a compact provider identity row, optional provider-specific details, and the official provider logo without bringing back the oversized hero or duplicate provider switcher.
 - Remove compact provider hover tooltips so they never cover adjacent taskbar icons.

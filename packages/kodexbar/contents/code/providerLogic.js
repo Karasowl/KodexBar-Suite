@@ -91,8 +91,11 @@ function normalizeCodexResetCredits(value) {
 
 function providerAccountKey(entry) {
     var provider = providerId(entry && entry.provider)
+    // Prefer stable local profileId from kodexbar-quotas multi-account profiles.
+    // Fall back to remote account email for upstream multi-entry providers.
+    var profile = String(entry && entry.profileId || "").trim().toLowerCase()
     var account = String(entry && entry.account || "").trim().toLowerCase()
-    return provider + "\u001f" + account
+    return provider + "\u001f" + (profile || account)
 }
 
 function copyEntry(entry) {
@@ -170,23 +173,26 @@ function startupRetryProviderIds(entries, cachedEntries, alreadyRetried) {
     var incoming = Array.isArray(entries) ? entries : []
     var cached = Array.isArray(cachedEntries) ? cachedEntries : []
     var attempted = alreadyRetried && typeof alreadyRetried === "object" ? alreadyRetried : {}
-    var healthy = {}
-    var cachedProviders = {}
+    // Healthy and cached are tracked per account/profile so a good codex.work
+    // entry does not suppress the startup retry for a failed codex.personal.
+    var healthyKeys = {}
+    var cachedKeys = {}
     var retryable = []
     for (var cachedIndex = 0; cachedIndex < cached.length; cachedIndex++) {
-        cachedProviders[providerId(cached[cachedIndex] && cached[cachedIndex].provider)] = true
+        cachedKeys[providerAccountKey(cached[cachedIndex])] = true
     }
     for (var i = 0; i < incoming.length; i++) {
-        var id = providerId(incoming[i] && incoming[i].provider)
-        if (id.length > 0 && !incoming[i].errorMessage) {
-            healthy[id] = true
+        if (!incoming[i] || incoming[i].errorMessage) {
+            continue
         }
+        healthyKeys[providerAccountKey(incoming[i])] = true
     }
     for (var j = 0; j < incoming.length; j++) {
         var entry = incoming[j]
         var provider = providerId(entry && entry.provider)
-        if (provider.length === 0 || provider === "all" || healthy[provider]
-                || cachedProviders[provider] || attempted[provider]
+        var key = providerAccountKey(entry)
+        if (provider.length === 0 || provider === "all" || healthyKeys[key]
+                || cachedKeys[key] || attempted[provider]
                 || retryable.indexOf(provider) !== -1) {
             continue
         }
@@ -219,11 +225,29 @@ function withoutProviders(entries, providers) {
 function reconcileSeedCache(previous, seedEntries) {
     var seed = Array.isArray(seedEntries) ? seedEntries : []
     var cached = Array.isArray(previous) ? previous : []
-    var allowed = providerIds(seed)
+    // Reconcile by provider+profile identity so removing a profile drops its cache.
+    var allowedKeys = {}
+    var hasSeedKeys = false
+    for (var s = 0; s < seed.length; s++) {
+        var seedKey = providerAccountKey(seed[s])
+        if (seedKey.length > 1) {
+            allowedKeys[seedKey] = true
+            hasSeedKeys = true
+        }
+    }
+    var allowedProviders = providerIds(seed)
     var allowedEntries = []
     for (var i = 0; i < cached.length; i++) {
-        if (allowed.indexOf(providerId(cached[i] && cached[i].provider)) !== -1) {
-            allowedEntries.push(cached[i])
+        var cachedEntry = cached[i]
+        var cachedKey = providerAccountKey(cachedEntry)
+        if (hasSeedKeys) {
+            if (allowedKeys[cachedKey] === true) {
+                allowedEntries.push(cachedEntry)
+            }
+            continue
+        }
+        if (allowedProviders.indexOf(providerId(cachedEntry && cachedEntry.provider)) !== -1) {
+            allowedEntries.push(cachedEntry)
         }
     }
     return cacheLastGoodEntries(allowedEntries, seed)
@@ -254,7 +278,34 @@ function excludeUnfetchableProviderEntries(entries) {
     return { entries: retained, droppedProviderIds: droppedProviderIds }
 }
 
+function errorHidesCachedState(entry) {
+    if (!entry || !entry.errorMessage) {
+        return false
+    }
+    // Transient categories always keep the last good state visible: the quota
+    // did not change, only the fetch failed.
+    var category = providerId(entry.errorCategory)
+    if (["network", "timeout", "invalid_response", "rate_limit"].indexOf(category) !== -1) {
+        return false
+    }
+    if (entry.errorRetryable === true) {
+        return false
+    }
+    if (entry.errorRetryable === false) {
+        return true
+    }
+    if (["authentication", "authorization", "entitlement", "permanent"].indexOf(category) !== -1) {
+        return true
+    }
+    // Legacy entries without structured metadata fall back to message text.
+    var message = String(entry.errorMessage)
+    return /unauthenti|forbidden|credential|sign(?:ed)?\s*out|entitlement|subscription|not\s+included|expired/i.test(message)
+}
+
 function cachedEntryForError(entry, cachedEntries) {
+    if (errorHidesCachedState(entry)) {
+        return []
+    }
     var cached = Array.isArray(cachedEntries) ? cachedEntries : []
     var key = providerAccountKey(entry)
     for (var i = 0; i < cached.length; i++) {
@@ -263,7 +314,8 @@ function cachedEntryForError(entry, cachedEntries) {
         }
     }
 
-    if (String(entry && entry.account || "").trim().length > 0) {
+    if (String(entry && (entry.profileId || entry.account) || "").trim().length > 0) {
+        // Profile-scoped or account-scoped errors never expand to every sibling account.
         return []
     }
     var provider = providerId(entry && entry.provider)
@@ -349,6 +401,46 @@ function replaceProviderEntries(currentEntries, incomingEntries, providers, repl
         }
     }
     return result
+}
+
+// After a live fetch for one or more providers, drop cached account rows that are
+// no longer present so removed multi-account profiles cannot reappear on the panel.
+function retainLiveAccountCache(cachedEntries, liveEntries, providers, replaceAll) {
+    var cached = Array.isArray(cachedEntries) ? cachedEntries : []
+    var live = Array.isArray(liveEntries) ? liveEntries : []
+    if (replaceAll === true) {
+        return cacheLastGoodEntries([], live)
+    }
+    var targets = {}
+    var list = Array.isArray(providers) ? providers : []
+    for (var i = 0; i < list.length; i++) {
+        var id = providerId(list[i])
+        if (id.length > 0 && id !== "all") {
+            targets[id] = true
+        }
+    }
+    var liveKeys = {}
+    var liveProvidersSeen = {}
+    for (var j = 0; j < live.length; j++) {
+        var liveProvider = providerId(live[j] && live[j].provider)
+        liveProvidersSeen[liveProvider] = true
+        liveKeys[providerAccountKey(live[j])] = true
+    }
+    var retained = []
+    for (var k = 0; k < cached.length; k++) {
+        var entry = cached[k]
+        var provider = providerId(entry && entry.provider)
+        if (!targets[provider]) {
+            retained.push(entry)
+            continue
+        }
+        // Provider was refreshed: keep only identities that the live response still has.
+        if (liveKeys[providerAccountKey(entry)] === true) {
+            retained.push(entry)
+        }
+    }
+    // Ensure every healthy live row is in the cache even if it was never cached before.
+    return cacheLastGoodEntries(retained, live)
 }
 
 function compactQuotaKey(value) {
@@ -455,7 +547,16 @@ function compactStandardWindowSelected(configuredSelection, entry, quotaKey, ext
     return false
 }
 
-function compactQuotaLabel(quotaKey, title) {
+function compactQuotaLabel(quotaKey, title, provider) {
+    // Cursor's billing-cycle total lives in the weekly slot but is monthly.
+    if (providerId(provider) === "cursor" && compactQuotaKey(quotaKey) === "weekly") {
+        return "M"
+    }
+    // A monthly/billing title overrides the generic weekly badge: Cursor's
+    // billing cycle lives in the secondary slot but is not a weekly window.
+    if (/\bmonth|monthly|billing\b/i.test(String(title || ""))) {
+        return "M"
+    }
     var labels = {
         // Keep the internal quota key as `primary`, but label it as Session in
         // compact UI because that is what CodexBar and the provider surfaces
@@ -475,7 +576,7 @@ function compactQuotaPart(configuredSelection, provider, quotaKey, title, percen
     if (!compactQuotaSelected(configuredSelection, provider, key, extra)) {
         return ""
     }
-    return compactValuePart(compactQuotaLabel(key, title), percentLeft, resetsAt)
+    return compactValuePart(compactQuotaLabel(key, title, provider), percentLeft, resetsAt)
 }
 
 function compactExtraPart(configuredSelection, provider, title, percentLeft, resetsAt) {
@@ -488,7 +589,8 @@ function compactStandardQuotaPart(configuredSelection, entry, quotaKey, title, p
     if (!compactStandardWindowSelected(configuredSelection, entry, key, extra)) {
         return ""
     }
-    return compactValuePart(compactQuotaLabel(key, title), percentLeft, resetsAt)
+    var provider = providerId(entry && entry.provider)
+    return compactValuePart(compactQuotaLabel(key, title, provider), percentLeft, resetsAt)
 }
 
 function normalizeUsageSegments(segments) {
@@ -591,6 +693,14 @@ function standardWindowRow(quotaKey, title, percentLeft, resetsAt, detail) {
 
 function quotaWindowBadge(quotaKey, title) {
     var key = compactQuotaKey(quotaKey)
+    var normalizedTitle = String(title || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/^\s+|\s+$/g, "")
+    if (/\bmonth|monthly|billing\b/.test(normalizedTitle)) {
+        return "M"
+    }
     var badges = {
         "primary": "S",
         "weekly": "W",
@@ -599,11 +709,6 @@ function quotaWindowBadge(quotaKey, title) {
     if (badges[key]) {
         return badges[key]
     }
-    var normalizedTitle = String(title || "")
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, " ")
-        .replace(/^\s+|\s+$/g, "")
     if (/\bweekly\b/.test(normalizedTitle)) {
         return "W"
     }
@@ -882,7 +987,7 @@ function composeCompactBlocks(entries, options) {
                 var cursor = extraCursors[id] || 0
                 var label = row.compactLabel || (extraLabels[id] && extraLabels[id][cursor]
                     ? extraLabels[id][cursor]
-                    : compactQuotaLabel(key, row.title))
+                    : compactQuotaLabel(key, row.title, id))
                 extraCursors[id] = cursor + 1
                 var extraPart = compactValuePart(label, row.percentLeft, row.resetsAt)
                 if (extraPart) {
@@ -938,7 +1043,8 @@ function popupProviderPriority(provider) {
         "codex": 0,
         "claude": 1,
         "grok": 2,
-        "antigravity": 3
+        "antigravity": 3,
+        "cursor": 4
     }
     var id = providerId(provider)
     return priorities[id] === undefined ? 100 : priorities[id]
@@ -947,7 +1053,7 @@ function popupProviderPriority(provider) {
 function orderPopupEntries(entries) {
     var list = Array.isArray(entries) ? entries : []
     var ordered = []
-    for (var priority = 0; priority < 4; priority++) {
+    for (var priority = 0; priority < 5; priority++) {
         for (var i = 0; i < list.length; i++) {
             if (popupProviderPriority(list[i] && list[i].provider) === priority) {
                 ordered.push(list[i])
@@ -960,6 +1066,14 @@ function orderPopupEntries(entries) {
         }
     }
     return ordered
+}
+
+function entrySelectionKey(entry, provider, occurrence) {
+    var profile = String(entry && entry.profileId || "").trim()
+    if (profile.length > 0) {
+        return provider + ":" + profile
+    }
+    return provider + ":" + occurrence
 }
 
 function decoratePopupEntries(entries) {
@@ -981,14 +1095,22 @@ function decoratePopupEntries(entries) {
             copy[property] = entry[property]
         }
         copy.providerId = id
+        copy.profileId = String(entry.profileId || "").trim()
+        copy.profileLabel = String(entry.profileLabel || "").trim()
         copy.accountOrdinal = ordinal
         copy.accountCount = counts[id]
-        copy.selectionKey = id + ":" + occurrences[id]
+        copy.selectionKey = entrySelectionKey(entry, id, occurrences[id])
         var displayBase = String(entry.name || entry.provider || "Provider")
         var tabBase = id === "antigravity" ? "Antigravity" : displayBase
-        var ordinalSuffix = ordinal > 0 ? " #" + ordinal : ""
-        copy.tabLabel = tabBase + ordinalSuffix
-        copy.displayName = displayBase + ordinalSuffix
+        var profileLabel = copy.profileLabel
+        if (profileLabel.length > 0 && counts[id] > 1) {
+            copy.tabLabel = tabBase + " · " + profileLabel
+            copy.displayName = displayBase + " · " + profileLabel
+        } else {
+            var ordinalSuffix = ordinal > 0 ? " #" + ordinal : ""
+            copy.tabLabel = tabBase + ordinalSuffix
+            copy.displayName = displayBase + ordinalSuffix
+        }
         decorated.push(copy)
     }
     return decorated
@@ -1002,7 +1124,7 @@ function popupSelectionKeyForEntry(entries, targetEntry) {
         var id = providerId(entry.provider)
         occurrences[id] = (occurrences[id] || 0) + 1
         if (ordered[i] === targetEntry) {
-            return id + ":" + occurrences[id]
+            return entrySelectionKey(entry, id, occurrences[id])
         }
     }
     return ""
@@ -1158,6 +1280,8 @@ function compactProviderLabel(provider, name) {
         "claude": "Cl",
         "grok": "Gk",
         "antigravity": "Ag",
+        "opencodego": "Og",
+        "cursor": "Cr",
         "gemini": "Gm"
     }
     if (labels[id]) {

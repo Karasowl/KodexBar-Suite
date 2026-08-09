@@ -63,8 +63,12 @@ assert.match(qml, /required property int index\s*required property var modelData
 assert.match(qml, /root\.selectedEntryKey = selectionKey[\s\S]{0,80}root\.expanded = true/, "compact provider blocks open the exact provider")
 const compactStrip = qml.slice(compactStart, qml.indexOf("compactRepresentation: Item", compactStart))
 assert.doesNotMatch(compactStrip, /QQC2\.ToolTip/, "compact provider navigation never covers taskbar icons with hover overlays")
+const compactRep = qml.slice(qml.indexOf("compactRepresentation: Item"), qml.indexOf("fullRepresentation: Item"))
+assert.match(compactRep, /compactContentWidth/, "the panel representation sizes itself from every provider block")
+assert.doesNotMatch(compactRep, /Layout\.maximumWidth:\s*520/, "the compact panel is not hard-capped at 520px so extra accounts can push the item wider")
+assert.match(compactStrip, /ElideNone/, "panel provider quota labels keep their full text instead of clipping siblings")
 assert.match(preferences, /function signalIcon\(name\)/, "preferences share the packaged icon family")
-assert.match(preferences, /palette\.base: "#14161d"[\s\S]{0,220}palette\.buttonText: "#e9ebf2"/, "preferences keep native controls legible on the dark surface")
+assert.match(preferences, /palette\.base: preferences\.th\("#14161d"\)[\s\S]{0,300}palette\.buttonText: preferences\.th\("#e9ebf2"\)/, "preferences keep native controls legible on the dark surface")
 assert.match(preferences, /text: i18n\("Panel preview"\)/, "preferences avoid inherited all-caps microtype")
 assert.match(preferences, /component PreferenceCard: Rectangle[\s\S]{0,260}color: "transparent"[\s\S]{0,80}border\.width: 0/, "preference groups use flat sections instead of card soup")
 

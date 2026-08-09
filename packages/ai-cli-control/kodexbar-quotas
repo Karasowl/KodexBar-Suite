@@ -8,13 +8,16 @@ import hashlib
 import json
 import math
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -27,7 +30,7 @@ except ImportError:  # pragma: no cover - Python < 3.11
     tomllib = None  # type: ignore[assignment]
 
 
-VERSION = "0.12.1"
+VERSION = "0.12.5"
 TIMEOUT_SECONDS = 15
 COST_CACHE_TTL_SECONDS = 15 * 60
 COST_ANCHOR_TTL_SECONDS = 6 * 60 * 60
@@ -73,9 +76,29 @@ GROK_SURFACE_NAMES: dict[int, str] = {
 GROK_SEGMENTS_FLOAT_ABS_TOL = 1e-3
 PROTOBUF_MAX_DEPTH = 32
 PROTOBUF_MAX_FIELDS = 4096
-SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok"}
+SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok", "opencodego", "cursor"}
 # Stable order for auto-generated CodexBar config (upstream Codable expects version + providers).
-AUTO_CONFIG_PROVIDER_IDS = ("claude", "codex", "grok", "antigravity")
+AUTO_CONFIG_PROVIDER_IDS = ("claude", "codex", "grok", "antigravity", "opencodego", "cursor")
+PROFILES_CONFIG_VERSION = 1
+PROFILE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+PROFILE_KINDS = frozenset({
+    "default",
+    "codex-auth",
+    "claude-config-dir",
+    "grok-auth",
+    "cursor-state-db",
+    "opencodego-auth",
+})
+PROVIDER_ALLOWED_KINDS: dict[str, frozenset[str]] = {
+    "codex": frozenset({"default", "codex-auth"}),
+    "claude": frozenset({"default", "claude-config-dir"}),
+    "grok": frozenset({"default", "grok-auth"}),
+    "cursor": frozenset({"default", "cursor-state-db"}),
+    "opencodego": frozenset({"default", "opencodego-auth"}),
+    "antigravity": frozenset({"default"}),
+}
+PROFILE_FETCH_MAX_WORKERS = 4
+_CLAUDE_FETCH_LOCK = threading.Lock()
 # First-run guidance when config is absent, no CLIs are detected, upstream is missing, and Claude is not signed in.
 # Must NOT match the widget unfetchable-provider purge regex in providerLogic.js.
 FIRST_RUN_CLAUDE_GUIDANCE = (
@@ -135,6 +158,41 @@ GROK_PERMANENT = (
 )
 GROK_PERMISSION_DENIED = (
     "Grok denied access to billing data. Check your plan or sign in again (run: grok login)."
+)
+
+# --- Cursor native (gRPC-web billing via DashboardService) ---
+CURSOR_USAGE_URL = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"
+CURSOR_PLAN_URL = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetPlanInfo"
+CURSOR_TIMEOUT_SECONDS = 15
+CURSOR_EMPTY_FRAME = b"\x00\x00\x00\x00\x00"
+# The Cursor app stores its session token in the Electron globalStorage SQLite DB.
+CURSOR_STATE_DB_RELATIVE = Path(".config") / "Cursor" / "User" / "globalStorage" / "state.vscdb"
+# ISO timestamps roughly year 2023–2036 for Cursor billing cycle ends (reject junk).
+CURSOR_TS_MIN = 1_700_000_000_000
+CURSOR_TS_MAX = 2_100_000_000_000
+# Billing cycle length upper bound (~1 year in minutes) for Cursor windowMinutes.
+CURSOR_CYCLE_MINUTES_MAX = 366 * 24 * 60
+
+# User-visible Cursor messages (English, no technical jargon, no secrets).
+# Must NOT match the widget unfetchable-provider purge regex in providerLogic.js.
+CURSOR_AUTH_RELOGIN = "Sign in to Cursor again to see usage (open Cursor and sign in)."
+CURSOR_AUTH_NOT_FOUND = CURSOR_AUTH_RELOGIN
+CURSOR_AUTH_MISSING_TOKEN = CURSOR_AUTH_RELOGIN
+CURSOR_AUTH_UNREADABLE = (
+    "Could not read Cursor sign-in data. Check file permissions or sign in again (open Cursor)."
+)
+CURSOR_CREDENTIAL_MALFORMED = "Cursor sign-in data looks damaged. Sign in again (open Cursor)."
+CURSOR_NETWORK = "Cursor is unreachable right now. Check your connection and retry."
+CURSOR_TIMEOUT = "Cursor timed out. Check your connection and retry."
+CURSOR_INVALID_RESPONSE = (
+    "Could not read Cursor quotas. Update KodexBar, or retry after signing in again."
+)
+CURSOR_BOTH_FAILED = (
+    "Could not read Cursor quotas from the native reader or the codexbar fallback. "
+    "Update KodexBar, or reinstall codexbar-cli-bin."
+)
+CURSOR_PERMANENT = (
+    "Could not read Cursor quotas. Try signing in again (open Cursor), or update KodexBar."
 )
 
 CLAUDE_CREDENTIAL_MALFORMED = "credential looks malformed, run claude to log in"
@@ -207,6 +265,16 @@ def human_native_error_message(provider: str, category: str, original: str | Non
         if category == "invalid_response":
             return GROK_INVALID_RESPONSE
         return GROK_PERMANENT
+    if normalized == "cursor":
+        if category == "authentication":
+            return CURSOR_AUTH_RELOGIN
+        if category == "timeout":
+            return CURSOR_TIMEOUT
+        if category == "network":
+            return CURSOR_NETWORK
+        if category == "invalid_response":
+            return CURSOR_INVALID_RESPONSE
+        return CURSOR_PERMANENT
     return text or "Could not read quotas. Retry later or update KodexBar."
 
 
@@ -219,26 +287,400 @@ def codexbar_config_path(home: Path | None = None) -> Path:
     return root / ".config" / "codexbar" / "config.json"
 
 
+def profiles_config_path(home: Path | None = None) -> Path:
+    """Sidecar multi-account profiles (not CodexBar's enabled-provider list)."""
+    root = home or home_directory()
+    return root / ".config" / "kodexbar-suite" / "profiles.json"
+
+
+class ProfilesConfigError(Exception):
+    """Global profiles.json is present but unusable (do not fall back silently)."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+class CredentialSource:
+    __slots__ = ("kind", "auth_file", "settings_file", "config_dir", "state_db")
+
+    def __init__(
+        self,
+        kind: str,
+        auth_file: Path | None = None,
+        settings_file: Path | None = None,
+        config_dir: Path | None = None,
+        state_db: Path | None = None,
+    ) -> None:
+        self.kind = kind
+        self.auth_file = auth_file
+        self.settings_file = settings_file
+        self.config_dir = config_dir
+        self.state_db = state_db
+
+
+class ProviderProfile:
+    __slots__ = (
+        "provider",
+        "profile_id",
+        "profile_label",
+        "credential_source",
+        "provider_order",
+        "profile_order",
+        "enabled",
+    )
+
+    def __init__(
+        self,
+        provider: str,
+        profile_id: str,
+        profile_label: str | None,
+        credential_source: CredentialSource,
+        provider_order: int,
+        profile_order: int,
+        enabled: bool = True,
+    ) -> None:
+        self.provider = provider
+        self.profile_id = profile_id
+        self.profile_label = profile_label
+        self.credential_source = credential_source
+        self.provider_order = provider_order
+        self.profile_order = profile_order
+        self.enabled = enabled
+
+    @property
+    def allows_upstream_fallback(self) -> bool:
+        # Secondary profiles must never inherit the ambient default account via unscoped upstream.
+        return self.profile_id == "default"
+
+
+def expand_user_path(value: str, home: Path | None = None) -> Path:
+    """Expand ~ using the resolved home when possible (hermetic tests set HOME)."""
+    text = value.strip()
+    if text.startswith("~/") or text == "~":
+        root = home or home_directory()
+        suffix = text[2:] if text.startswith("~/") else ""
+        return (root / suffix).resolve() if suffix else root.resolve()
+    return Path(text).expanduser().resolve()
+
+
+def _optional_path_field(raw: dict[str, Any], key: str, home: Path | None) -> Path | None:
+    value = raw.get(key)
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"credentialSource.{key} must be a non-empty string path")
+    return expand_user_path(value, home)
+
+
+def parse_credential_source(
+    provider: str,
+    raw: Any,
+    home: Path | None = None,
+) -> CredentialSource:
+    if raw is None:
+        return CredentialSource(kind="default")
+    if not isinstance(raw, dict):
+        raise ValueError("credentialSource must be an object")
+    kind = raw.get("kind", "default")
+    if not isinstance(kind, str) or not kind.strip():
+        raise ValueError("credentialSource.kind must be a non-empty string")
+    kind = kind.strip()
+    if kind not in PROFILE_KINDS:
+        raise ValueError(f"unsupported credentialSource.kind: {kind}")
+    allowed = PROVIDER_ALLOWED_KINDS.get(provider, frozenset({"default"}))
+    if kind not in allowed:
+        raise ValueError(f"credentialSource.kind {kind!r} is not valid for provider {provider}")
+    auth_file = _optional_path_field(raw, "authFile", home)
+    settings_file = _optional_path_field(raw, "settingsFile", home)
+    config_dir = _optional_path_field(raw, "configDir", home)
+    state_db = _optional_path_field(raw, "stateDb", home)
+    if kind == "default":
+        if any(v is not None for v in (auth_file, settings_file, config_dir, state_db)):
+            raise ValueError("credentialSource kind default must not set path fields")
+        return CredentialSource(kind="default")
+    if kind == "codex-auth":
+        if auth_file is None:
+            raise ValueError("codex-auth requires authFile")
+        return CredentialSource(kind=kind, auth_file=auth_file, settings_file=settings_file)
+    if kind == "claude-config-dir":
+        if config_dir is None:
+            raise ValueError("claude-config-dir requires configDir")
+        return CredentialSource(kind=kind, config_dir=config_dir)
+    if kind == "grok-auth":
+        if auth_file is None:
+            raise ValueError("grok-auth requires authFile")
+        return CredentialSource(kind=kind, auth_file=auth_file)
+    if kind == "cursor-state-db":
+        if state_db is None:
+            raise ValueError("cursor-state-db requires stateDb")
+        return CredentialSource(kind=kind, state_db=state_db)
+    if kind == "opencodego-auth":
+        if auth_file is None:
+            raise ValueError("opencodego-auth requires authFile")
+        return CredentialSource(kind=kind, auth_file=auth_file)
+    raise ValueError(f"unsupported credentialSource.kind: {kind}")
+
+
+def parse_profile_entry(
+    provider: str,
+    raw: Any,
+    provider_order: int,
+    profile_order: int,
+    home: Path | None = None,
+) -> ProviderProfile:
+    if not isinstance(raw, dict):
+        raise ValueError("profile entry must be an object")
+    profile_id = raw.get("id")
+    if not isinstance(profile_id, str) or not PROFILE_ID_PATTERN.fullmatch(profile_id):
+        raise ValueError(
+            "profile id must match [a-z0-9][a-z0-9._-]{0,63}"
+        )
+    label_raw = raw.get("label")
+    label: str | None
+    if label_raw is None or label_raw == "":
+        label = None
+    elif isinstance(label_raw, str) and label_raw.strip():
+        label = label_raw.strip()
+    else:
+        raise ValueError("profile label must be a non-empty string when set")
+    enabled = raw.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ValueError("profile enabled must be a boolean")
+    credential_source = parse_credential_source(provider, raw.get("credentialSource"), home)
+    return ProviderProfile(
+        provider=provider,
+        profile_id=profile_id,
+        profile_label=label,
+        credential_source=credential_source,
+        provider_order=provider_order,
+        profile_order=profile_order,
+        enabled=enabled,
+    )
+
+
+def load_profiles_document(home: Path | None = None) -> dict[str, list[ProviderProfile]] | None:
+    """Return provider→profiles map, None when sidecar is absent, or raise ProfilesConfigError."""
+    path = profiles_config_path(home)
+    if not path.is_file():
+        return None
+    try:
+        payload = read_json(path)
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise ProfilesConfigError(
+            "Could not read KodexBar profiles config. Fix ~/.config/kodexbar-suite/profiles.json."
+        ) from error
+    if not isinstance(payload, dict):
+        raise ProfilesConfigError("KodexBar profiles config root must be a JSON object")
+    version = payload.get("version", PROFILES_CONFIG_VERSION)
+    if version != PROFILES_CONFIG_VERSION:
+        raise ProfilesConfigError(
+            f"Unsupported KodexBar profiles config version: {version!r}"
+        )
+    providers_raw = payload.get("providers")
+    if providers_raw is None:
+        return {}
+    if not isinstance(providers_raw, dict):
+        raise ProfilesConfigError("profiles.providers must be an object")
+    result: dict[str, list[ProviderProfile]] = {}
+    for provider_key, provider_value in providers_raw.items():
+        if not isinstance(provider_key, str) or not provider_key.strip():
+            raise ProfilesConfigError("provider keys in profiles config must be non-empty strings")
+        provider = provider_key.strip().lower()
+        if not isinstance(provider_value, dict):
+            raise ProfilesConfigError(f"profiles.providers.{provider} must be an object")
+        profiles_raw = provider_value.get("profiles")
+        if not isinstance(profiles_raw, list):
+            raise ProfilesConfigError(f"profiles.providers.{provider}.profiles must be an array")
+        if len(profiles_raw) == 0:
+            raise ProfilesConfigError(
+                f"profiles.providers.{provider}.profiles must not be empty when declared"
+            )
+        seen_ids: set[str] = set()
+        parsed: list[ProviderProfile] = []
+        for index, entry in enumerate(profiles_raw):
+            try:
+                profile = parse_profile_entry(provider, entry, 0, index, home)
+            except ValueError as error:
+                raise ProfilesConfigError(
+                    f"Invalid profile for {provider}: {error}"
+                ) from error
+            if profile.profile_id in seen_ids:
+                raise ProfilesConfigError(
+                    f"Duplicate profile id {profile.profile_id!r} for provider {provider}"
+                )
+            seen_ids.add(profile.profile_id)
+            parsed.append(profile)
+        result[provider] = parsed
+    return result
+
+
+def synthetic_default_profile(provider: str, provider_order: int = 0) -> ProviderProfile:
+    return ProviderProfile(
+        provider=provider,
+        profile_id="default",
+        profile_label=None,
+        credential_source=CredentialSource(kind="default"),
+        provider_order=provider_order,
+        profile_order=0,
+        enabled=True,
+    )
+
+
+def resolve_provider_profiles(
+    provider_ids: list[str],
+    home: Path | None = None,
+) -> list[ProviderProfile]:
+    """Enabled profiles for each provider id, preserving config.json order then profile order."""
+    document = load_profiles_document(home)
+    targets: list[ProviderProfile] = []
+    for provider_order, provider in enumerate(provider_ids):
+        normalized = provider.lower()
+        if document is None or normalized not in document:
+            targets.append(synthetic_default_profile(normalized, provider_order))
+            continue
+        enabled_profiles = [p for p in document[normalized] if p.enabled]
+        if not enabled_profiles:
+            # Declared but all disabled: emit nothing for this provider.
+            continue
+        for profile_order, profile in enumerate(enabled_profiles):
+            targets.append(
+                ProviderProfile(
+                    provider=profile.provider,
+                    profile_id=profile.profile_id,
+                    profile_label=profile.profile_label,
+                    credential_source=profile.credential_source,
+                    provider_order=provider_order,
+                    profile_order=profile_order,
+                    enabled=True,
+                )
+            )
+    return targets
+
+
+def stamp_profile_fields(entry: dict[str, Any], profile: ProviderProfile) -> dict[str, Any]:
+    stamped = dict(entry)
+    stamped["profileId"] = profile.profile_id
+    if profile.profile_label:
+        stamped["profileLabel"] = profile.profile_label
+    elif "profileLabel" in stamped:
+        stamped.pop("profileLabel", None)
+    return stamped
+
+
+def profiles_config_error_entry(message: str) -> dict[str, Any]:
+    return {
+        "provider": "kodexbar",
+        "profileId": "config",
+        "source": "profiles",
+        "error": {
+            "code": 1,
+            "message": message,
+            "kind": "provider",
+            "category": "permanent",
+            "retryable": False,
+        },
+        "engine": "kodexbar",
+    }
+
+
+def credential_source_exists(source: CredentialSource) -> bool | None:
+    """True/False when a path is configured, None for default ambient resolution."""
+    if source.kind == "default":
+        return None
+    if source.kind == "codex-auth" and source.auth_file is not None:
+        return source.auth_file.is_file()
+    if source.kind == "claude-config-dir" and source.config_dir is not None:
+        return (source.config_dir / ".credentials.json").is_file()
+    if source.kind == "grok-auth" and source.auth_file is not None:
+        return source.auth_file.is_file()
+    if source.kind == "cursor-state-db" and source.state_db is not None:
+        return source.state_db.is_file()
+    if source.kind == "opencodego-auth" and source.auth_file is not None:
+        return source.auth_file.is_file()
+    return False
+
+
+def list_profiles_status(
+    provider_ids: list[str] | None = None,
+    home: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Non-secret status rows for `profiles list`."""
+    ids = provider_ids if provider_ids is not None else list(AUTO_CONFIG_PROVIDER_IDS)
+    try:
+        targets = resolve_provider_profiles(ids, home)
+    except ProfilesConfigError as error:
+        return [{"error": error.message}]
+    rows: list[dict[str, Any]] = []
+    for profile in targets:
+        exists = credential_source_exists(profile.credential_source)
+        row: dict[str, Any] = {
+            "provider": profile.provider,
+            "profileId": profile.profile_id,
+            "label": profile.profile_label,
+            "kind": profile.credential_source.kind,
+            "enabled": profile.enabled,
+        }
+        if exists is not None:
+            row["credentialPresent"] = exists
+        rows.append(row)
+    return rows
+
+
+def validate_profiles_config(home: Path | None = None) -> tuple[bool, list[str]]:
+    """Return (ok, messages). Never prints secrets."""
+    path = profiles_config_path(home)
+    if not path.is_file():
+        return True, ["no profiles.json (synthetic default profiles will be used)"]
+    try:
+        document = load_profiles_document(home)
+    except ProfilesConfigError as error:
+        return False, [error.message]
+    if document is None:
+        return True, ["no profiles.json (synthetic default profiles will be used)"]
+    messages: list[str] = [f"profiles.json ok ({len(document)} provider group(s))"]
+    for provider, profiles in document.items():
+        for profile in profiles:
+            exists = credential_source_exists(profile.credential_source)
+            if exists is False:
+                messages.append(
+                    f"warning: {provider}/{profile.profile_id} credential path is missing"
+                )
+    return True, messages
+
+
 def read_json(path: Path) -> Any:
     with path.open(encoding="utf-8") as handle:
         return json.load(handle)
 
 
 def enabled_providers(home: Path | None = None) -> list[str]:
-    """Read the ordered enabled provider list from CodexBar's public config."""
-    config = read_json(codexbar_config_path(home))
+    """Read config order and append a newly detected, not-explicitly-disabled Go account."""
+    root = home or home_directory()
+    config = read_json(codexbar_config_path(root))
     if not isinstance(config, dict):
         raise ValueError("CodexBar config root must be a JSON object")
     providers = config.get("providers")
     if not isinstance(providers, list):
         raise ValueError("CodexBar config has no providers array")
     result = []
+    explicit_ids = set()
     for provider in providers:
         if not isinstance(provider, dict) or provider.get("enabled") is not True:
+            if isinstance(provider, dict) and isinstance(provider.get("id"), str):
+                explicit_ids.add(provider["id"].lower().replace("-", ""))
             continue
         provider_id = provider.get("id")
         if isinstance(provider_id, str) and provider_id:
-            result.append(provider_id.lower())
+            normalized_id = provider_id.lower()
+            explicit_ids.add(normalized_id.replace("-", ""))
+            result.append(normalized_id)
+    if "opencodego" not in explicit_ids and detect_opencodego_installed(root):
+        result.append("opencodego")
+    if "cursor" not in explicit_ids and detect_cursor_installed(root):
+        result.append("cursor")
     return result
 
 
@@ -270,6 +712,74 @@ def detect_antigravity_installed(home: Path | None = None) -> bool:
     return command_on_path("agy") or command_on_path("antigravity")
 
 
+def detect_opencodego_installed(home: Path | None = None) -> bool:
+    """OpenCode Go is present when OpenCode stores a non-empty Go credential."""
+    root = home or home_directory()
+    candidates = (
+        root / ".local" / "share" / "opencode" / "auth.json",
+        root / ".config" / "opencode" / "auth.json",
+    )
+    for path in candidates:
+        try:
+            auth = read_json(path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(auth, dict):
+            continue
+        for provider_id in ("opencode-go", "opencodego"):
+            account = auth.get(provider_id)
+            if isinstance(account, dict) and isinstance(account.get("key"), str):
+                if account["key"].strip():
+                    return True
+    return False
+
+
+def cursor_state_db_path(home: Path | None = None) -> Path:
+    """Path of the Cursor globalStorage SQLite DB that holds the session token."""
+    root = home or home_directory()
+    return root / CURSOR_STATE_DB_RELATIVE
+
+
+def cursor_access_token(
+    home: Path | None = None,
+    *,
+    state_db: Path | None = None,
+) -> str:
+    """Read the Cursor session token from the app's globalStorage SQLite DB.
+
+    Cursor 1.x stores cursorAuth/accessToken in state.vscdb (ItemTable), not in
+    the legacy storage.json. Reading it locally needs no network or keyring.
+    """
+    path = Path(state_db).expanduser() if state_db is not None else cursor_state_db_path(home)
+    if not path.is_file():
+        raise FetchFallback(CURSOR_AUTH_NOT_FOUND, "authentication")
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        try:
+            row = connection.execute(
+                "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'"
+            ).fetchone()
+        finally:
+            connection.close()
+    except (OSError, sqlite3.Error) as error:
+        if isinstance(error, sqlite3.DatabaseError):
+            # Corrupt DB is permanent/parse, not an auth re-login signal.
+            raise FetchFallback(CURSOR_AUTH_UNREADABLE, "permanent", False) from error
+        raise FetchFallback(CURSOR_AUTH_UNREADABLE, "permanent", False) from error
+    if row is None or not isinstance(row[0], str) or not row[0].strip():
+        raise FetchFallback(CURSOR_AUTH_MISSING_TOKEN, "authentication")
+    return require_header_safe_credential(row[0], CURSOR_CREDENTIAL_MALFORMED)
+
+
+def detect_cursor_installed(home: Path | None = None) -> bool:
+    """Cursor is present when the app's SQLite DB holds a non-empty session token."""
+    try:
+        cursor_access_token(home)
+        return True
+    except FetchFallback:
+        return False
+
+
 def detect_installed_providers(home: Path | None = None) -> dict[str, bool]:
     """Local-only detection of installed provider CLIs/credentials (pure, testable)."""
     root = home or home_directory()
@@ -278,6 +788,8 @@ def detect_installed_providers(home: Path | None = None) -> dict[str, bool]:
         "codex": detect_codex_installed(root),
         "grok": detect_grok_installed(root),
         "antigravity": detect_antigravity_installed(root),
+        "opencodego": detect_opencodego_installed(root),
+        "cursor": detect_cursor_installed(root),
     }
 
 
@@ -358,10 +870,21 @@ def require_header_safe_credential(value: str, malformed_message: str) -> str:
     return cleaned
 
 
-def claude_access_token(home: Path | None = None) -> str:
-    root = home or home_directory()
+def claude_access_token(
+    home: Path | None = None,
+    *,
+    credentials_file: Path | None = None,
+    config_dir: Path | None = None,
+) -> str:
+    if credentials_file is not None:
+        path = Path(credentials_file).expanduser()
+    elif config_dir is not None:
+        path = Path(config_dir).expanduser() / ".credentials.json"
+    else:
+        root = home or home_directory()
+        path = root / ".claude" / ".credentials.json"
     try:
-        credentials = read_json(root / ".claude" / ".credentials.json")
+        credentials = read_json(path)
     except (OSError, json.JSONDecodeError) as error:
         raise FetchFallback("Claude OAuth credentials are unavailable", "authentication") from error
     if not isinstance(credentials, dict):
@@ -686,8 +1209,11 @@ def provider_error(
     message: str,
     category: str = "permanent",
     retryable: bool = False,
+    *,
+    profile_id: str | None = None,
+    profile_label: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    entry: dict[str, Any] = {
         "provider": provider,
         "source": source,
         "error": {
@@ -699,10 +1225,19 @@ def provider_error(
         },
         "engine": "kodexbar",
     }
+    if profile_id:
+        entry["profileId"] = profile_id
+    if profile_label:
+        entry["profileLabel"] = profile_label
+    return entry
 
 
-def fetch_claude(home: Path | None = None) -> dict[str, Any]:
-    token = claude_access_token(home)
+def fetch_claude(
+    home: Path | None = None,
+    *,
+    config_dir: Path | None = None,
+) -> dict[str, Any]:
+    token = claude_access_token(home, config_dir=config_dir)
     status, body = http_get(
         CLAUDE_USAGE_URL,
         {
@@ -745,9 +1280,13 @@ def codex_auth_path(home: Path | None = None) -> Path:
     return root / ".codex" / "auth.json"
 
 
-def codex_access_credentials(home: Path | None = None) -> tuple[str, str | None]:
+def codex_access_credentials(
+    home: Path | None = None,
+    *,
+    auth_file: Path | None = None,
+) -> tuple[str, str | None]:
     """Return (access_token, account_id). Never returns secrets in exceptions."""
-    path = codex_auth_path(home)
+    path = Path(auth_file).expanduser() if auth_file is not None else codex_auth_path(home)
     try:
         payload = read_json(path)
     except FileNotFoundError:
@@ -865,10 +1404,17 @@ def parse_chatgpt_base_url_text(text: str) -> str | None:
     return found
 
 
-def read_chatgpt_base_url(home: Path | None = None) -> str | None:
-    """Read chatgpt_base_url from ~/.codex/config.toml (stdlib). Fail closed on bad TOML."""
-    root = home or home_directory()
-    config_path = root / ".codex" / "config.toml"
+def read_chatgpt_base_url(
+    home: Path | None = None,
+    *,
+    settings_file: Path | None = None,
+) -> str | None:
+    """Read chatgpt_base_url from Codex config.toml (stdlib). Fail closed on bad TOML."""
+    if settings_file is not None:
+        config_path = Path(settings_file).expanduser()
+    else:
+        root = home or home_directory()
+        config_path = root / ".codex" / "config.toml"
     if not config_path.is_file():
         return None
     try:
@@ -878,8 +1424,12 @@ def read_chatgpt_base_url(home: Path | None = None) -> str | None:
     return parse_chatgpt_base_url_text(text)
 
 
-def codex_usage_url(home: Path | None = None) -> str:
-    base = read_chatgpt_base_url(home)
+def codex_usage_url(
+    home: Path | None = None,
+    *,
+    settings_file: Path | None = None,
+) -> str:
+    base = read_chatgpt_base_url(home, settings_file=settings_file)
     if base and "/backend-api" not in base:
         return f"{base}{CODEX_USAGE_PATH_ALT}"
     if base:
@@ -1091,10 +1641,15 @@ def map_codex_usage(payload: Any, updated_at: str | None = None) -> dict[str, An
         raise FetchFallback(CODEX_INVALID_RESPONSE, "invalid_response", True)
 
 
-def fetch_codex(home: Path | None = None) -> dict[str, Any]:
+def fetch_codex(
+    home: Path | None = None,
+    *,
+    auth_file: Path | None = None,
+    settings_file: Path | None = None,
+) -> dict[str, Any]:
     """Native Codex OAuth usage. Auth errors return provider entries (no refresh)."""
     try:
-        token, account_id = codex_access_credentials(home)
+        token, account_id = codex_access_credentials(home, auth_file=auth_file)
     except FetchFallback as error:
         if error.category == "authentication":
             return provider_error("codex", "oauth", str(error), "authentication", False)
@@ -1108,7 +1663,7 @@ def fetch_codex(home: Path | None = None) -> dict[str, Any]:
     if account_id:
         headers["ChatGPT-Account-Id"] = account_id
 
-    url = codex_usage_url(home)
+    url = codex_usage_url(home, settings_file=settings_file)
     try:
         status, _resp_headers, body = http_request(
             "GET", url, headers, None, CODEX_TIMEOUT_SECONDS
@@ -1176,9 +1731,13 @@ def _parse_iso_expiry(value: Any) -> datetime | None:
     return parsed
 
 
-def grok_access_credentials(home: Path | None = None) -> tuple[str, dict[str, Any]]:
+def grok_access_credentials(
+    home: Path | None = None,
+    *,
+    auth_file: Path | None = None,
+) -> tuple[str, dict[str, Any]]:
     """Return (bearer key, selected auth entry). No refresh of OAuth tokens."""
-    path = grok_auth_path(home)
+    path = Path(auth_file).expanduser() if auth_file is not None else grok_auth_path(home)
     try:
         payload = read_json(path)
     except FileNotFoundError:
@@ -1764,10 +2323,14 @@ def classify_grok_grpc_status(status: int, message: str | None) -> dict[str, Any
     return provider_error("grok", "grok-web", GROK_PERMANENT, "permanent", False)
 
 
-def fetch_grok(home: Path | None = None) -> dict[str, Any]:
+def fetch_grok(
+    home: Path | None = None,
+    *,
+    auth_file: Path | None = None,
+) -> dict[str, Any]:
     """Native Grok billing via gRPC-web. No OAuth refresh: expired key => re-login."""
     try:
-        key, auth_entry = grok_access_credentials(home)
+        key, auth_entry = grok_access_credentials(home, auth_file=auth_file)
     except FetchFallback as error:
         if error.category == "authentication":
             return provider_error("grok", "grok-web", str(error), "authentication", False)
@@ -1864,13 +2427,528 @@ def fetch_grok(home: Path | None = None) -> dict[str, Any]:
         raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
 
 
+# --- Cursor native (gRPC-web billing via DashboardService) ---
+#
+# Cursor exposes quota usage through the same protobuf gateway the app uses.
+# The request is an empty frame; the response carries the current billing
+# period usage. Field layout is extracted from the app bundle and validated
+# against live responses; drift surfaces as invalid_response (retryable).
+
+
+def cursor_billing_cycle_minutes(start_ms: Any, end_ms: Any) -> int | None:
+    """Whole minutes in a Cursor billing cycle, bounded to one year."""
+    if isinstance(start_ms, bool) or isinstance(end_ms, bool):
+        return None
+    if not isinstance(start_ms, (int, float)) or not isinstance(end_ms, (int, float)):
+        return None
+    try:
+        start = float(start_ms)
+        end = float(end_ms)
+    except (OverflowError, ValueError, TypeError):
+        return None
+    if not math.isfinite(start) or not math.isfinite(end):
+        return None
+    minutes = int((end - start) / 60000)
+    if minutes <= 0 or minutes > CURSOR_CYCLE_MINUTES_MAX:
+        return None
+    return minutes
+
+
+# Cursor billing page (Pro+) shows two included pools:
+#   Cursor Models  ← PlanUsage double field 12
+#   Other Models   ← PlanUsage double field 13
+# Field 14 is an overall total. Banner strings also exist (7/11/12) but
+# "You've used N% of your included usage" is NOT the Cursor Models bar (it can
+# be a different internal pool, e.g. 42% while Cursor Models is 1%).
+_CURSOR_USED_PERCENT_RE = re.compile(
+    r"You've used\s+(\d+(?:\.\d+)?)\s*%",
+    re.IGNORECASE,
+)
+_CURSOR_USAGE_KIND_RE = re.compile(
+    r"of your included\s+(total usage|API usage|usage)\s*$",
+    re.IGNORECASE,
+)
+
+
+def extract_cursor_display_used_percent(message: str) -> float | None:
+    """Return the used percent from a Cursor display sentence, if present."""
+    if not isinstance(message, str) or not message.strip():
+        return None
+    match = _CURSOR_USED_PERCENT_RE.search(message.strip())
+    if match is None:
+        return None
+    try:
+        value = float(match.group(1))
+    except ValueError:
+        return None
+    if not math.isfinite(value) or value < 0 or value > 100:
+        return None
+    return value
+
+
+def classify_cursor_display_usage_message(message: str) -> str | None:
+    """Map a Cursor banner to total / other / legacy-included, or None."""
+    if not isinstance(message, str) or not message.strip():
+        return None
+    match = _CURSOR_USAGE_KIND_RE.search(message.strip())
+    if match is None:
+        return None
+    kind = match.group(1).lower()
+    if kind == "total usage":
+        return "total"
+    if kind == "api usage":
+        # Website labels this pool "Other Models" (not only raw API keys).
+        return "other"
+    if kind == "usage":
+        # Do not treat as Cursor Models; it is a separate internal included pool.
+        return "legacy_included"
+    return None
+
+
+def resolve_cursor_plan_percent(
+    plan_double: float | None,
+    display_percent: float | None,
+) -> float | None:
+    """Choose PlanUsage chart percent vs banner percent for one pool.
+
+    PlanUsage doubles (1.02, 19.3, 3.2) match the website charts. Banners are
+    used when the double is missing, or when the double is a sub-0.5 residue
+    while the banner already rounds to a whole percent (early-cycle noise).
+    """
+    if plan_double is None:
+        return display_percent
+    if not math.isfinite(plan_double) or plan_double < 0 or plan_double > 100:
+        return display_percent
+    if display_percent is None:
+        return plan_double
+    if plan_double == 0 or plan_double >= 0.5:
+        return plan_double
+    # Tiny positive double with a rounded banner (e.g. 0.022 vs "1%").
+    return display_percent
+
+
+def parse_cursor_period_usage(body: bytes) -> dict[str, Any]:
+    """Parse GetCurrentPeriodUsageResponse (directed protobuf scan).
+
+    Returns billing cycle bounds plus models/other/total used percents aligned
+    with cursor.com (Cursor Models / Other Models / overall total).
+    """
+    view = memoryview(body)
+    cycle_start: int | None = None
+    cycle_end: int | None = None
+    models_percent: float | None = None
+    other_percent: float | None = None
+    total_percent: float | None = None
+    display_messages: dict[str, str] = {}
+    index = 0
+    try:
+        while index < len(view):
+            tag, index = _read_protobuf_varint(view, index)
+            field = tag >> 3
+            wire = tag & 7
+            if wire == 0:
+                value, index = _read_protobuf_varint(view, index)
+                if field == 1:
+                    cycle_start = value
+                elif field == 2:
+                    cycle_end = value
+            elif wire == 2:
+                length, index = _read_protobuf_varint(view, index)
+                end = index + length
+                if end > len(view):
+                    raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+                payload = bytes(view[index:end])
+                index = end
+                if field == 3:
+                    # parse_cursor_plan_usage: f12 models, f13 other, f14 total
+                    parsed = parse_cursor_plan_usage(payload)
+                    models_percent = parsed.get("autoPercent")
+                    other_percent = parsed.get("apiPercent")
+                    total_percent = parsed.get("totalPercent")
+                elif field in (7, 11, 12):
+                    try:
+                        text = payload.decode("utf-8")
+                    except UnicodeDecodeError:
+                        text = None
+                    if text:
+                        kind = classify_cursor_display_usage_message(text)
+                        if kind is not None:
+                            display_messages[kind] = text
+            elif wire == 1:
+                index += 8
+            elif wire == 5:
+                index += 4
+            else:
+                raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+    except FetchFallback:
+        raise
+    except Exception:
+        raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+
+    if cycle_start is None or cycle_end is None:
+        raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+    if not (CURSOR_TS_MIN <= cycle_start <= CURSOR_TS_MAX) or not (
+        CURSOR_TS_MIN <= cycle_end <= CURSOR_TS_MAX
+    ):
+        raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+
+    display_total = extract_cursor_display_used_percent(display_messages.get("total") or "")
+    display_other = extract_cursor_display_used_percent(display_messages.get("other") or "")
+    # legacy_included intentionally ignored for models: it is not Cursor Models.
+
+    models_percent = resolve_cursor_plan_percent(models_percent, None)
+    other_percent = resolve_cursor_plan_percent(other_percent, display_other)
+    total_percent = resolve_cursor_plan_percent(total_percent, display_total)
+
+    display_message = (
+        display_messages.get("total")
+        or display_messages.get("other")
+        or display_messages.get("legacy_included")
+    )
+    return {
+        "billingCycleStartMs": cycle_start,
+        "billingCycleEndMs": cycle_end,
+        # Keep legacy key names for map_cursor_usage / tests.
+        "totalPercent": total_percent,
+        "autoPercent": models_percent,
+        "apiPercent": other_percent,
+        "displayMessage": display_message,
+    }
+
+
+def parse_cursor_plan_usage(body: bytes) -> dict[str, Any]:
+    """Parse GetCurrentPeriodUsageResponse.PlanUsage: total/auto/api percent used.
+
+    Percentages are doubles (wire type 1) with field numbers 12, 13, 14.
+    """
+    view = memoryview(body)
+    result: dict[str, Any] = {"totalPercent": None, "autoPercent": None, "apiPercent": None}
+    index = 0
+    try:
+        while index < len(view):
+            tag, index = _read_protobuf_varint(view, index)
+            field = tag >> 3
+            wire = tag & 7
+            if wire == 1 and field in (12, 13, 14):
+                if index + 8 > len(view):
+                    raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+                number = struct.unpack("<d", bytes(view[index : index + 8]))[0]
+                index += 8
+                if not math.isfinite(number) or number < 0 or number > 100:
+                    raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+                if field == 12:
+                    result["autoPercent"] = number
+                elif field == 13:
+                    result["apiPercent"] = number
+                else:
+                    result["totalPercent"] = number
+            elif wire == 0:
+                _value, index = _read_protobuf_varint(view, index)
+            elif wire == 2:
+                length, index = _read_protobuf_varint(view, index)
+                end = index + length
+                if end > len(view):
+                    raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+                index = end
+            elif wire == 5:
+                index += 4
+            else:
+                raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+    except FetchFallback:
+        raise
+    except Exception:
+        raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+    return result
+
+
+def parse_cursor_plan_info(body: bytes) -> dict[str, Any]:
+    """Parse GetPlanInfoResponse for the plan display name (best effort).
+
+    Returns {"plan": str | None, "displayName": str | None}. The plan name
+    lives in a nested message (field 1: name, field 2: display name).
+    """
+    view = memoryview(body)
+    plan: str | None = None
+    display_name: str | None = None
+    index = 0
+    try:
+        while index < len(view):
+            tag, index = _read_protobuf_varint(view, index)
+            field = tag >> 3
+            wire = tag & 7
+            if wire == 0:
+                _value, index = _read_protobuf_varint(view, index)
+            elif wire == 1:
+                index += 8
+            elif wire == 5:
+                index += 4
+            elif wire == 2:
+                length, index = _read_protobuf_varint(view, index)
+                end = index + length
+                if end > len(view):
+                    raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+                payload = bytes(view[index:end])
+                index = end
+                if field == 1:
+                    inner_name, inner_display = parse_cursor_plan_entry(payload)
+                    if inner_name is not None:
+                        plan = inner_name
+                    if inner_display is not None:
+                        display_name = inner_display
+            else:
+                break
+    except Exception:
+        return {"plan": plan, "displayName": display_name}
+    return {"plan": plan, "displayName": display_name}
+
+
+def parse_cursor_plan_entry(body: bytes) -> tuple[str | None, str | None]:
+    """Parse one plan message: field 1 name, field 2 display name (best effort)."""
+    view = memoryview(body)
+    name: str | None = None
+    display_name: str | None = None
+    index = 0
+    try:
+        while index < len(view):
+            tag, index = _read_protobuf_varint(view, index)
+            field = tag >> 3
+            wire = tag & 7
+            if wire == 2:
+                length, index = _read_protobuf_varint(view, index)
+                end = index + length
+                if end > len(view):
+                    break
+                payload = bytes(view[index:end])
+                index = end
+                try:
+                    text = payload.decode("utf-8")
+                except UnicodeDecodeError:
+                    continue
+                if field == 1 and name is None:
+                    name = text
+                elif field == 2 and display_name is None:
+                    display_name = text
+            elif wire == 0:
+                _value, index = _read_protobuf_varint(view, index)
+            elif wire in (1, 5):
+                index += 8 if wire == 1 else 4
+            else:
+                break
+    except Exception:
+        return name, display_name
+    return name, display_name
+
+
+def map_cursor_usage(
+    period: dict[str, Any],
+    plan: dict[str, Any] | None = None,
+    updated_at: str | None = None,
+) -> dict[str, Any]:
+    """Map GetCurrentPeriodUsage to the widget envelope.
+
+    Align with cursor.com Pro+ billing:
+      Cursor Models  → secondary (compact M)
+      Other Models   → extra window
+      Total          → extra window when present and distinct
+    autoPercent/apiPercent keys still carry models/other for compatibility.
+    """
+    models_percent = period.get("autoPercent")
+    other_percent = period.get("apiPercent")
+    total_percent = period.get("totalPercent")
+    # Headline pool: Cursor Models, else overall total.
+    headline = models_percent if models_percent is not None else total_percent
+    if headline is None:
+        raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+    cycle_end_ms = period.get("billingCycleEndMs")
+    cycle_start_ms = period.get("billingCycleStartMs")
+    resets_at = unix_seconds_to_iso(cycle_end_ms / 1000) if cycle_end_ms is not None else None
+    window_minutes = cursor_billing_cycle_minutes(cycle_start_ms, cycle_end_ms)
+
+    secondary: dict[str, Any] = {"usedPercent": headline}
+    if resets_at is not None:
+        secondary["resetsAt"] = resets_at
+    if window_minutes is not None:
+        secondary["windowMinutes"] = window_minutes
+
+    extras: list[dict[str, Any]] = []
+    for key, title, value in (
+        ("cursor-other-models", "Other Models", other_percent),
+        ("cursor-total", "Total", total_percent),
+    ):
+        if value is None:
+            continue
+        # Skip Total when it is the same number already shown as Cursor Models.
+        if key == "cursor-total" and models_percent is not None and abs(value - models_percent) < 1e-9:
+            continue
+        window: dict[str, Any] = {"usedPercent": value}
+        if resets_at is not None:
+            window["resetsAt"] = resets_at
+        extras.append({"id": key, "title": title, "window": window})
+
+    identity: dict[str, Any] = {"providerID": "cursor"}
+    if plan:
+        plan_name = plan.get("displayName") or plan.get("plan")
+        if isinstance(plan_name, str) and plan_name:
+            identity["loginMethod"] = plan_name
+
+    usage: dict[str, Any] = {
+        "identity": identity,
+        "primary": None,
+        "secondary": secondary,
+        "tertiary": None,
+        "updatedAt": updated_at or iso_now(),
+    }
+    if extras:
+        usage["extraRateWindows"] = extras
+    return {
+        "provider": "cursor",
+        "source": "cursor",
+        "usage": usage,
+        "engine": "kodexbar",
+    }
+
+
+def cursor_grpc_status_error(status: int, message: str | None) -> dict[str, Any]:
+    """Map non-zero Cursor gRPC status to a user-visible provider error."""
+    if status == 16:
+        return provider_error("cursor", "cursor", CURSOR_AUTH_RELOGIN, "authentication", False)
+    detail = ""
+    if message:
+        detail = f" ({message.strip()})"
+    return provider_error(
+        "cursor",
+        "cursor",
+        f"{CURSOR_PERMANENT}{detail}",
+        "permanent",
+        False,
+    )
+
+
+def fetch_cursor(
+    home: Path | None = None,
+    *,
+    state_db: Path | None = None,
+) -> dict[str, Any]:
+    """Native Cursor billing via gRPC-web. No OAuth refresh: expired token => re-login."""
+    try:
+        token = cursor_access_token(home, state_db=state_db)
+    except FetchFallback as error:
+        if error.category == "authentication":
+            return provider_error("cursor", "cursor", str(error), "authentication", False)
+        raise
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Origin": "https://cursor.com",
+        "Referer": "https://cursor.com/settings",
+        "Accept": "*/*",
+        "Content-Type": "application/grpc-web+proto",
+        "x-grpc-web": "1",
+        "User-Agent": "Cursor/1.0.0",
+    }
+
+    last_error: FetchFallback | None = None
+    status = 0
+    resp_headers: dict[str, str] = {}
+    body = b""
+    for attempt in range(2):
+        try:
+            status, resp_headers, body = http_request(
+                "POST",
+                CURSOR_USAGE_URL,
+                headers,
+                CURSOR_EMPTY_FRAME,
+                CURSOR_TIMEOUT_SECONDS,
+            )
+        except FetchFallback as error:
+            last_error = error
+            if error.retryable and attempt == 0:
+                continue
+            raise FetchFallback(
+                human_native_error_message("cursor", error.category),
+                error.category,
+                error.retryable,
+            )
+        if status in (408, 502, 503, 504) and attempt == 0:
+            category = "timeout" if status == 408 else "network"
+            last_error = FetchFallback(
+                human_native_error_message("cursor", category),
+                category,
+                True,
+            )
+            continue
+        break
+    else:
+        if last_error is not None:
+            raise last_error
+
+    if status in (401, 403):
+        return provider_error("cursor", "cursor", CURSOR_AUTH_RELOGIN, "authentication", False)
+    if status == 429:
+        return provider_error(
+            "cursor",
+            "cursor",
+            "Cursor usage endpoint is rate limited right now. Wait a few minutes, then click Refresh.",
+            "rate_limit",
+        )
+    if status != 200:
+        retryable = status in (408, 425) or status >= 500
+        if retryable:
+            category = "timeout" if status == 408 else "network"
+            raise FetchFallback(human_native_error_message("cursor", category), category, True)
+        raise FetchFallback(CURSOR_PERMANENT, "permanent", False)
+
+    header_status = _grpc_status_from_headers(resp_headers)
+    try:
+        data_message, trailer_status, trailer_message = parse_grpc_web_frames(body)
+    except FetchFallback:
+        raise
+    except Exception:
+        raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+
+    grpc_status = trailer_status if trailer_status is not None else header_status
+    if grpc_status is not None and grpc_status != 0:
+        return cursor_grpc_status_error(grpc_status, trailer_message)
+    if data_message is None:
+        raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+
+    try:
+        period = parse_cursor_period_usage(data_message)
+    except FetchFallback:
+        raise
+    except Exception:
+        raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+
+    plan: dict[str, Any] | None = None
+    try:
+        status_plan, _plan_headers, plan_body = http_request(
+            "POST",
+            CURSOR_PLAN_URL,
+            headers,
+            CURSOR_EMPTY_FRAME,
+            CURSOR_TIMEOUT_SECONDS,
+        )
+        if status_plan == 200:
+            plan_data, _plan_trailer_status, _plan_trailer_message = parse_grpc_web_frames(plan_body)
+            if plan_data is not None:
+                plan = parse_cursor_plan_info(plan_data)
+    except (FetchFallback, Exception):
+        # Plan name is cosmetic; quota data stays usable without it.
+        plan = None
+
+    try:
+        return map_cursor_usage(period, plan)
+    except FetchFallback:
+        raise
+    except Exception:
+        raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+
+
 def upstream_path() -> str | None:
     candidate = shutil.which("codexbar")
     if candidate and os.path.realpath(candidate) != os.path.realpath(__file__):
         return candidate
     return None
-
-
 def cost_cache_directory(home: Path | None = None) -> Path:
     """Return the user cache directory reserved for the expensive cost scan."""
     configured = os.environ.get("XDG_CACHE_HOME")
@@ -3609,6 +4687,20 @@ def normalize_antigravity_entry(entry: Any) -> Any:
     return {**entry, "usage": {**usage, "antigravityRateWindows": windows}}
 
 
+def normalize_opencodego_entry(entry: Any) -> Any:
+    """Add the stable subscription identity missing from upstream OpenCode Go data."""
+    if not isinstance(entry, dict) or str(entry.get("provider") or "").lower() != "opencodego":
+        return entry
+    usage = entry.get("usage")
+    if not isinstance(usage, dict):
+        return entry
+    raw_identity = usage.get("identity")
+    identity = dict(raw_identity) if isinstance(raw_identity, dict) else {}
+    identity.setdefault("providerID", "opencodego")
+    identity.setdefault("loginMethod", "OpenCode Go")
+    return {**entry, "usage": {**usage, "identity": identity}}
+
+
 def _dual_failure_message(provider: str, native_failure: FetchFallback, upstream_detail: str) -> str:
     """User-visible text when native and companion both failed (never leak upstream text)."""
     normalized = provider.lower()
@@ -3616,6 +4708,8 @@ def _dual_failure_message(provider: str, native_failure: FetchFallback, upstream
         return CODEX_BOTH_FAILED
     if normalized == "grok":
         return GROK_BOTH_FAILED
+    if normalized == "cursor":
+        return CURSOR_BOTH_FAILED
     return f"{native_failure}. Fallback failed: {upstream_detail}"
 
 
@@ -3656,16 +4750,18 @@ def fallback_entry(
             ]
         return [cleaned]
 
-    # Antigravity keeps upstream acquisition, but gets one stable quota contract.
-    return [normalize_antigravity_entry(entry) for entry in entries]
+    # Passthrough providers keep upstream acquisition but get stable UI contracts.
+    return [normalize_opencodego_entry(normalize_antigravity_entry(entry)) for entry in entries]
 
 
 def _native_provider_result(
     provider: str,
     source: str | None,
     home: Path | None,
-    fetch_fn: Callable[[Path | None], dict[str, Any]],
+    fetch_fn: Callable[[], dict[str, Any]],
     default_source: str,
+    *,
+    allow_upstream_fallback: bool = True,
 ) -> list[Any]:
     """Run a native fetch.
 
@@ -3673,9 +4769,12 @@ def _native_provider_result(
     - authentication: never fall back (re-login message only)
     - network / timeout / invalid_response (schema drift, parse failure): fall back if present
     - permanent and other non-parse failures: no fall back
+
+    Secondary multi-account profiles must set allow_upstream_fallback=False so an ambient
+    default account cannot be labeled as a secondary profile.
     """
     try:
-        entry = fetch_fn(home)
+        entry = fetch_fn()
     except FetchFallback as error:
         message = human_native_error_message(provider, error.category, str(error))
         if error.category == "authentication":
@@ -3688,7 +4787,11 @@ def _native_provider_result(
                     False,
                 )
             ]
-        if error.category in NATIVE_UPSTREAM_FALLBACK_CATEGORIES and upstream_path() is not None:
+        if (
+            allow_upstream_fallback
+            and error.category in NATIVE_UPSTREAM_FALLBACK_CATEGORIES
+            and upstream_path() is not None
+        ):
             # Preserve category/retryable; surface human text if companion also fails.
             humanized = FetchFallback(message, error.category, error.retryable)
             return fallback_entry(provider, source, humanized)
@@ -3709,7 +4812,7 @@ def _native_provider_result(
         if category in (None, ""):
             return [entry]
         # Humanize structured native errors (auth returned as entry, permanent plan issues).
-        if provider.lower() in ("codex", "grok"):
+        if provider.lower() in ("codex", "grok", "cursor"):
             entry = {
                 **entry,
                 "error": {
@@ -3724,18 +4827,164 @@ def _native_provider_result(
     return [entry]
 
 
-def fetch_provider(provider: str, source: str | None, home: Path | None = None) -> list[Any]:
+def fetch_provider(
+    provider: str,
+    source: str | None,
+    home: Path | None = None,
+    *,
+    profile: ProviderProfile | None = None,
+) -> list[Any]:
+    """Fetch usage for one provider, optionally under a multi-account profile context."""
     normalized = provider.lower()
+    active = profile or synthetic_default_profile(normalized)
+    allow_fallback = active.allows_upstream_fallback
+    cs = active.credential_source
+
+    def stamp(entries: list[Any]) -> list[Any]:
+        stamped: list[Any] = []
+        for entry in entries:
+            if isinstance(entry, dict):
+                stamped.append(stamp_profile_fields(entry, active))
+            else:
+                stamped.append(entry)
+        return stamped
+
     if normalized == "claude" and source in (None, "auto", "oauth"):
+        config_dir = cs.config_dir if cs.kind == "claude-config-dir" else None
+
+        def run_claude() -> dict[str, Any]:
+            with _CLAUDE_FETCH_LOCK:
+                return fetch_claude(home, config_dir=config_dir)
+
         try:
-            return [fetch_claude(home)]
+            return stamp([run_claude()])
         except FetchFallback as error:
-            return fallback_entry(normalized, source, error)
+            if allow_fallback:
+                return stamp(fallback_entry(normalized, source, error))
+            message = human_native_error_message(normalized, error.category, str(error))
+            return stamp(
+                [
+                    provider_error(
+                        normalized,
+                        source or "claude",
+                        message,
+                        error.category,
+                        error.retryable,
+                    )
+                ]
+            )
     if normalized == "codex" and source in (None, "auto", "oauth"):
-        return _native_provider_result(normalized, source, home, fetch_codex, "oauth")
+        auth_file = cs.auth_file if cs.kind == "codex-auth" else None
+        settings_file = cs.settings_file if cs.kind == "codex-auth" else None
+        return stamp(
+            _native_provider_result(
+                normalized,
+                source,
+                home,
+                lambda: fetch_codex(home, auth_file=auth_file, settings_file=settings_file),
+                "oauth",
+                allow_upstream_fallback=allow_fallback,
+            )
+        )
     if normalized == "grok" and source in (None, "auto", "web", "grok-web"):
-        return _native_provider_result(normalized, source, home, fetch_grok, "grok-web")
-    return fallback_entry(normalized, source)
+        auth_file = cs.auth_file if cs.kind == "grok-auth" else None
+        return stamp(
+            _native_provider_result(
+                normalized,
+                source,
+                home,
+                lambda: fetch_grok(home, auth_file=auth_file),
+                "grok-web",
+                allow_upstream_fallback=allow_fallback,
+            )
+        )
+    if normalized == "cursor" and source in (None, "auto", "cursor"):
+        state_db = cs.state_db if cs.kind == "cursor-state-db" else None
+        return stamp(
+            _native_provider_result(
+                normalized,
+                source,
+                home,
+                lambda: fetch_cursor(home, state_db=state_db),
+                "cursor",
+                allow_upstream_fallback=allow_fallback,
+            )
+        )
+    if not allow_fallback and normalized in ("opencodego", "antigravity"):
+        return stamp(
+            [
+                provider_error(
+                    normalized,
+                    source or "auto",
+                    f"Multi-account profiles for {normalized} are not first-class yet. "
+                    "Use a single default profile or upstream multi-entry output.",
+                    "permanent",
+                    False,
+                )
+            ]
+        )
+    return stamp(fallback_entry(normalized, source))
+
+
+def fetch_profile(profile: ProviderProfile, source: str | None, home: Path | None = None) -> list[Any]:
+    """Fetch one configured profile; never lets unexpected exceptions escape unstamped."""
+    try:
+        return fetch_provider(profile.provider, source, home, profile=profile)
+    except Exception:
+        return [
+            stamp_profile_fields(
+                provider_error(
+                    profile.provider,
+                    source or "auto",
+                    "Could not read quotas for this profile. Retry later or update KodexBar.",
+                    "permanent",
+                    False,
+                ),
+                profile,
+            )
+        ]
+
+
+def fetch_profiles(
+    profiles: list[ProviderProfile],
+    source: str | None,
+    home: Path | None = None,
+) -> list[Any]:
+    """Fetch many profiles with bounded parallelism, preserving provider then profile order."""
+    if not profiles:
+        return []
+    if len(profiles) == 1:
+        return fetch_profile(profiles[0], source, home)
+
+    results: dict[int, list[Any]] = {}
+    workers = min(PROFILE_FETCH_MAX_WORKERS, len(profiles))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_map = {
+            executor.submit(fetch_profile, profile, source, home): index
+            for index, profile in enumerate(profiles)
+        }
+        for future in as_completed(future_map):
+            index = future_map[future]
+            try:
+                results[index] = future.result()
+            except Exception:
+                profile = profiles[index]
+                results[index] = [
+                    stamp_profile_fields(
+                        provider_error(
+                            profile.provider,
+                            source or "auto",
+                            "Could not read quotas for this profile. Retry later or update KodexBar.",
+                            "permanent",
+                            False,
+                        ),
+                        profile,
+                    )
+                ]
+    ordered: list[Any] = []
+    for index in range(len(profiles)):
+        ordered.extend(results.get(index, []))
+    return ordered
 
 
 def parse_usage(arguments: list[str]) -> tuple[str, str | None, bool] | None:
@@ -3775,6 +5024,410 @@ def print_json(value: Any, pretty: bool) -> None:
     print(json.dumps(value, indent=2 if pretty else None, ensure_ascii=False))
 
 
+
+
+MANAGED_PROFILE_PROVIDERS = frozenset({"codex", "claude"})
+
+
+def accounts_root_path(home: Path | None = None) -> Path:
+    root = home or home_directory()
+    return root / ".config" / "kodexbar-suite" / "accounts"
+
+
+def _slugify_profile_id(label: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9._-]+", "-", label.strip().lower())
+    cleaned = cleaned.strip(".-_")
+    if not cleaned or not PROFILE_ID_PATTERN.fullmatch(cleaned):
+        cleaned = "account"
+    if cleaned == "default":
+        cleaned = "account"
+    if not PROFILE_ID_PATTERN.fullmatch(cleaned):
+        cleaned = "account"
+    return cleaned
+
+
+def _unique_profile_id(existing: set[str], label: str) -> str:
+    base = _slugify_profile_id(label)
+    if base not in existing:
+        return base
+    index = 2
+    while f"{base}-{index}" in existing:
+        index += 1
+    return f"{base}-{index}"
+
+
+def _profile_to_json_object(profile: ProviderProfile) -> dict[str, Any]:
+    source = profile.credential_source
+    credential: dict[str, Any] = {"kind": source.kind}
+    if source.auth_file is not None:
+        credential["authFile"] = str(source.auth_file)
+    if source.settings_file is not None:
+        credential["settingsFile"] = str(source.settings_file)
+    if source.config_dir is not None:
+        credential["configDir"] = str(source.config_dir)
+    if source.state_db is not None:
+        credential["stateDb"] = str(source.state_db)
+    payload: dict[str, Any] = {
+        "id": profile.profile_id,
+        "enabled": profile.enabled,
+        "credentialSource": credential,
+    }
+    if profile.profile_label:
+        payload["label"] = profile.profile_label
+    return payload
+
+
+def write_profiles_document(
+    document: dict[str, list[ProviderProfile]],
+    home: Path | None = None,
+) -> Path:
+    """Atomically write profiles.json. Never stores secrets, only local paths."""
+    path = profiles_config_path(home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    providers_payload: dict[str, Any] = {}
+    for provider, profiles in document.items():
+        providers_payload[provider] = {
+            "profiles": [_profile_to_json_object(profile) for profile in profiles]
+        }
+    payload = {"version": PROFILES_CONFIG_VERSION, "providers": providers_payload}
+    encoded = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    fd, temp_name = tempfile.mkstemp(prefix="profiles.", suffix=".json", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, path)
+    except Exception:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise
+    return path
+
+
+def managed_account_dir(provider: str, profile_id: str, home: Path | None = None) -> Path:
+    return accounts_root_path(home) / provider / profile_id
+
+
+def ensure_default_profile_listed(
+    profiles: list[ProviderProfile],
+    provider: str,
+) -> list[ProviderProfile]:
+    """When introducing managed multi-account, keep the ambient account as Principal."""
+    if any(profile.profile_id == "default" for profile in profiles):
+        return profiles
+    principal = ProviderProfile(
+        provider=provider,
+        profile_id="default",
+        profile_label="Principal",
+        credential_source=CredentialSource(kind="default"),
+        provider_order=0,
+        profile_order=0,
+        enabled=True,
+    )
+    return [principal, *profiles]
+
+
+def add_managed_profile(
+    provider: str,
+    label: str | None = None,
+    home: Path | None = None,
+) -> ProviderProfile:
+    """Create a user-friendly secondary account profile with managed local paths."""
+    normalized = provider.strip().lower()
+    if normalized not in MANAGED_PROFILE_PROVIDERS:
+        raise ValueError(
+            "Only Codex and Claude support one-click extra accounts right now."
+        )
+    friendly = (label or "Personal").strip() or "Personal"
+    document = load_profiles_document(home)
+    if document is None:
+        document = {}
+    existing = list(document.get(normalized, []))
+    existing = ensure_default_profile_listed(existing, normalized)
+    used_ids = {profile.profile_id for profile in existing}
+    profile_id = _unique_profile_id(used_ids, friendly)
+    account_dir = managed_account_dir(normalized, profile_id, home)
+    account_dir.mkdir(parents=True, exist_ok=True)
+
+    if normalized == "codex":
+        auth_file = account_dir / "auth.json"
+        credential = CredentialSource(kind="codex-auth", auth_file=auth_file)
+    else:
+        credential = CredentialSource(kind="claude-config-dir", config_dir=account_dir)
+
+    profile = ProviderProfile(
+        provider=normalized,
+        profile_id=profile_id,
+        profile_label=friendly,
+        credential_source=credential,
+        provider_order=0,
+        profile_order=len(existing),
+        enabled=True,
+    )
+    existing.append(profile)
+    document[normalized] = existing
+    write_profiles_document(document, home)
+    return profile
+
+
+def remove_managed_profile(
+    provider: str,
+    profile_id: str,
+    home: Path | None = None,
+    *,
+    delete_files: bool = False,
+) -> None:
+    normalized = provider.strip().lower()
+    target_id = profile_id.strip()
+    if target_id == "default":
+        raise ValueError("The principal account cannot be removed.")
+    document = load_profiles_document(home)
+    if document is None or normalized not in document:
+        raise ValueError("That account is not configured.")
+    remaining = [p for p in document[normalized] if p.profile_id != target_id]
+    if len(remaining) == len(document[normalized]):
+        raise ValueError("That account is not configured.")
+    # If only principal remains, drop the whole provider group so ambient default returns.
+    non_default = [p for p in remaining if p.profile_id != "default"]
+    if not non_default:
+        document.pop(normalized, None)
+    else:
+        document[normalized] = remaining
+    if not document:
+        path = profiles_config_path(home)
+        if path.is_file():
+            path.unlink()
+    else:
+        write_profiles_document(document, home)
+    if delete_files:
+        account_dir = managed_account_dir(normalized, target_id, home)
+        if account_dir.is_dir() and accounts_root_path(home) in account_dir.parents:
+            shutil.rmtree(account_dir, ignore_errors=True)
+
+
+def login_argv_for_profile(
+    provider: str,
+    profile_id: str,
+    home: Path | None = None,
+) -> tuple[list[str], dict[str, str], str]:
+    """Return (argv, env_updates, human_hint) for signing into a managed profile."""
+    normalized = provider.strip().lower()
+    targets = resolve_provider_profiles([normalized], home)
+    profile = next((p for p in targets if p.profile_id == profile_id), None)
+    if profile is None:
+        raise ValueError("That account is not configured.")
+    env_updates: dict[str, str] = {}
+    if normalized == "codex":
+        if profile.credential_source.kind == "codex-auth" and profile.credential_source.auth_file:
+            env_updates["CODEX_HOME"] = str(profile.credential_source.auth_file.parent)
+        elif profile.profile_id == "default":
+            pass
+        else:
+            raise ValueError("This Codex account has no local sign-in folder.")
+        if not command_on_path("codex"):
+            raise ValueError("Codex CLI is not installed. Install Codex, then try again.")
+        return ["codex", "login"], env_updates, "Complete sign-in in the terminal window, then return to KodexBar and refresh."
+    if normalized == "claude":
+        if profile.credential_source.kind == "claude-config-dir" and profile.credential_source.config_dir:
+            env_updates["CLAUDE_CONFIG_DIR"] = str(profile.credential_source.config_dir)
+        elif profile.profile_id == "default":
+            pass
+        else:
+            raise ValueError("This Claude account has no local sign-in folder.")
+        if not command_on_path("claude"):
+            raise ValueError("Claude Code is not installed. Install Claude Code, then try again.")
+        return ["claude", "auth", "login"], env_updates, "Complete sign-in in the terminal window, then return to KodexBar and refresh."
+    raise ValueError("Only Codex and Claude support guided sign-in right now.")
+
+
+def open_login_terminal(
+    provider: str,
+    profile_id: str,
+    home: Path | None = None,
+) -> str:
+    """Open a visible terminal for native CLI login. Returns a short user message."""
+    argv, env_updates, hint = login_argv_for_profile(provider, profile_id, home)
+    env = os.environ.copy()
+    env.update(env_updates)
+    # Hold the window so the user can read success or errors after login.
+    launchers = [
+        ["konsole", "--hold", "-e", *argv],
+        ["xdg-terminal-exec", "--", *argv],
+        ["gnome-terminal", "--", *argv],
+        ["xterm", "-hold", "-e", *argv],
+    ]
+    errors: list[str] = []
+    for launcher in launchers:
+        if not command_on_path(launcher[0]):
+            continue
+        try:
+            subprocess.Popen(launcher, env=env, start_new_session=True)
+            label = profile_id
+            return f"Opened sign-in for {provider}/{label}. {hint}"
+        except OSError as error:
+            errors.append(f"{launcher[0]}: {error}")
+    # Fallback: run without a terminal UI when none is available (still interactive if TTY).
+    try:
+        subprocess.Popen(argv, env=env, start_new_session=True)
+        return f"Started sign-in for {provider}/{profile_id}. {hint}"
+    except OSError as error:
+        raise ValueError(
+            "Could not open a terminal for sign-in. Install Konsole or another terminal, then try again."
+        ) from error
+
+
+def _parse_profiles_kv(arguments: list[str]) -> dict[str, str | bool]:
+    """Parse simple --key value flags for profiles subcommands."""
+    values: dict[str, str | bool] = {}
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in ("--json", "--json-only", "--login", "--delete-files"):
+            values[argument.lstrip("-")] = True
+            # normalize names
+            if argument == "--json-only":
+                values["json"] = True
+            index += 1
+            continue
+        if argument.startswith("--") and index + 1 < len(arguments):
+            values[argument[2:]] = arguments[index + 1]
+            index += 2
+            continue
+        raise ValueError(f"unknown argument {argument}")
+    return values
+
+
+def profiles_command(arguments: list[str]) -> int:
+    """Manage multi-account profiles: validate, list, add, remove, login."""
+    if not arguments:
+        print(
+            "kodexbar-quotas profiles: expected validate, list, add, remove, or login",
+            file=sys.stderr,
+        )
+        return 2
+    action = arguments[0]
+    rest = arguments[1:]
+    if action == "validate":
+        if rest:
+            print("kodexbar-quotas profiles validate takes no arguments", file=sys.stderr)
+            return 2
+        ok, messages = validate_profiles_config()
+        for message in messages:
+            print(message)
+        return 0 if ok else 1
+    if action == "list":
+        as_json = False
+        for arg in rest:
+            if arg in ("--json", "--json-only"):
+                as_json = True
+            else:
+                print(f"kodexbar-quotas profiles list: unknown argument {arg}", file=sys.stderr)
+                return 2
+        rows = list_profiles_status()
+        if as_json:
+            print_json(rows, pretty=True)
+        else:
+            for row in rows:
+                if "error" in row:
+                    print(row["error"])
+                    continue
+                label = row.get("label") or "-"
+                present = row.get("credentialPresent")
+                present_text = (
+                    "present" if present is True else ("missing" if present is False else "ambient")
+                )
+                print(
+                    f"{row['provider']}/{row['profileId']} label={label} "
+                    f"kind={row['kind']} credential={present_text}"
+                )
+        return 0
+    if action == "add":
+        try:
+            options = _parse_profiles_kv(rest)
+        except ValueError as error:
+            print(f"kodexbar-quotas profiles add: {error}", file=sys.stderr)
+            return 2
+        provider = options.get("provider")
+        if not isinstance(provider, str) or not provider.strip():
+            print("kodexbar-quotas profiles add: --provider codex|claude is required", file=sys.stderr)
+            return 2
+        label = options.get("label")
+        label_text = label.strip() if isinstance(label, str) and label.strip() else None
+        try:
+            profile = add_managed_profile(provider, label_text)
+        except ValueError as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        print(
+            json.dumps(
+                {
+                    "provider": profile.provider,
+                    "profileId": profile.profile_id,
+                    "label": profile.profile_label,
+                    "kind": profile.credential_source.kind,
+                },
+                ensure_ascii=False,
+            )
+        )
+        if options.get("login") is True:
+            try:
+                print(open_login_terminal(profile.provider, profile.profile_id))
+            except ValueError as error:
+                print(str(error), file=sys.stderr)
+                return 1
+        return 0
+    if action == "remove":
+        try:
+            options = _parse_profiles_kv(rest)
+        except ValueError as error:
+            print(f"kodexbar-quotas profiles remove: {error}", file=sys.stderr)
+            return 2
+        provider = options.get("provider")
+        profile_id = options.get("id")
+        if not isinstance(provider, str) or not provider.strip():
+            print("kodexbar-quotas profiles remove: --provider is required", file=sys.stderr)
+            return 2
+        if not isinstance(profile_id, str) or not profile_id.strip():
+            print("kodexbar-quotas profiles remove: --id is required", file=sys.stderr)
+            return 2
+        try:
+            remove_managed_profile(
+                provider,
+                profile_id,
+                delete_files=options.get("delete-files") is True,
+            )
+        except ValueError as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        print(json.dumps({"removed": True, "provider": provider, "profileId": profile_id}))
+        return 0
+    if action == "login":
+        try:
+            options = _parse_profiles_kv(rest)
+        except ValueError as error:
+            print(f"kodexbar-quotas profiles login: {error}", file=sys.stderr)
+            return 2
+        provider = options.get("provider")
+        profile_id = options.get("id")
+        if not isinstance(provider, str) or not provider.strip():
+            print("kodexbar-quotas profiles login: --provider is required", file=sys.stderr)
+            return 2
+        if not isinstance(profile_id, str) or not profile_id.strip():
+            print("kodexbar-quotas profiles login: --id is required", file=sys.stderr)
+            return 2
+        try:
+            print(open_login_terminal(provider, profile_id))
+        except ValueError as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        return 0
+    print(f"kodexbar-quotas profiles: unknown action {action}", file=sys.stderr)
+    return 2
+
+
 def main(arguments: list[str]) -> int:
     if arguments == ["--refresh-cost-cache"]:
         return refresh_cost_cache_nonblocking()
@@ -3783,6 +5436,8 @@ def main(arguments: list[str]) -> int:
         return 0
     if not arguments:
         return delegate_whole_call(arguments)
+    if arguments[0] == "profiles":
+        return profiles_command(arguments[1:])
     if arguments[0] == "cost":
         if arguments[1:] == ["--format", "json", "--json-only"]:
             return cost_json_response()
@@ -3798,11 +5453,13 @@ def main(arguments: list[str]) -> int:
     ensure_auto_config()
 
     def emit_provider_usage(provider_ids: list[str]) -> int:
-        usage_entries: list[Any] = []
-        for provider in provider_ids:
-            # Codex and Grok always go through fetch_provider (native first). Only true
-            # passthrough providers (antigravity and unknowns) use upstream fallback_entry.
-            usage_entries.extend(fetch_provider(provider, source))
+        try:
+            targets = resolve_provider_profiles(provider_ids)
+        except ProfilesConfigError as error:
+            print_json([profiles_config_error_entry(error.message)], pretty)
+            return 0
+        # Native providers fetch per profile; passthrough providers still go through fetch_provider.
+        usage_entries = fetch_profiles(targets, source)
         print_json(usage_entries, pretty)
         return 0
 

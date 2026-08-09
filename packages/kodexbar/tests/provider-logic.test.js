@@ -105,6 +105,67 @@ assert.equal(activeError.entry.errorMessage, "quota unavailable", "an error acco
 const activeFallback = plain(context.activeEntryData(fixture.entries, "missing:9"))
 assert.equal(activeFallback.entry.selectionKey, "codex:1", "a stale selection falls back deterministically")
 
+
+const multiProfileEntries = [
+    { provider: "codex", profileId: "work", profileLabel: "Trabajo", name: "Codex", errorMessage: "" },
+    { provider: "codex", profileId: "personal", profileLabel: "Personal", name: "Codex", errorMessage: "" }
+]
+const multiProfileDecorated = plain(context.decoratePopupEntries(multiProfileEntries))
+assert.deepEqual(
+    multiProfileDecorated.map(entry => entry.selectionKey),
+    ["codex:work", "codex:personal"],
+    "profileId selection keys stay stable across order"
+)
+assert.deepEqual(
+    multiProfileDecorated.map(entry => entry.tabLabel),
+    ["Codex · Trabajo", "Codex · Personal"],
+    "popup tabs use profile labels when multiple profiles share a provider"
+)
+assert.equal(
+    context.providerAccountKey(multiProfileEntries[1]),
+    "codex\u001fpersonal",
+    "cache keys prefer profileId over empty account"
+)
+assert.deepEqual(
+    plain(context.reconcileSeedCache(
+        [
+            { provider: "codex", profileId: "work", compactPrimaryPercentLeft: 10 },
+            { provider: "codex", profileId: "personal", compactPrimaryPercentLeft: 20 }
+        ],
+        [{ provider: "codex", profileId: "work", compactPrimaryPercentLeft: 11 }]
+    )).map(entry => entry.profileId),
+    ["work"],
+    "seed reconciliation drops removed profiles from cache"
+)
+
+
+assert.deepEqual(
+    plain(context.retainLiveAccountCache(
+        [
+            { provider: "codex", profileId: "default", compactPrimaryPercentLeft: 10 },
+            { provider: "codex", profileId: "personal", compactPrimaryPercentLeft: 20 },
+            { provider: "grok", profileId: "default", compactPrimaryPercentLeft: 30 }
+        ],
+        [{ provider: "codex", profileId: "default", compactPrimaryPercentLeft: 11 }],
+        ["codex"],
+        false
+    )).map(entry => entry.profileId + ":" + entry.provider),
+    ["default:codex", "default:grok"],
+    "a live codex refresh drops removed codex profiles from cache while keeping other providers"
+)
+assert.deepEqual(
+    plain(context.retainLiveAccountCache(
+        [
+            { provider: "codex", profileId: "personal", compactPrimaryPercentLeft: 20 }
+        ],
+        [{ provider: "codex", profileId: "default", compactPrimaryPercentLeft: 11 }],
+        [],
+        true
+    )).map(entry => entry.profileId),
+    ["default"],
+    "a full seed cache only keeps the live account set"
+)
+
 assert.deepEqual(
     plain(context.acquisitionCandidates("detect")),
     [{ provider: "", source: "detect" }],
@@ -185,6 +246,7 @@ assert.equal(context.compactQuotaKey("Fable only"), "fable-only")
 assert.equal(context.compactQuotaKey("  Model / Week  "), "model-week")
 assert.equal(context.compactQuotaLabel("primary", "Session"), "S", "the internal primary key is shown as Session in compact UI")
 assert.equal(context.quotaWindowBadge("primary", "Session"), "S", "the popup uses S for the Session window badge")
+assert.equal(context.compactProviderLabel("opencodego", "OpenCode Go"), "Og", "OpenCode Go has a stable compact provider label")
 assert.equal(
     context.compactQuotaSelected(fixture.quotaSelection, "claude", "fable-only", true),
     true,
@@ -252,6 +314,22 @@ assert.equal(
     "MO",
     "arbitrary extra titles keep their deterministic badge"
 )
+assert.equal(
+    context.quotaWindowBadge("secondary", "Monthly"),
+    "M",
+    "a monthly billing window uses M instead of the generic W badge"
+)
+assert.equal(
+    context.quotaWindowBadge("weekly", "Billing cycle"),
+    "M",
+    "a billing-cycle title overrides the weekly badge"
+)
+assert.equal(
+    context.compactQuotaLabel("weekly", "Monthly"),
+    "M",
+    "the compact label keeps the monthly M override"
+)
+assert.equal(context.compactProviderLabel("cursor", "Cursor"), "Cr", "Cursor has a stable compact provider label")
 assert.equal(
     context.standardWindowRow("primary", "Session", null, null, ""),
     null,
@@ -325,6 +403,38 @@ assert.equal(
     "hidden Claude/GPT exhaustion does not tint the Antigravity compact block"
 )
 assert.equal(antigravityCompact.blocks[0].status, "good", "Antigravity severity uses only visible Gemini windows")
+
+const cursorCompact = plain(context.composeCompactBlocks([{
+    provider: "cursor",
+    name: "Cursor",
+    compactPrimaryPercentLeft: null,
+    primaryResetsAt: null,
+    secondaryPercentLeft: 55,
+    secondaryResetsAt: "2026-08-13T04:12:52Z",
+    tertiaryPercentLeft: null,
+    tertiaryResetsAt: null,
+    creditsRemaining: null,
+    rows: []
+}], {
+    providerOrder: "cursor", quotaSelection: "primary,weekly", showProvider: true, showUsed: true, showCredits: false
+}))
+assert.equal(cursorCompact.text, "Cr M45%", "Cursor's monthly billing cycle renders as M in compact UI")
+assert.equal(cursorCompact.blocks[0].status, "good", "Cursor severity comes from the monthly window")
+const cursorZeroCompact = plain(context.composeCompactBlocks([{
+    provider: "cursor",
+    name: "Cursor",
+    compactPrimaryPercentLeft: null,
+    primaryResetsAt: null,
+    secondaryPercentLeft: 100,
+    secondaryResetsAt: "2026-08-13T04:12:52Z",
+    tertiaryPercentLeft: null,
+    tertiaryResetsAt: null,
+    creditsRemaining: null,
+    rows: []
+}], {
+    providerOrder: "cursor", quotaSelection: "primary,weekly", showProvider: true, showUsed: true, showCredits: false
+}))
+assert.equal(cursorZeroCompact.text, "Cr M0%", "a zero-usage Cursor cycle stays visible as M0%")
 const narrowedAntigravity = context.composeCompactBlocks([{ provider: "antigravity", rows: antigravityRows }], {
     providerOrder: "antigravity", quotaSelection: "antigravity.gemini-weekly", showProvider: true, showUsed: true, showCredits: false
 })
@@ -389,6 +499,81 @@ assert.equal(
 )
 assert.equal(uncachedClaudeError[0].isCached, false)
 
+const expiredSubscriptionErrors = [
+    ["entitlement", "Claude OAuth denied access to usage data (HTTP 403)"],
+    ["authentication", "Sign in to Codex again to see quotas"],
+    ["permanent", "Could not read Codex quotas"]
+]
+for (const [category, message] of expiredSubscriptionErrors) {
+    const hidden = plain(context.mergeEntriesWithCache([
+        {
+            provider: "claude",
+            account: "account-one",
+            errorMessage: message,
+            errorCategory: category,
+            errorRetryable: false
+        }
+    ], claudeCache))
+    assert.equal(
+        hidden[0].errorMessage,
+        message,
+        `a ${category} error hides the cached quota and shows the error`
+    )
+    assert.equal(hidden[0].compactPrimaryPercentLeft, undefined)
+    assert.equal(hidden[0].isCached, false)
+}
+
+const transientWithCache = plain(context.mergeEntriesWithCache([
+    {
+        provider: "claude",
+        account: "account-one",
+        errorMessage: "request timed out",
+        errorCategory: "timeout",
+        errorRetryable: true
+    }
+], claudeCache))
+assert.equal(
+    transientWithCache[0].compactPrimaryPercentLeft,
+    92,
+    "a transient error keeps the last good quota visible"
+)
+assert.equal(transientWithCache[0].isCached, true)
+assert.equal(
+    transientWithCache[0].cachedErrorMessage,
+    "request timed out",
+    "the transient error message is retained on the cached entry"
+)
+
+const rateLimitedWithCache = plain(context.mergeEntriesWithCache([
+    {
+        provider: "claude",
+        account: "account-one",
+        errorMessage: "rate limited by Anthropic right now",
+        errorCategory: "rate_limit",
+        errorRetryable: false
+    }
+], claudeCache))
+assert.equal(
+    rateLimitedWithCache[0].compactPrimaryPercentLeft,
+    92,
+    "a rate limit keeps the last good quota visible"
+)
+assert.equal(rateLimitedWithCache[0].isCached, true)
+
+const legacySubscriptionText = plain(context.mergeEntriesWithCache([
+    {
+        provider: "claude",
+        account: "account-one",
+        errorMessage: "your subscription expired"
+    }
+], claudeCache))
+assert.equal(
+    legacySubscriptionText[0].errorMessage,
+    "your subscription expired",
+    "legacy subscription text without structured category still hides cached data"
+)
+assert.equal(legacySubscriptionText[0].isCached, false)
+
 const retryClassificationCases = [
     [{ errorMessage: "socket offline", errorCategory: "network", errorRetryable: true }, true],
     [{ errorMessage: "request timed out", errorCategory: "timeout", errorRetryable: true }, true],
@@ -428,8 +613,41 @@ assert.deepEqual(
 )
 assert.deepEqual(
     Array.from(context.startupRetryProviderIds(startupErrors, [goodClaudeEntry], {})),
-    ["antigravity"],
-    "a last good provider entry suppresses its startup retry"
+    ["claude", "antigravity"],
+    "a last good entry only suppresses the matching profile or account identity"
+)
+assert.deepEqual(
+    Array.from(context.startupRetryProviderIds(
+        [{
+            provider: "claude",
+            account: "account-one",
+            errorMessage: "socket offline",
+            errorCategory: "network",
+            errorRetryable: true
+        }],
+        [goodClaudeEntry],
+        {}
+    )),
+    [],
+    "matching account cache suppresses that account's startup retry"
+)
+assert.deepEqual(
+    Array.from(context.startupRetryProviderIds(
+        [
+            { provider: "codex", profileId: "work", errorMessage: "ok", errorCategory: "" },
+            {
+                provider: "codex",
+                profileId: "personal",
+                errorMessage: "socket offline",
+                errorCategory: "network",
+                errorRetryable: true
+            }
+        ],
+        [],
+        {}
+    )),
+    ["codex"],
+    "a healthy sibling profile does not suppress startup retry for a failed profile"
 )
 assert.deepEqual(
     Array.from(context.startupRetryProviderIds(startupErrors, [], { claude: true, antigravity: true })),
@@ -958,8 +1176,9 @@ assert.doesNotMatch(mainQml, /\barguments\b/, "QML command construction never ca
 assert.doesNotMatch(mainQml, /readonly property var configureAction:/, "the popup no longer keeps an unused Plasma configure action")
 assert.match(mainQml, /id: configureButton/, "the popup exposes a discoverable configuration button")
 assert.match(mainQml, /PreferencesWindow \{\s*id: preferencesWindow\s*appletRoot: root/, "the widget owns one reusable preferences window")
-assert.match(mainQml, /function openPreferences\(\) \{\s*preferencesWindow\.openPreferences\(\)/, "the widget routes preference requests to the reusable window")
+assert.match(mainQml, /function openPreferences\(page\) \{\s*preferencesWindow\.openPreferences\(page \|\| "general"\)/, "the widget routes preference requests to the reusable window")
 assert.match(mainQml, /onClicked: root\.openPreferences\(\)/, "the popup gear opens the dedicated preferences window")
+assert.match(mainQml, /openPreferences\("accounts"\)/, "manage accounts opens the preferences accounts page")
 assert.match(mainQml, /text: i18n\("Configure"\)/, "the configuration button has a translated tooltip label")
 assert.match(mainQml, /id: aiControlButton/, "the popup exposes a discoverable AI CLI Control button")
 assert.match(mainQml, /id: aiControlMenu/, "the popup AI button offers selector and update actions")
@@ -1009,7 +1228,7 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.12.3", "package metadata uses version 0.12.3")
+assert.equal(metadata.KPlugin.Version, "0.12.5", "package metadata uses version 0.12.5")
 assert.equal(metadata.KPlugin.Website, "https://github.com/Karasowl/KodexBar-Suite", "package metadata links to the maintained suite repository")
 assert.match(mainQml, /var antigravityWindows = antigravity && Array\.isArray\(usage\.antigravityRateWindows\)/, "popup consumes the engine's Antigravity model windows")
 assert.match(mainQml, /compactLabel: antigravityKey === "gemini-weekly" \? "W"/, "compact Antigravity weekly uses W like other providers")
@@ -1181,7 +1400,7 @@ assert.match(
 )
 assert.match(
     mainQml,
-    /Rectangle \{\s*width: 8\s*height: 8\s*radius: 4\s*color: root\.segmentColor\(modelData\.title, index\)/,
+    /Rectangle \{\s*width: 8\s*height: 8\s*radius: 4\s*color: root\.th\(root\.segmentColor\(modelData\.title, index\)\)/,
     "each legend item has an 8px circular color dot"
 )
 assert.match(
@@ -1224,7 +1443,7 @@ assert.ok(
 )
 assert.match(
     mainQml,
-    /visible: index > 0[\s\S]*width: 1[\s\S]*color: "#0b0c10"/,
+    /visible: index > 0[\s\S]*width: 1[\s\S]*color: root\.th\("#0b0c10"\)/,
     "segment track draws a 1px dark divider on internal frontiers only"
 )
 assert.doesNotMatch(
@@ -1531,11 +1750,16 @@ assert.match(
 )
 assert.match(
     mainQml,
-    /if \(activeQueryReplacesAll\) \{\s*lastGoodEntries = ProviderLogic\.reconcileSeedCache\(cached, incoming\)\s*fastRefreshCyclesSinceSeed = 0\s*lastSuccessfulSeedAt = Date\.now\(\)/,
+    /lastGoodEntries = ProviderLogic\.retainLiveAccountCache\([\s\S]*activeQueryReplacesAll\)/,
+    "live refreshes purge removed multi-account rows from the last-good cache"
+)
+assert.match(
+    mainQml,
+    /if \(activeQueryReplacesAll\) \{\s*fastRefreshCyclesSinceSeed = 0\s*lastSuccessfulSeedAt = Date\.now\(\)/,
     "only a successful full seed advances its time gate"
 )
 assert.match(mainQml, /ProviderLogic\.excludeUnfetchableProviderEntries\(normalized\)/, "unfetchable provider responses are excluded before state is updated")
-assert.match(mainQml, /ProviderLogic\.reconcileSeedCache\(cached, incoming\)/, "a successful full seed purges stale cached providers")
+assert.match(mainQml, /function refreshAccountsUsage\(\)/, "account preferences can force a full panel seed after add or remove")
 assert.match(mainQml, /id: startupRetryTimer[\s\S]*interval: 5000/, "transient startup failures wait five seconds before retrying")
 assert.match(mainQml, /ProviderLogic\.startupRetryProviderIds\([\s\S]*lastGoodEntries[\s\S]*startupRetryAttemptedProviders/, "startup retry selection is cache-aware and records completed attempts")
 assert.match(mainQml, /pendingCandidates = providerCandidates\(providers, true\)/, "startup retries target only the failed providers")
@@ -1565,7 +1789,12 @@ assert.match(mainQml, /i18n\("Banked resets"\)/, "the Codex popup labels banked 
 assert.match(mainQml, /root\.activeEntry\.isCached === true/, "cached popup data has a visible staleness note")
 assert.match(preferencesQml, /QQC2\.ApplicationWindow/, "preferences use a Wayland-capable top-level Qt Quick window")
 assert.match(preferencesQml, /title: i18n\("KodexBar Suite Preferences"\)/, "preferences use the requested window title")
-assert.match(preferencesQml, /function openPreferences\(\) \{[\s\S]*raise\(\)[\s\S]*requestActivate\(\)/, "reopening preferences focuses the single window instance")
+assert.match(preferencesQml, /function openPreferences\(page\) \{[\s\S]*raise\(\)[\s\S]*requestActivate\(\)/, "reopening preferences focuses the single window instance")
+assert.match(preferencesQml, /id: "accounts"/, "preferences expose an Accounts page")
+assert.match(preferencesQml, /Open login for %1/, "the Accounts page names the service and label on the primary action")
+assert.match(preferencesQml, /Stop showing this account/, "removal uses plain language instead of a bare Remove label")
+assert.match(preferencesQml, /PreferenceActionButton/, "Accounts actions reuse styled preference buttons")
+assert.match(preferencesQml, /id: accountsExecutable/, "the Accounts page runs kodexbar-quotas profiles through the executable engine")
 assert.match(preferencesQml, /function load\(\) \{[\s\S]*Plasmoid\.configuration\.codexbarCommand/, "preferences read the command setting")
 assert.match(preferencesQml, /Plasmoid\.configuration\.codexbarCommand = workingCommand/, "preferences write the command setting")
 assert.match(preferencesQml, /function load\(\) \{[\s\S]*Plasmoid\.configuration\.sourceDefault/, "preferences read the selected source")
@@ -1580,6 +1809,9 @@ assert.match(preferencesQml, /Plasmoid\.globalShortcut = workingShortcut/, "pref
 assert.match(preferencesQml, /KeySequenceItem/, "preferences expose a native key-sequence capture control")
 assert.match(preferencesQml, /compactResultForOrder\(workingCompactProviderOrder, \{[\s\S]*quotaSelection: workingCompactQuotaSelection[\s\S]*showProvider: workingShowProviderInPanel[\s\S]*showUsed: workingShowUsedPercentInPanel[\s\S]*showCredits: workingShowCreditsInPanel/, "the live preview uses the working compact composition")
 assert.match(mainQml, /function compactResultForOrder\(providerOrder, overrides\) \{[\s\S]*overrides \|\| \{\}[\s\S]*values\.quotaSelection === undefined[\s\S]*values\.showProvider === undefined[\s\S]*values\.showUsed === undefined[\s\S]*values\.showCredits === undefined/, "compact composition accepts preview overrides while preserving configured fallbacks")
+assert.match(mainQml, /defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego"/, "the compact default includes detected OpenCode Go")
+assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey\)[\s\S]*OpenCode Go/, "OpenCode Go uses its five-hour, weekly, and monthly window labels")
+assert.match(mainQml, /ProviderLogic\.providerId\(entry\.provider\) === "opencodego"/, "OpenCode Go keeps its plan label when upstream omits identity")
 assert.match(preferencesQml, /objectName: "quotaSelectionField"/, "preferences expose the compact quota field")
 assert.match(preferencesQml, /objectName: "showProviderCheck"/, "preferences expose the compact provider-label control")
 assert.match(preferencesQml, /objectName: "showUsedCheck"/, "preferences expose the compact used-percent control")

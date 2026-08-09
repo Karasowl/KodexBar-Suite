@@ -1,0 +1,22 @@
+{
+  "provider": "opencodego",
+  "source": "local",
+  "usage": {
+    "primary": {
+      "usedPercent": 1.9,
+      "windowMinutes": 300,
+      "resetsAt": "2026-08-03T00:22:58Z"
+    },
+    "secondary": {
+      "usedPercent": 7.1,
+      "windowMinutes": 10080,
+      "resetsAt": "2026-08-02T23:59:59Z"
+    },
+    "tertiary": {
+      "usedPercent": 3.5,
+      "windowMinutes": 43200,
+      "resetsAt": "2026-09-02T03:37:31Z"
+    },
+    "updatedAt": "2026-08-02T20:55:05Z"
+  }
+}
