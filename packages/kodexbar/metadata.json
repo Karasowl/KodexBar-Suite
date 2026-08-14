@@ -13,7 +13,7 @@
       }
     ],
     "Category": "System Information",
-    "Description": "KodexBar Suite KDE Plasma panel widget for ordered multi-provider CodexBar quotas.",
+    "Description": "KDE Plasma 6 AI quota monitor for Claude Code, OpenAI Codex, Cursor, Grok, OpenCode Go, and Antigravity through CodexBar.",
     "Icon": "utilities-terminal",
     "Id": "org.kde.plasma.kodexbar",
     "License": "MIT",

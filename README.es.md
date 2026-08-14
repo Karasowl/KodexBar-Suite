@@ -2,14 +2,46 @@
 
 [Read in English](README.md)
 
-KodexBar Suite es un pequeño conjunto de herramientas de escritorio para Linux con dos paquetes independientes:
+> Monitor de cuotas y uso de IA para Linux, con widget de KDE Plasma 6 para asistentes de programación.
 
-- `packages/kodexbar` es un widget de KDE Plasma 6 para mostrar cuotas ordenadas mediante CodexBar.
+[![Última release](https://img.shields.io/github/v/release/Karasowl/KodexBar-Suite?display_name=tag&sort=semver)](https://github.com/Karasowl/KodexBar-Suite/releases/latest)
+[![KDE Plasma 6](https://img.shields.io/badge/KDE%20Plasma-6-1d99f3?style=flat-square)](https://kde.org/plasma-desktop/)
+[![Licencia: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
+
+KodexBar Suite concentra en un panel de Linux las cuotas y el uso de asistentes de programación con IA. El widget de KDE Plasma 6 muestra ventanas de uso, reinicios, créditos, costos, cuentas y errores sin obligarte a abrir un panel distinto para cada asistente. Está pensado para Arch Linux, CachyOS y otros sistemas Linux con Plasma 6.
+
+La suite completa se distribuye mediante [AUR](https://aur.archlinux.org/packages/kodexbar-suite), [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases) y un instalador local desde este repositorio. Si te evita abrir varios paneles de proveedores, marca el proyecto con una estrella para que otros usuarios de Linux puedan encontrarlo.
+
+El repositorio contiene dos paquetes instalables y sus herramientas compartidas:
+
+- `packages/kodexbar` es un widget de KDE Plasma 6 para mostrar cuotas y uso ordenados mediante CodexBar.
 - `packages/ai-cli-control` es el selector local `ai` para iniciar y actualizar las CLI de proveedores, con recuperación de conversaciones en solo lectura mediante `ai recover`.
 - `local-ai`, instalado junto con `ai-cli-control`, es un monitor JSON opcional para runtimes de modelos locales. No instala runtimes ni descarga pesos.
 - `kodexbar-skills`, instalado junto con `ai-cli-control`, inventaría y sincroniza skills entre seis proveedores con confirmación, preflight y respaldo de copias idénticas.
 
-Los paquetes se mantienen en un solo repositorio y pueden instalarse juntos desde la raíz. Cada paquete sigue siendo utilizable y comprobable por separado.
+Cada paquete sigue siendo utilizable y comprobable por separado, mientras que el instalador raíz ofrece la experiencia completa.
+
+## Qué monitoriza
+
+La suite tiene rutas dedicadas de cuotas para estos proveedores:
+
+| Proveedor | Cobertura |
+| --- | --- |
+| Claude Code | Lectura nativa de cuotas con perfiles de varias cuentas |
+| OpenAI Codex | Lectura nativa de cuotas, créditos y perfiles de varias cuentas |
+| Cursor | Uso nativo del ciclo mensual con vistas de Models, Other, Total, Auto y API |
+| Grok | Datos nativos de uso y facturación desde la sesión local |
+| OpenCode Go | Detección nativa de cuota e identidad del proveedor |
+| Antigravity | Ruta opcional mediante la CLI CodexBar upstream |
+
+El widget también puede mostrar otros proveedores devueltos por CodexBar cuando están habilitados. La suite no inventa valores de cuota cuando un proveedor no devuelve datos reales.
+
+Además del monitor de cuotas, la suite incluye:
+
+- **Perfiles de varias cuentas** para Codex y Claude sin guardar secretos de proveedores en la suite.
+- **Monitor de modelos locales** mediante `local-ai`, con métricas del runtime y controles seguros.
+- **Inventario y sincronización de skills** entre Codex, Claude, Grok, Gemini CLI, OpenCode y Hermes.
+- **AI CLI Control** para iniciar y actualizar las CLI de proveedores desde el directorio actual.
 
 ## Instalar el conjunto
 

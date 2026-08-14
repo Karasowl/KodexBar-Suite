@@ -8,7 +8,7 @@
 [![CodexBar CLI](https://img.shields.io/badge/powered%20by-CodexBar%20CLI-0a0a0c?style=flat-square)](https://github.com/steipete/CodexBar)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-KodexBar Suite is a KDE Plasma 6 widget for monitoring AI provider quotas through the [CodexBar CLI](https://github.com/steipete/CodexBar). It provides a configurable compact summary in the panel, a complete popup with every enabled provider and quota, an optional local-model viewer, and a cross-provider skill inventory.
+KodexBar Suite is a KDE Plasma 6 AI quota monitor for Linux. It provides a configurable compact summary in the panel and a complete popup for Claude Code, OpenAI Codex, Cursor, Grok, OpenCode Go, Antigravity, and other providers returned by the [CodexBar CLI](https://github.com/steipete/CodexBar). It also includes an optional local-model viewer and a cross-provider skill inventory.
 
 This package is also maintained inside the [KodexBar Suite monorepo](../../README.md). From that repository root, use `./install.sh` to install it together with `ai-cli-control`. The package can still be validated and installed independently.
 
@@ -74,8 +74,8 @@ Your existing Plasma widget configuration remains associated with that plugin ID
 Clone the fork and install it:
 
 ```sh
-git clone https://github.com/Karasowl/KodexBar.git
-cd KodexBar
+git clone https://github.com/Karasowl/KodexBar-Suite.git
+cd KodexBar-Suite/packages/kodexbar
 kpackagetool6 -t Plasma/Applet -i .
 ```
 

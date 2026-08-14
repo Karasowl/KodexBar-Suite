@@ -2,14 +2,46 @@
 
 [Leer en español](README.es.md)
 
-KodexBar Suite is a small Linux desktop toolkit with two independent packages:
+> Linux AI quota monitor and KDE Plasma 6 widget for coding assistants.
 
-- `packages/kodexbar` is a KDE Plasma 6 widget for ordered CodexBar quota summaries.
+[![Latest release](https://img.shields.io/github/v/release/Karasowl/KodexBar-Suite?display_name=tag&sort=semver)](https://github.com/Karasowl/KodexBar-Suite/releases/latest)
+[![KDE Plasma 6](https://img.shields.io/badge/KDE%20Plasma-6-1d99f3?style=flat-square)](https://kde.org/plasma-desktop/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
+
+KodexBar Suite puts AI coding quota and usage tracking in one Linux panel. The KDE Plasma 6 widget shows provider usage windows, reset times, credits, costs, accounts, and errors without requiring a separate dashboard for every assistant. It is designed for Arch Linux, CachyOS, and other Linux systems running Plasma 6.
+
+The complete suite is distributed through the [AUR](https://aur.archlinux.org/packages/kodexbar-suite), [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases), and a user-local installer from this repository. If this saves you from opening several provider dashboards, star the project so other Linux users can find it.
+
+The repository contains two installable packages and their shared tooling:
+
+- `packages/kodexbar` is a KDE Plasma 6 widget for ordered CodexBar quota and usage summaries.
 - `packages/ai-cli-control` is the local `ai` selector for launching and updating provider CLIs, including read-only conversation recovery with `ai recover`.
 - `local-ai`, installed with `ai-cli-control`, is an optional JSON monitor for local model runtimes. It does not install runtimes or download weights.
 - `kodexbar-skills`, installed with `ai-cli-control`, inventories and synchronizes skills across six providers with confirmation, preflight, and identical-copy backups.
 
-The packages are maintained in one repository and can be installed together from the repository root. Each package remains usable and testable on its own.
+Each package remains usable and testable on its own, while the root installer provides the complete experience.
+
+## What it monitors
+
+The suite has dedicated quota paths for the providers below:
+
+| Provider | Coverage |
+| --- | --- |
+| Claude Code | Native quota reading with multi-account profiles |
+| OpenAI Codex | Native quota reading, credits, and multi-account profiles |
+| Cursor | Native monthly billing usage with Models, Other, Total, Auto, and API views |
+| Grok | Native usage and billing data from the local account session |
+| OpenCode Go | Native quota detection and provider identity |
+| Antigravity | Optional companion path through the upstream CodexBar CLI |
+
+The widget can also display other providers returned by CodexBar when they are enabled. The suite does not invent quota values when a provider does not return real data.
+
+Beyond quota monitoring, the suite includes:
+
+- **Multi-account profiles** for Codex and Claude without storing provider secrets in the suite.
+- **Local model monitoring** through `local-ai`, with runtime-aware metrics and safe controls.
+- **Cross-provider skill inventory and synchronization** for Codex, Claude, Grok, Gemini CLI, OpenCode, and Hermes.
+- **AI CLI Control** for launching and updating provider CLIs from the current directory.
 
 ## Install the suite
 
