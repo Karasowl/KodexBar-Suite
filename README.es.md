@@ -14,7 +14,7 @@ KodexBar Suite concentra en un panel de Linux las cuotas y el uso de asistentes 
 
 [Clip completo de 26s](docs/kodexbar-demo.mp4)
 
-KodexBar Suite concentra en un panel de Linux las cuotas y el uso de asistentes de programación con IA. El widget de KDE Plasma 6 muestra ventanas de uso, reinicios, créditos, costos, cuentas y errores sin obligarte a abrir un panel distinto para cada asistente. Está pensado para Arch Linux, CachyOS y otros sistemas Linux con Plasma 6.
+El widget de KDE Plasma 6 muestra ventanas de uso, reinicios, créditos, costos, cuentas y errores sin obligarte a abrir un panel distinto para cada asistente. Está pensado para Arch Linux, CachyOS y otros sistemas Linux con Plasma 6.
 
 La suite completa se distribuye mediante [AUR](https://aur.archlinux.org/packages/kodexbar-suite), [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases) y un instalador local desde este repositorio. Si te evita abrir varios paneles de proveedores, marca el proyecto con una estrella para que otros usuarios de Linux puedan encontrarlo.
 
