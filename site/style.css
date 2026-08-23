@@ -1,0 +1,36 @@
+:root {
+  --bg: #0b0b10;
+  --card: #16161e;
+  --text: #f4f2ff;
+  --muted: #9a96b3;
+  --line: #2a2740;
+  --purple: #6e5aff;
+  --purple-2: #1d99f3;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 ui-sans-serif, system-ui, sans-serif; }
+body { min-height: 100vh; }
+a { color: #c9c2ff; }
+.top { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.4rem; border-bottom: 1px solid var(--line); }
+.brand { display: flex; gap: .6rem; align-items: center; color: var(--text); text-decoration: none; font-weight: 650; }
+.k { width: 1.7rem; height: 1.7rem; border-radius: .4rem; background: var(--purple); display: grid; place-items: center; font-weight: 800; }
+nav { display: flex; gap: 1rem; align-items: center; }
+nav a, .ghost { color: var(--muted); background: none; border: 0; cursor: pointer; font: inherit; text-decoration: none; }
+main { max-width: 40rem; margin: 0 auto; padding: 2.4rem 1.2rem 4rem; }
+.eyebrow { color: var(--purple-2); letter-spacing: .04em; text-transform: uppercase; font-size: .78rem; margin: 0 0 .6rem; }
+h1 { font-size: clamp(1.8rem, 5vw, 2.4rem); line-height: 1.15; margin: 0 0 .8rem; }
+.lede, .hint, figcaption { color: var(--muted); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 1rem; padding: 1.2rem 1.3rem; margin: 1.6rem 0 1rem; }
+.card h2 { margin: .2rem 0 .5rem; font-size: 1.15rem; }
+pre { background: #0b0b10; border-radius: .6rem; padding: .9rem 1rem; overflow: auto; }
+code { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.row { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .9rem; }
+.btn { background: var(--purple); color: white; border: 0; border-radius: .55rem; padding: .55rem .9rem; font: inherit; cursor: pointer; text-decoration: none; }
+.btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+.pills { display: flex; flex-wrap: wrap; gap: .45rem; }
+.pills button { background: #12121a; color: var(--text); border: 1px solid var(--line); border-radius: 999px; padding: .35rem .75rem; cursor: pointer; font: inherit; }
+.pills button.on { border-color: var(--purple); color: #fff; }
+.choose-label { margin: 0 0 .45rem; color: var(--muted); font-size: .9rem; }
+.demo { margin: 2rem 0 0; }
+.demo img { width: min(100%, 554px); height: auto; border-radius: .8rem; border: 1px solid var(--line); background: #000; }
+footer { max-width: 40rem; margin: 0 auto; padding: 0 1.2rem 2.5rem; color: var(--muted); display: flex; gap: .5rem; flex-wrap: wrap; }
