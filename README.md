@@ -8,6 +8,12 @@
 [![KDE Plasma 6](https://img.shields.io/badge/KDE%20Plasma-6-1d99f3?style=flat-square)](https://kde.org/plasma-desktop/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
+KodexBar Suite puts AI coding quota and usage tracking in one Linux panel. The widget shows live usage, reset times, spend, and errors. Compact panel lets you hide a provider that is in ERR.
+
+![KodexBar on Plasma 6: panel chips, provider quotas, Claude ERR, then hiding Claude in Compact panel](docs/kodexbar-demo.gif)
+
+[Full 26s clip](docs/kodexbar-demo.mp4)
+
 KodexBar Suite puts AI coding quota and usage tracking in one Linux panel. The KDE Plasma 6 widget shows provider usage windows, reset times, credits, costs, accounts, and errors without requiring a separate dashboard for every assistant. It is designed for Arch Linux, CachyOS, and other Linux systems running Plasma 6.
 
 The complete suite is distributed through the [AUR](https://aur.archlinux.org/packages/kodexbar-suite), [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases), and a user-local installer from this repository. If this saves you from opening several provider dashboards, star the project so other Linux users can find it.
