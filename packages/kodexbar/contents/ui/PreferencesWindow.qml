@@ -1516,9 +1516,26 @@ QQC2.ApplicationWindow {
 
                                                 QQC2.TextField {
                                                     Layout.fillWidth: true
-                                                    text: "https://github.com/Karasowl/KodexBar"
+                                                    text: "https://github.com/Karasowl/KodexBar-Suite"
                                                     readOnly: true
                                                     selectByMouse: true
+                                                }
+
+                                                QQC2.Label {
+                                                    objectName: "tipPaypalLink"
+                                                    text: '<a href="https://www.paypal.com/paypalme/miguelitoism">' + i18n("Tip on PayPal") + "</a>"
+                                                    textFormat: Text.RichText
+                                                    color: preferences.th("#9787ff")
+                                                    font.family: appletRoot ? appletRoot.designFont : ""
+                                                    font.pixelSize: preferences.fontSizeBody
+                                                    onLinkActivated: function(link) {
+                                                        Qt.openUrlExternally(link)
+                                                    }
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        acceptedButtons: Qt.NoButton
+                                                        cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                                    }
                                                 }
                                             }
                                         }

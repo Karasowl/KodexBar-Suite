@@ -23,6 +23,7 @@ PlasmoidItem {
     property bool engineNotInstalled: false
     readonly property string engineInstallCommand: "paru -S kodexbar-suite"
     readonly property string engineRepoUrl: "https://github.com/Karasowl/KodexBar-Suite"
+    readonly property string tipUrl: "https://www.paypal.com/paypalme/miguelitoism"
     property string generatedAt: ""
     property bool loading: false
     property bool costLoading: false
@@ -5353,6 +5354,29 @@ PlasmoidItem {
                         font.family: root.designFont
                         font.pixelSize: 12
                         elide: Text.ElideRight
+                    }
+                }
+            }
+
+            Item {
+                id: tipFooter
+                Layout.fillWidth: true
+                Layout.preferredHeight: 26
+                PlasmaComponents.Label {
+                    objectName: "tipPaypalLink"
+                    anchors.centerIn: parent
+                    text: '<a href="' + root.tipUrl + '">' + i18n("Tip on PayPal") + "</a>"
+                    textFormat: Text.RichText
+                    color: root.quietColor
+                    font.family: root.designFont
+                    font.pixelSize: 11
+                    onLinkActivated: function(link) {
+                        Qt.openUrlExternally(link)
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.NoButton
+                        cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor
                     }
                 }
             }
