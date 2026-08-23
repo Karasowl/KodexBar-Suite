@@ -8,7 +8,13 @@
 [![KDE Plasma 6](https://img.shields.io/badge/KDE%20Plasma-6-1d99f3?style=flat-square)](https://kde.org/plasma-desktop/)
 [![Licencia: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-KodexBar Suite concentra en un panel de Linux las cuotas y el uso de asistentes de programación con IA. El widget de KDE Plasma 6 muestra ventanas de uso, reinicios, créditos, costos, cuentas y errores sin obligarte a abrir un panel distinto para cada asistente. Está pensado para Arch Linux, CachyOS y otros sistemas Linux con Plasma 6.
+KodexBar Suite concentra en un panel de Linux las cuotas y el uso de asistentes de programación con IA. El widget muestra uso en vivo, reinicios, gasto y errores. En Compact panel puedes ocultar un proveedor que está en ERR.
+
+![KodexBar en Plasma 6: chips en la barra, cuotas, Claude en ERR y luego ocultar Claude en Compact panel](docs/kodexbar-demo.gif)
+
+[Clip completo de 26s](docs/kodexbar-demo.mp4)
+
+El widget de KDE Plasma 6 muestra ventanas de uso, reinicios, créditos, costos, cuentas y errores sin obligarte a abrir un panel distinto para cada asistente. Está pensado para Arch Linux, CachyOS y otros sistemas Linux con Plasma 6.
 
 La suite completa se distribuye mediante [AUR](https://aur.archlinux.org/packages/kodexbar-suite), [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases) y un instalador local desde este repositorio. Si te evita abrir varios paneles de proveedores, marca el proyecto con una estrella para que otros usuarios de Linux puedan encontrarlo.
 
