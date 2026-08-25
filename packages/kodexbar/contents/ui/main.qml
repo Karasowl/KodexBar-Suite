@@ -1504,6 +1504,17 @@ PlasmoidItem {
         entries = ProviderLogic.attachProviderCostSummaries(entries, costSummaries)
     }
 
+    // OpenCode Go has no public usage API yet. On Linux KodexBar only sums this
+    // machine's local SQLite history, which undercounts the dashboard quota.
+    function formatUsageSource(provider, source) {
+        var src = String(source || "")
+        if (ProviderLogic.providerId(provider) === "opencodego"
+                && src.toLowerCase() === "local") {
+            return i18n("local · estimated")
+        }
+        return src
+    }
+
     function providerName(raw) {
         var key = String(raw || "").toLowerCase()
         var names = {
@@ -2421,7 +2432,9 @@ PlasmoidItem {
                                         && details.indexOf(root.activeEntry.profileLabel) === -1) {
                                     details.push(root.activeEntry.profileLabel)
                                 }
-                                var source = root.activeEntry.source || root.activeSource || ""
+                                var source = root.formatUsageSource(
+                                    root.activeEntry.provider,
+                                    root.activeEntry.source || root.activeSource || "")
                                 if (source && details.indexOf(source) === -1) {
                                     details.push(source)
                                 }
@@ -3199,7 +3212,9 @@ PlasmoidItem {
                         PlasmaComponents.Label { text: "·"; color: root.th("#3a3f4d"); font.pixelSize: 11 }
                         PlasmaComponents.Label {
                             text: String(root.selectedPopupTab === "provider"
-                                ? (root.activeEntry.source || root.activeSource || "")
+                                ? root.formatUsageSource(
+                                    root.activeEntry.provider,
+                                    root.activeEntry.source || root.activeSource || "")
                                 : "local").toUpperCase()
                             color: root.accentColor
                             font.family: root.designFont
@@ -3621,7 +3636,9 @@ PlasmoidItem {
                             PlasmaComponents.Label {
                                 id: sourcePillLabel
                                 anchors.centerIn: parent
-                                text: String(root.activeEntry.source || root.activeSource || "").toUpperCase()
+                                text: String(root.formatUsageSource(
+                                    root.activeEntry.provider,
+                                    root.activeEntry.source || root.activeSource || "")).toUpperCase()
                                 color: root.th("#9787ff")
                                 font.family: root.designFont
                                 font.pixelSize: 11
