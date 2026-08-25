@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KodexBar Suite — Linux AI quota monitor</title>
+  <meta name="description" content="Open source Linux AI quota monitor for Plasma 6, tray, or Waybar. One command for your desktop." />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="https://github.com/Karasowl/KodexBar-Suite">
+      <span class="k">K</span>
+      <span>KodexBar Suite</span>
+    </a>
+    <nav>
+      <a class="star" href="https://github.com/Karasowl/KodexBar-Suite" rel="noopener">
+        <img alt="GitHub stars" src="https://img.shields.io/github/stars/Karasowl/KodexBar-Suite?style=social" />
+      </a>
+      <button type="button" id="lang" class="ghost">ES</button>
+      <a href="https://github.com/Karasowl/KodexBar-Suite">GitHub</a>
+      <a href="https://aur.archlinux.org/packages/kodexbar-suite">AUR</a>
+    </nav>
+  </header>
+
+  <main>
+    <p class="eyebrow" data-en="Linux · Plasma 6, tray, or Waybar" data-es="Linux · Plasma 6, bandeja o Waybar">Linux · Plasma 6, tray, or Waybar</p>
+    <h1 data-en="AI quotas on your bar. One command." data-es="Cuotas de IA en tu barra. Un comando.">AI quotas on your bar. One command.</h1>
+    <p class="lede" data-en="Open source quota monitor for coding assistants. There is no native GNOME applet. We install what your desktop can actually run." data-es="Monitor de cuotas open source para asistentes de código. No hay applet nativo de GNOME: instalamos lo que tu escritorio sí puede correr.">Open source quota monitor for coding assistants. There is no native GNOME applet. We install what your desktop can actually run.</p>
+
+    <div class="proof">
+      <a href="https://github.com/Karasowl/KodexBar-Suite/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/Karasowl/KodexBar-Suite?style=flat-square&label=stars" /></a>
+      <a href="https://github.com/Karasowl/KodexBar-Suite/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Karasowl/KodexBar-Suite?style=flat-square" /></a>
+      <a href="https://github.com/Karasowl/KodexBar-Suite/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square" /></a>
+    </div>
+
+    <section class="card primary" id="action">
+      <p class="hint" id="detected"></p>
+      <h2 id="action-title"></h2>
+      <p id="action-body"></p>
+      <pre><code id="action-cmd"></code></pre>
+      <div class="row">
+        <button type="button" id="copy" class="btn" data-en="Copy command" data-es="Copiar comando">Copy command</button>
+        <a class="btn ghost" href="https://github.com/Karasowl/KodexBar-Suite" data-en="Star on GitHub" data-es="Dar estrella en GitHub">Star on GitHub</a>
+        <a class="btn ghost" href="https://www.paypal.com/paypalme/miguelitoism" data-en="Tip on PayPal" data-es="Propina en PayPal">Tip on PayPal</a>
+      </div>
+      <p class="nudge" data-en="If this saved you a dashboard, star the repo. That is how other Linux users find it." data-es="Si te evitó abrir otro panel, dale estrella. Así lo encuentran otros en Linux.">If this saved you a dashboard, star the repo. That is how other Linux users find it.</p>
+    </section>
+
+    <p class="choose-label" data-en="Different desktop?" data-es="¿Otro escritorio?">Different desktop?</p>
+    <div class="pills" id="pills"></div>
+
+    <figure class="demo">
+      <img src="https://raw.githubusercontent.com/Karasowl/KodexBar-Suite/main/docs/kodexbar-demo.gif" alt="KodexBar Plasma 6 widget showing live AI quotas" width="554" height="492" />
+      <figcaption><a href="https://github.com/Karasowl/KodexBar-Suite/blob/main/docs/kodexbar-demo.mp4" data-en="26s clip" data-es="Clip de 26s">26s clip</a></figcaption>
+    </figure>
+  </main>
+
+  <footer>
+    <a href="https://github.com/Karasowl/KodexBar-Suite/releases/latest" data-en=".plasmoid release" data-es="Release .plasmoid">.plasmoid release</a>
+    <span>·</span>
+    <a href="https://github.com/Karasowl/KodexBar-Suite">Karasowl/KodexBar-Suite</a>
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>
