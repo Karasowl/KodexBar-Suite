@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.machinery
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -607,6 +608,9 @@ class LocalAIContractTests(unittest.TestCase):
             descriptor.write_text(json.dumps({"id": "unsafe", "kind": "openai-model-catalog"}), encoding="utf-8")
             original = descriptors.SYSTEM_DESCRIPTOR_DIR
             descriptors.SYSTEM_DESCRIPTOR_DIR = Path(temporary)
+            # Root CI images own /tmp as uid 0. Make the stand-in world-writable so
+            # the system-dir trust check still rejects it.
+            os.chmod(temporary, 0o777)
             try:
                 self.assertEqual(descriptors.descriptor_paths({}), [])
             finally:

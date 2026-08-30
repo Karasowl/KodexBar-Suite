@@ -1259,7 +1259,14 @@ assert.match(mainQml, /commandWasNotFound\(data\)/, "only command-not-found fail
 // Missing data engine (widget-only install): friendly setup card, not a provider traceback.
 assert.match(mainQml, /objectName: "engineMissingCard"/, "popup exposes the missing-engine setup card")
 assert.match(mainQml, /objectName: "engineMissingInstallCommand"/, "setup card exposes the install command field")
-assert.match(mainQml, /paru -S kodexbar-suite/, "setup card shows the suite install command")
+assert.match(mainQml, /paru -S kodexbar-suite/, "setup card keeps the Arch AUR install command")
+assert.match(
+    mainQml,
+    /git clone https:\/\/github\.com\/Karasowl\/KodexBar-Suite\.git && cd KodexBar-Suite && \.\/install\.sh/,
+    "setup card defaults to the portable repository installer"
+)
+assert.match(mainQml, /function installCommandForOsRelease\(/, "setup card picks the install command from os-release")
+assert.match(mainQml, /id: osReleaseProbe/, "setup card probes /etc/os-release once")
 assert.match(mainQml, /property bool engineNotInstalled: false/, "missing-engine state is explicit and off by default")
 assert.match(
     mainQml,
