@@ -1390,15 +1390,23 @@ def parse_chatgpt_base_url_text(text: str) -> str | None:
         return None
 
     found: str | None = None
+    header = re.compile(r"^\[\[?[A-Za-z0-9_.-]+\]\]?$")
+    assignment = re.compile(r"^([A-Za-z0-9_.-]+)\s*=\s*(.+)$")
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        match = re.match(r"^chatgpt_base_url\s*=\s*(.+)$", line)
-        if not match:
+        if header.match(line):
             continue
-        value, ok = _parse_toml_quoted_string(match.group(1).strip())
-        if not ok or value is None or not value.strip():
+        match = assignment.match(line)
+        if not match:
+            raise FetchFallback(CODEX_CONFIG_TOML_INVALID, "permanent", False)
+        value, ok = _parse_toml_quoted_string(match.group(2).strip())
+        if not ok or value is None:
+            raise FetchFallback(CODEX_CONFIG_TOML_INVALID, "permanent", False)
+        if match.group(1) != "chatgpt_base_url":
+            continue
+        if not value.strip():
             raise FetchFallback(CODEX_CONFIG_TOML_INVALID, "permanent", False)
         found = value.strip().rstrip("/")
     return found

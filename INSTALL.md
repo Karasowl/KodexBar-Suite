@@ -105,26 +105,33 @@ If you only want the Plasma applet UI from Get New Widgets:
 
 That channel delivers the **widget UI only**. The data engine and companion tools come from the AUR package or from a manual install (see below).
 
-If the engine is missing, the widget shows a setup card with the exact install command:
-
-```bash
-paru -S kodexbar-suite
-```
-
-Install the suite with that command (or with the manual path for non-Arch distros). After the next refresh, quotas appear when CLIs are available.
+If the engine is missing, the widget shows a setup card with the install command for your distro. Arch family systems get `paru -S kodexbar-suite`. Other Linux systems get the portable clone command below. After the next refresh, quotas appear when CLIs are available.
 
 ---
 
 ## 3. Debian, Ubuntu, Fedora, and other distros without AUR
 
-There is **no native package** for these distributions yet.
+There is **no native `.deb` or `.rpm`** yet. The same `./install.sh` covers Plasma and the other supported desktops.
 
 ### Requirements
 
-- `python3`
+- Python 3.10 or newer
 - `git`
-- **Plasma 6** if you want the widget
-- Terminal pieces, the Waybar panel helper, and the tray indicator can run without Plasma
+- `kpackagetool6` only if you want the Plasma widget
+- For the tray on GNOME or COSMIC: PyGObject plus Ayatana AppIndicator (`gir1.2-ayatanaappindicator3-0.1` on Debian/Ubuntu, `libayatana-appindicator-gtk3` on Fedora, `libayatana-appindicator` on Arch). GNOME also needs the AppIndicator extension.
+
+### What each desktop gets
+
+| Desktop | After `./install.sh` |
+| --- | --- |
+| Plasma 6 | Widget plus data engine, if `kpackagetool6` is installed |
+| GNOME or COSMIC | Data engine plus `kodexbar-tray --autostart-install` |
+| Hyprland + Waybar | Data engine plus `kodexbar-panel --waybar-snippet` |
+| XFCE | Data engine plus Generic Monitor: `kodexbar-panel --format text --pango`, 60s period |
+
+If `kpackagetool6` is missing, the installer still succeeds. It installs the engine, tray, and panel tools, and tells you which command to use on your desktop.
+
+If `~/.local/bin` is not on `PATH`, the installer prints the exact warning. Add that directory so `ai`, `kodexbar-quotas`, `kodexbar-panel`, and `kodexbar-tray` can be found.
 
 ### Steps
 
@@ -138,7 +145,7 @@ cd KodexBar-Suite
 
 2. For Codex, Grok, and Antigravity quota numbers, also install the official CodexBar CLI and keep `codexbar` on your `PATH`. See the [CodexBar CLI documentation](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
 
-Then add the widget to the panel the same way as in [After installation](#after-installation).
+On Plasma, add the widget the same way as in [After installation](#after-installation). On GNOME or COSMIC run `kodexbar-tray --autostart-install`. On Hyprland paste the snippet from `kodexbar-panel --waybar-snippet`.
 
 ---
 

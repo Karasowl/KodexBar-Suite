@@ -105,26 +105,33 @@ Si solo quieres la interfaz del applet de Plasma desde Get New Widgets:
 
 Ese canal entrega **solo la interfaz del widget**. El motor de datos y las herramientas compañeras vienen del paquete AUR o de la instalación manual (ver abajo).
 
-Si falta el motor, el widget muestra una tarjeta de guía con el comando exacto de instalación:
-
-```bash
-paru -S kodexbar-suite
-```
-
-Instala la suite con ese comando (o con la vía manual en distros que no son Arch). Tras el siguiente refresco, las cuotas aparecen cuando haya CLI disponibles.
+Si falta el motor, el widget muestra una tarjeta de guía con el comando de instalación de tu distro. En la familia Arch aparece `paru -S kodexbar-suite`. En el resto de Linux aparece el comando portable de clonar el repositorio. Tras el siguiente refresco, las cuotas aparecen cuando haya CLI disponibles.
 
 ---
 
 ## 3. Debian, Ubuntu, Fedora y otras distros sin AUR
 
-Todavía **no hay paquete nativo** para estas distribuciones.
+Todavía **no hay `.deb` ni `.rpm` nativos**. El mismo `./install.sh` cubre Plasma y los demás escritorios soportados.
 
 ### Requisitos
 
-- `python3`
+- Python 3.10 o posterior
 - `git`
-- **Plasma 6** si quieres el widget
-- Las piezas de terminal, el ayudante de panel para Waybar y el indicador de bandeja pueden funcionar sin Plasma
+- `kpackagetool6` solo si quieres el widget de Plasma
+- Para la bandeja en GNOME o COSMIC: PyGObject más Ayatana AppIndicator (`gir1.2-ayatanaappindicator3-0.1` en Debian/Ubuntu, `libayatana-appindicator-gtk3` en Fedora, `libayatana-appindicator` en Arch). GNOME también necesita la extensión AppIndicator.
+
+### Qué recibe cada escritorio
+
+| Escritorio | Después de `./install.sh` |
+| --- | --- |
+| Plasma 6 | Widget más motor de datos, si está `kpackagetool6` |
+| GNOME o COSMIC | Motor de datos más `kodexbar-tray --autostart-install` |
+| Hyprland + Waybar | Motor de datos más `kodexbar-panel --waybar-snippet` |
+| XFCE | Motor de datos más Generic Monitor: `kodexbar-panel --format text --pango`, periodo 60s |
+
+Si falta `kpackagetool6`, el instalador igual termina bien. Instala el motor, la bandeja y las herramientas de panel, y te dice qué comando usar en tu escritorio.
+
+Si `~/.local/bin` no está en `PATH`, el instalador imprime el aviso. Añade ese directorio para que se encuentren `ai`, `kodexbar-quotas`, `kodexbar-panel` y `kodexbar-tray`.
 
 ### Pasos
 
@@ -138,7 +145,7 @@ cd KodexBar-Suite
 
 2. Para los números de cuota de Codex, Grok y Antigravity, instala también la CLI oficial de CodexBar y deja `codexbar` en tu `PATH`. Consulta la [documentación de la CLI de CodexBar](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
 
-Luego añade el widget al panel igual que en [Después de instalar](#después-de-instalar).
+En Plasma, añade el widget igual que en [Después de instalar](#después-de-instalar). En GNOME o COSMIC ejecuta `kodexbar-tray --autostart-install`. En Hyprland pega el snippet de `kodexbar-panel --waybar-snippet`.
 
 ---
 

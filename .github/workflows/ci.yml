@@ -44,6 +44,77 @@ jobs:
       - name: kodexbar validate
         run: bash packages/kodexbar/scripts/validate.sh
 
+      - name: root installer tests
+        run: python3 tests/test_root_install.py
+
+  python310-engine:
+    runs-on: ubuntu-latest
+    container: python:3.10-bookworm
+    steps:
+      - name: Install git
+        run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git
+
+      - uses: actions/checkout@v4
+
+      - name: Engine tests on Python 3.10
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s packages/ai-cli-control/tests -v
+          python3 tests/test_root_install.py
+
+  portable-install:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian:bookworm-slim
+            setup: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git ca-certificates coreutils passwd util-linux
+          - image: ubuntu:22.04
+            setup: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git ca-certificates coreutils passwd util-linux
+          - image: ubuntu:24.04
+            setup: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git ca-certificates coreutils passwd util-linux
+          - image: fedora:latest
+            setup: dnf install -y python3 git
+          - image: archlinux:base
+            setup: pacman -Syu --noconfirm --needed python git
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Install distro tools
+        run: ${{ matrix.setup }}
+
+      - uses: actions/checkout@v4
+
+      - name: User-local install without Plasma
+        run: |
+          set -euo pipefail
+          if ! id kodex >/dev/null 2>&1; then
+            useradd -m kodex
+          fi
+          chown -R kodex:kodex "${GITHUB_WORKSPACE}"
+          su -s /bin/bash kodex -c "
+            set -euo pipefail
+            export HOME=/home/kodex
+            cd '${GITHUB_WORKSPACE}'
+            ./install.sh
+            export PATH=\"\$HOME/.local/bin:\$PATH\"
+            command -v ai
+            command -v kodexbar-quotas
+            command -v kodexbar-panel
+            command -v kodexbar-tray
+            command -v local-ai
+            command -v kodexbar-skills
+            grep -qx plasma=0 \"\$HOME/.local/state/kodexbar-suite/install-marker\"
+            kodexbar-panel --waybar-snippet | grep -F custom/kodexbar
+            python3 -m py_compile \"\$HOME/.local/share/ai-cli-control/ai\" \\
+              \"\$HOME/.local/share/ai-cli-control/kodexbar-quotas\" \\
+              \"\$HOME/.local/share/ai-cli-control/kodexbar-panel\" \\
+              \"\$HOME/.local/share/ai-cli-control/kodexbar-tray\" \\
+              \"\$HOME/.local/share/ai-cli-control/local-ai\" \\
+              \"\$HOME/.local/share/ai-cli-control/kodexbar-skills\"
+          "
+
   packaging:
     runs-on: ubuntu-latest
     container:

@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- The suite root installer no longer aborts on Debian, Ubuntu, Fedora, GNOME, COSMIC, Hyprland, or XFCE just because `kpackagetool6` is absent.
+- On Python 3.10, invalid Codex `config.toml` files fail closed instead of returning a host from a leftover valid line.
+
 ## 0.12.5, 2026-08-08
 
 ### Added

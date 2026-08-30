@@ -4,6 +4,13 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+### Fixed
+
+- Root `./install.sh` no longer requires `kpackagetool6`. Without Plasma it still installs the data engine, tray, and panel tools for GNOME, COSMIC, Hyprland/Waybar, and XFCE.
+- The missing-engine setup card picks `paru -S kodexbar-suite` on Arch family systems and the portable repository installer on other distros.
+- `./install.sh` now requires Python 3.10 or newer and warns when `~/.local/bin` is missing from `PATH`.
+- Plasma reload after a user-local install resolves `qdbus6` from common distro paths, not only `/usr/bin/qdbus6`.
+
 ## 0.12.5, 2026-08-08
 
 ### Added

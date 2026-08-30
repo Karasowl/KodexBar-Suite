@@ -53,7 +53,7 @@ Beyond quota monitoring, the suite includes:
 
 **New to this? Follow the [step-by-step install guide](INSTALL.md).**
 
-On CachyOS, Arch Linux, or another Linux system with KDE Plasma 6:
+On CachyOS, Arch Linux, or another Linux system:
 
 ```bash
 git clone https://github.com/Karasowl/KodexBar-Suite.git
@@ -63,10 +63,12 @@ cd KodexBar-Suite
 
 The installer:
 
-- installs or updates the Plasma applet with the technical ID `org.kde.plasma.kodexbar`.
+- installs or updates the Plasma applet when `kpackagetool6` is present.
+- still installs the data engine, tray, and panel tools when Plasma is absent, so GNOME, COSMIC, Hyprland/Waybar, and XFCE can use the suite.
 - installs `ai` at `~/.local/share/ai-cli-control/ai`.
 - creates `~/.local/bin/ai` only when that link is absent or already belongs to this project.
 - never uses `sudo` and never replaces an unrelated `~/.local/bin/ai`.
+- warns if `~/.local/bin` is not on `PATH`.
 
 The shared Plasma ID is intentional. This package replaces an existing upstream KodexBar installation in place, while preserving the Plasma configuration associated with that ID.
 
@@ -109,7 +111,7 @@ GitHub Releases provides the matching source archive and release artifacts.
 
 ### KDE Store (widget-only channel)
 
-KDE Store is a separate distribution channel for the Plasma widget only. The published `.plasmoid` is built by `packaging/kde-store/build-plasmoid.sh`, and its version comes from `packages/kodexbar/metadata.json`. That channel delivers the applet UI only. The data engine (`kodexbar-quotas` and related tools) still comes from the AUR package or from the repository `install.sh` below. If the widget is installed without the engine, the popup shows a clear setup card with `paru -S kodexbar-suite` and a link to the repository. After the suite is installed, the next refresh detects your CLIs and shows their quotas without manual provider configuration.
+KDE Store is a separate distribution channel for the Plasma widget only. The published `.plasmoid` is built by `packaging/kde-store/build-plasmoid.sh`, and its version comes from `packages/kodexbar/metadata.json`. That channel delivers the applet UI only. The data engine (`kodexbar-quotas` and related tools) still comes from the AUR package or from the repository `install.sh` below. If the widget is installed without the engine, the popup shows a setup card with the Arch AUR command on Arch family systems, or the portable `./install.sh` command on other distros, plus a link to the repository. After the suite is installed, the next refresh detects your CLIs and shows their quotas without manual provider configuration.
 
 ### Manual install from this repository
 

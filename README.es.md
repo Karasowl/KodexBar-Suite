@@ -53,7 +53,7 @@ Además del monitor de cuotas, la suite incluye:
 
 **¿Nuevo en esto? Sigue la [guía de instalación paso a paso](INSTALL.es.md).**
 
-En CachyOS, Arch Linux u otro sistema Linux con KDE Plasma 6:
+En CachyOS, Arch Linux u otro sistema Linux:
 
 ```bash
 git clone https://github.com/Karasowl/KodexBar-Suite.git
@@ -63,10 +63,12 @@ cd KodexBar-Suite
 
 El instalador:
 
-- instala o actualiza el applet de Plasma con el ID técnico `org.kde.plasma.kodexbar`.
+- instala o actualiza el applet de Plasma cuando está `kpackagetool6`.
+- igual instala el motor de datos, la bandeja y las herramientas de panel si Plasma no está, para que GNOME, COSMIC, Hyprland/Waybar y XFCE puedan usar la suite.
 - instala `ai` en `~/.local/share/ai-cli-control/ai`.
 - crea `~/.local/bin/ai` solo cuando el enlace no existe o ya pertenece a este proyecto.
 - nunca usa `sudo` ni reemplaza un `~/.local/bin/ai` ajeno.
+- avisa si `~/.local/bin` no está en `PATH`.
 
 El ID compartido de Plasma es intencional. Este paquete reemplaza en el mismo lugar una instalación upstream de KodexBar y conserva la configuración de Plasma asociada a ese ID.
 
@@ -109,7 +111,7 @@ GitHub Releases proporciona el archivo fuente correspondiente y los artefactos d
 
 ### KDE Store (canal solo para el widget)
 
-KDE Store es un canal de distribución separado solo para el widget de Plasma. El `.plasmoid` que se publica se genera con `packaging/kde-store/build-plasmoid.sh` y su versión sale de `packages/kodexbar/metadata.json`. Ese canal entrega solo la interfaz del applet. El motor de datos (`kodexbar-quotas` y herramientas relacionadas) sigue viniendo del paquete AUR o del `install.sh` del repositorio que se describe abajo. Si el widget se instala sin el motor, el popup muestra una tarjeta de guía con `paru -S kodexbar-suite` y el enlace al repositorio. Cuando la suite ya está instalada, el siguiente refresco detecta tus CLI y muestra sus cuotas sin configurar proveedores a mano.
+KDE Store es un canal de distribución separado solo para el widget de Plasma. El `.plasmoid` que se publica se genera con `packaging/kde-store/build-plasmoid.sh` y su versión sale de `packages/kodexbar/metadata.json`. Ese canal entrega solo la interfaz del applet. El motor de datos (`kodexbar-quotas` y herramientas relacionadas) sigue viniendo del paquete AUR o del `install.sh` del repositorio que se describe abajo. Si el widget se instala sin el motor, el popup muestra una tarjeta de guía con el comando AUR en la familia Arch, o el `./install.sh` portable en otras distros, más el enlace al repositorio. Cuando la suite ya está instalada, el siguiente refresco detecta tus CLI y muestra sus cuotas sin configurar proveedores a mano.
 
 ### Instalación manual desde este repositorio
 

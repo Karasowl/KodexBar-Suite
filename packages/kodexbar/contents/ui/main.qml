@@ -21,7 +21,8 @@ PlasmoidItem {
     property string errorMessage: ""
     property string errorDetail: ""
     property bool engineNotInstalled: false
-    readonly property string engineInstallCommand: "paru -S kodexbar-suite"
+    property string engineInstallCommand: "git clone https://github.com/Karasowl/KodexBar-Suite.git && cd KodexBar-Suite && ./install.sh"
+    readonly property string engineInstallCommandArch: "paru -S kodexbar-suite"
     readonly property string engineRepoUrl: "https://github.com/Karasowl/KodexBar-Suite"
     readonly property string tipUrl: "https://www.paypal.com/paypalme/miguelitoism"
     property string generatedAt: ""
@@ -491,6 +492,26 @@ PlasmoidItem {
 
     function engineMissingSentinel() {
         return "__KODEXBAR_ENGINE_MISSING__"
+    }
+
+    function installCommandForOsRelease(text) {
+        var blob = String(text || "").toLowerCase().replace(/["']/g, " ")
+        var tokens = blob.split(/[^a-z0-9]+/)
+        var archFamily = {
+            arch: true,
+            archlinux: true,
+            cachyos: true,
+            manjaro: true,
+            endeavouros: true,
+            artix: true,
+            garuda: true
+        }
+        for (var i = 0; i < tokens.length; i++) {
+            if (archFamily[tokens[i]]) {
+                return root.engineInstallCommandArch
+            }
+        }
+        return "git clone https://github.com/Karasowl/KodexBar-Suite.git && cd KodexBar-Suite && ./install.sh"
     }
 
     // Wrap the data-engine command so only a truly missing primary executable
@@ -2516,7 +2537,7 @@ PlasmoidItem {
                     }
 
                     PlasmaComponents.Label {
-                        text: i18n("Install the full KodexBar Suite package to load provider quotas.")
+                        text: i18n("Install the full KodexBar Suite to load provider quotas. Arch family distros can use the AUR package. Other distros clone the repository and run ./install.sh.")
                         color: root.mutedColor
                         font.family: root.designFont
                         font.pixelSize: 13
@@ -3737,7 +3758,7 @@ PlasmoidItem {
 
                                             PlasmaComponents.Label {
                                                 objectName: "engineMissingBody"
-                                                text: i18n("This widget needs the KodexBar Suite data engine to show AI CLI quotas. Install the full suite package, then open the popup again.")
+                                                text: i18n("This widget needs the KodexBar Suite data engine to show AI CLI quotas. Install the full suite, then open the popup again. Arch family distros can use the AUR package. Other distros clone the repository and run ./install.sh.")
                                                 color: root.mutedColor
                                                 font.family: root.designFont
                                                 font.pixelSize: 12
@@ -5586,6 +5607,16 @@ PlasmoidItem {
                     QQC2.Button { text: i18n("Check now"); enabled: !root.localModelsLoading; onClicked: root.refreshLocalModels() }
                 }
             }
+        }
+    }
+
+    Plasma5Support.DataSource {
+        id: osReleaseProbe
+        engine: "executable"
+        connectedSources: ["sh -c '. /etc/os-release 2>/dev/null; printf \"%s %s\\n\" \"${ID-}\" \"${ID_LIKE-}\"'"]
+        onNewData: function(sourceName, data) {
+            disconnectSource(sourceName)
+            root.engineInstallCommand = root.installCommandForOsRelease(data.stdout || "")
         }
     }
 
