@@ -50,9 +50,12 @@ jobs:
   python310-engine:
     runs-on: ubuntu-latest
     container: python:3.10-bookworm
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Install git
-        run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git
+        run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git bash
 
       - uses: actions/checkout@v4
 
@@ -69,17 +72,20 @@ jobs:
       matrix:
         include:
           - image: debian:bookworm-slim
-            setup: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git ca-certificates coreutils passwd util-linux
+            setup: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git ca-certificates coreutils passwd util-linux bash
           - image: ubuntu:22.04
-            setup: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git ca-certificates coreutils passwd util-linux
+            setup: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git ca-certificates coreutils passwd util-linux bash
           - image: ubuntu:24.04
-            setup: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git ca-certificates coreutils passwd util-linux
+            setup: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git ca-certificates coreutils passwd util-linux bash
           - image: fedora:latest
-            setup: dnf install -y python3 git
+            setup: dnf install -y python3 git bash
           - image: archlinux:base
-            setup: pacman -Syu --noconfirm --needed python git
+            setup: pacman -Syu --noconfirm --needed python git bash
     container:
       image: ${{ matrix.image }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Install distro tools
         run: ${{ matrix.setup }}
