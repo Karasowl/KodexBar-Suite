@@ -112,11 +112,18 @@ If the engine is missing, the widget shows a setup card with the install command
 
 ## 3. Debian, Ubuntu, Fedora, and other distros without AUR
 
-The repository contains native DEB and RPM builders plus the universal `./install.sh`. A DEB or RPM is public only when it appears in the assets of a tagged GitHub release. Until then, you can build it from the source checkout or use the portable option.
+Official DEB and RPM files are published in [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest). The repository also contains the native builders and the universal `./install.sh`.
 
 ### Option A: native DEB on Debian or Ubuntu
 
 This installs the suite under `/usr` and lets APT own upgrades and removal.
+
+```bash
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.6/kodexbar-suite_0.12.6-1_all.deb
+sudo apt install ./kodexbar-suite_0.12.6-1_all.deb
+```
+
+To build it from source instead:
 
 ```bash
 sudo apt update
@@ -132,6 +139,13 @@ The DEB builder is checked on Debian 12, Ubuntu 22.04, and Ubuntu 24.04.
 ### Option B: native RPM on Fedora or a RHEL 9 or 10 compatible system
 
 This installs the suite under `/usr` and lets DNF own upgrades and removal.
+
+```bash
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.6/kodexbar-suite-0.12.6-1.noarch.rpm
+sudo dnf install ./kodexbar-suite-0.12.6-1.noarch.rpm
+```
+
+To build it from source instead:
 
 ```bash
 sudo dnf install git python3 rpm-build sed tar gzip

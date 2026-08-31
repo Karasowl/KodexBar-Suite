@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.12.6, 2026-08-30
+
+### Added
+
+- Native DEB and RPM package payloads for system-managed installation of the CLI selector, quota engine, panel and tray adapters, skill synchronizer, and local model monitor.
+
+### Changed
+
+- The portable root installer supports Debian, Ubuntu, Fedora, GNOME, COSMIC, Hyprland, Waybar, and XFCE without requiring Plasma.
+
 ### Fixed
 
 - The suite root installer no longer aborts on Debian, Ubuntu, Fedora, GNOME, COSMIC, Hyprland, or XFCE just because `kpackagetool6` is absent.

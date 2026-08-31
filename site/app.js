@@ -4,8 +4,8 @@ const copyText = {
     es: { title: "Arch, CachyOS o Manjaro", body: "Paquete AUR. Después, en Plasma: añade el widget KodexBar al panel.", cmd: "paru -S kodexbar-suite" }
   },
   plasma: {
-    en: { title: "Plasma 6 on another distro", body: "No native .deb/.rpm yet. User-local install, no sudo. Then add the widget to the panel.", cmd: "git clone https://github.com/Karasowl/KodexBar-Suite.git && cd KodexBar-Suite && ./install.sh" },
-    es: { title: "Plasma 6 en otra distro", body: "No hay .deb/.rpm aún. Instalador en tu home, sin sudo. Luego añade el widget al panel.", cmd: "git clone https://github.com/Karasowl/KodexBar-Suite.git && cd KodexBar-Suite && ./install.sh" }
+    en: { title: "Plasma 6 on another distro", body: "Native DEB and RPM packages are available in GitHub Releases. This portable option installs without sudo. Then add the widget to the panel.", cmd: "git clone https://github.com/Karasowl/KodexBar-Suite.git && cd KodexBar-Suite && ./install.sh" },
+    es: { title: "Plasma 6 en otra distro", body: "Hay paquetes DEB y RPM nativos en GitHub Releases. Esta opción portable instala sin sudo. Luego añade el widget al panel.", cmd: "git clone https://github.com/Karasowl/KodexBar-Suite.git && cd KodexBar-Suite && ./install.sh" }
   },
   gnome: {
     en: { title: "GNOME or COSMIC", body: "No native applet. This installs the tray. On GNOME enable the AppIndicator extension. Debian/Ubuntu: gir1.2-ayatanaappindicator3-0.1. Fedora: libayatana-appindicator-gtk3.", cmd: "git clone https://github.com/Karasowl/KodexBar-Suite.git && cd KodexBar-Suite && ./install.sh && kodexbar-tray --autostart-install" },
@@ -20,8 +20,8 @@ const copyText = {
     es: { title: "XFCE", body: "Generic Monitor en el panel. Command: kodexbar-panel --format text --pango. Periodo 60s.", cmd: "git clone https://github.com/Karasowl/KodexBar-Suite.git && cd KodexBar-Suite && ./install.sh" }
   },
   other: {
-    en: { title: "This is a Linux app", body: "KodexBar runs on Linux. Source and releases live on GitHub.", cmd: "https://github.com/Karasowl/KodexBar-Suite" },
-    es: { title: "Esto es para Linux", body: "KodexBar corre en Linux. El código y las releases están en GitHub.", cmd: "https://github.com/Karasowl/KodexBar-Suite" }
+    en: { title: "This is a Linux app", body: "KodexBar runs on Linux. Source, DEB, RPM, and Plasma downloads live on GitHub.", cmd: "https://github.com/Karasowl/KodexBar-Suite/releases/latest" },
+    es: { title: "Esto es para Linux", body: "KodexBar corre en Linux. El código y las descargas DEB, RPM y Plasma están en GitHub.", cmd: "https://github.com/Karasowl/KodexBar-Suite/releases/latest" }
   }
 };
 

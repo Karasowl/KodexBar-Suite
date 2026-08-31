@@ -6,7 +6,7 @@
 
 Name:           kodexbar-suite
 Version:        @VERSION@
-Release:        @RELEASE@%{?dist}
+Release:        @RELEASE@
 Summary:        Linux AI quota monitor and KDE Plasma 6 widget
 License:        MIT
 URL:            https://github.com/Karasowl/KodexBar-Suite

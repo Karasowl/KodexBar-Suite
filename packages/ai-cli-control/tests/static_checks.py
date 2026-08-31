@@ -22,7 +22,7 @@ AUR_PKGBUILD = ROOT.parents[1] / "packaging" / "aur" / "PKGBUILD"
 AUR_INSTALL = ROOT.parents[1] / "packaging" / "aur" / "kodexbar-suite.install"
 PLASMOID_METADATA = ROOT.parent / "kodexbar" / "metadata.json"
 PLASMA_RELOAD = ROOT.parents[1] / "packaging" / "aur" / "reload-plasma-after-upgrade"
-RELEASE_VERSION = "0.12.5"
+RELEASE_VERSION = "0.12.6"
 AUR_RELEASE_VERSION = "0.12.5"
 FORBIDDEN = ("eval(", "shell=True", "shell = True", "os.system(")
 SECRET_PATTERNS = {
