@@ -166,7 +166,11 @@ jobs:
           test "$(dpkg-deb --field "$artifact" Package)" = kodexbar-suite
           test "$(dpkg-deb --field "$artifact" Architecture)" = all
           dpkg-deb --contents "$artifact" | grep -F ./usr/bin/kodexbar-quotas
-          apt-get install -y "$artifact"
+          # Minimal container images exclude /usr/share/doc through dpkg config.
+          # Re-include this package's docs so dpkg -V remains a strict check.
+          apt-get \
+            -o "Dpkg::Options::=--path-include=/usr/share/doc/kodexbar-suite/**" \
+            install -y "$artifact"
           test "$(readlink /usr/bin/ai)" = ../lib/kodexbar-suite/ai-cli-control/ai
           test "$(head -n 1 /usr/lib/kodexbar-suite/ai-cli-control/ai)" = '#!/usr/bin/env python3'
           version="$(python3 -c 'import json; print(json.load(open("packages/kodexbar/metadata.json"))["KPlugin"]["Version"])')"
