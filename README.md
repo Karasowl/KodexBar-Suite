@@ -16,7 +16,7 @@ KodexBar Suite puts AI coding quota and usage tracking in one Linux panel. The w
 
 The KDE Plasma 6 widget shows provider usage windows, reset times, credits, costs, accounts, and errors without requiring a separate dashboard for every assistant. The suite supports Arch and CachyOS, Debian and Ubuntu, Fedora, RHEL 9 and 10 compatible systems, and other Linux distributions with Python 3.10 or newer.
 
-The public installation paths are the [AUR](https://aur.archlinux.org/packages/kodexbar-suite) and the user-local installer from this repository. Native DEB and RPM recipes are also maintained here and are prepared for GitHub release assets. If this saves you from opening several provider dashboards, star the project so other Linux users can find it.
+The public installation paths are the [AUR](https://aur.archlinux.org/packages/kodexbar-suite), native DEB and RPM files from [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest), and the user-local installer from this repository. If this saves you from opening several provider dashboards, star the project so other Linux users can find it.
 
 The repository contains two installable packages and their shared tooling:
 
@@ -107,7 +107,14 @@ How quotas work after install:
 
 ### DEB (Debian and Ubuntu)
 
-From a repository checkout, build and install the native package with:
+Download and install the official release package with:
+
+```bash
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.6/kodexbar-suite_0.12.6-1_all.deb
+sudo apt install ./kodexbar-suite_0.12.6-1_all.deb
+```
+
+To build the same package from a repository checkout:
 
 ```bash
 sudo apt install git python3 dpkg-dev
@@ -119,7 +126,14 @@ The package installs the suite under `/usr` and can later be upgraded or removed
 
 ### RPM (Fedora and RHEL 9 or 10 compatible systems)
 
-From a repository checkout, build and install the native package with:
+Download and install the official release package with:
+
+```bash
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.6/kodexbar-suite-0.12.6-1.noarch.rpm
+sudo dnf install ./kodexbar-suite-0.12.6-1.noarch.rpm
+```
+
+To build the same package from a repository checkout:
 
 ```bash
 sudo dnf install git python3 rpm-build sed tar gzip
@@ -131,7 +145,7 @@ The RPM is architecture-independent. Fedora and RHEL 10 compatible builds use th
 
 ### GitHub Releases
 
-GitHub Releases provides the matching source archive. A DEB or RPM is an official binary release only when that file appears in the assets for the selected tag.
+GitHub Releases provides the matching source archive, DEB, RPM, Plasma widget, and `SHA256SUMS` file. Verify downloaded assets with `sha256sum -c SHA256SUMS` from the same directory.
 
 ### KDE Store (widget-only channel)
 

@@ -4,6 +4,19 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+## 0.12.6, 2026-08-30
+
+### Added
+
+- Native DEB and RPM packages for Debian 12, Ubuntu 22.04 and 24.04, Fedora, and RHEL 9 or 10 compatible systems.
+- A shared system payload for the Plasma widget, quota engine, panel and tray adapters, local model drivers, icons, licenses, and documentation.
+- A download landing page and a discreet PayPal tip link in the widget About page and popup footer.
+
+### Changed
+
+- Local OpenCode Go usage is labeled as estimated instead of implying a provider-reported quota.
+- Public installation guidance now covers AUR, release DEB and RPM assets, and the portable user-local installer.
+
 ### Fixed
 
 - Root `./install.sh` no longer requires `kpackagetool6`. Without Plasma it still installs the data engine, tray, and panel tools for GNOME, COSMIC, Hyprland/Waybar, and XFCE.

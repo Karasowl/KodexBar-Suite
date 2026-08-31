@@ -131,6 +131,8 @@ class SystemPackagingTests(unittest.TestCase):
         self.assertIn("Architecture: all\n", deb_control)
         self.assertIn("Depends: bash, python3 (>= 3.10)\n", deb_control)
         self.assertIn("Name:           kodexbar-suite\n", rpm_spec)
+        self.assertIn("Release:        @RELEASE@\n", rpm_spec)
+        self.assertNotIn("%{?dist}", rpm_spec)
         self.assertIn("BuildArch:      noarch\n", rpm_spec)
         self.assertIn("Requires:       python3 >= 3.10\n", rpm_spec)
         self.assertIn("Requires:       python3.11\n", rpm_spec)
