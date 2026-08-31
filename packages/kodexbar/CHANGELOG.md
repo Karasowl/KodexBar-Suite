@@ -9,6 +9,7 @@ All notable fork-specific changes are documented here.
 ### Added
 
 - Native DEB and RPM packages for Debian 12, Ubuntu 22.04 and 24.04, Fedora, and RHEL 9 or 10 compatible systems.
+- A dedicated `.el9` RPM keeps the RHEL 9 Python 3.11 runtime distinct from the Fedora and RHEL 10 package.
 - A shared system payload for the Plasma widget, quota engine, panel and tray adapters, local model drivers, icons, licenses, and documentation.
 - A download landing page and a discreet PayPal tip link in the widget About page and popup footer.
 

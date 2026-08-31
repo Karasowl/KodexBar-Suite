@@ -15,12 +15,18 @@ if [[ ! "$release" =~ ^[0-9]+$ ]]; then
     printf 'Invalid package release: %s\n' "$release" >&2
     exit 1
 fi
-for tool in date gzip rpmbuild sed tar; do
+for tool in date gzip rpm rpmbuild sed tar; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         printf '%s is required to build the RPM package.\n' "$tool" >&2
         exit 1
     fi
 done
+
+rhel_major="$(rpm --eval '%{?rhel}')"
+release_suffix=""
+if [[ "$rhel_major" == "9" ]]; then
+    release_suffix=".el9"
+fi
 
 build_dir="$(mktemp -d "${TMPDIR:-/tmp}/kodexbar-rpm.XXXXXX")"
 trap 'rm -rf -- "$build_dir"' EXIT
@@ -91,6 +97,7 @@ tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@${source_date_epoc
 sed \
     -e "s/@VERSION@/${version}/g" \
     -e "s/@RELEASE@/${release}/g" \
+    -e "s/@RELEASE_SUFFIX@/${release_suffix}/g" \
     -e "s/@CHANGELOG_DATE@/${changelog_date}/g" \
     "${script_dir}/kodexbar-suite.spec.in" > "${top_dir}/SPECS/kodexbar-suite.spec"
 

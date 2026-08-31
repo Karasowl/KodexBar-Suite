@@ -138,11 +138,18 @@ The DEB builder is checked on Debian 12, Ubuntu 22.04, and Ubuntu 24.04.
 
 ### Option B: native RPM on Fedora or a RHEL 9 or 10 compatible system
 
-This installs the suite under `/usr` and lets DNF own upgrades and removal.
+This installs the suite under `/usr` and lets DNF own upgrades and removal. Use the general RPM on Fedora and RHEL 10 compatible systems:
 
 ```bash
 curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.6/kodexbar-suite-0.12.6-1.noarch.rpm
 sudo dnf install ./kodexbar-suite-0.12.6-1.noarch.rpm
+```
+
+Use the dedicated `.el9` RPM on RHEL 9 compatible systems:
+
+```bash
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.6/kodexbar-suite-0.12.6-1.el9.noarch.rpm
+sudo dnf install ./kodexbar-suite-0.12.6-1.el9.noarch.rpm
 ```
 
 To build it from source instead:

@@ -126,11 +126,18 @@ The package installs the suite under `/usr` and can later be upgraded or removed
 
 ### RPM (Fedora and RHEL 9 or 10 compatible systems)
 
-Download and install the official release package with:
+On Fedora or a RHEL 10 compatible system, download and install the general RPM:
 
 ```bash
 curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.6/kodexbar-suite-0.12.6-1.noarch.rpm
 sudo dnf install ./kodexbar-suite-0.12.6-1.noarch.rpm
+```
+
+On a RHEL 9 compatible system such as AlmaLinux 9 or Rocky Linux 9, use the dedicated package that depends on parallel Python 3.11:
+
+```bash
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.6/kodexbar-suite-0.12.6-1.el9.noarch.rpm
+sudo dnf install ./kodexbar-suite-0.12.6-1.el9.noarch.rpm
 ```
 
 To build the same package from a repository checkout:
@@ -141,11 +148,11 @@ artifact="$(./packaging/rpm/build-rpm.sh)"
 sudo dnf install "$artifact"
 ```
 
-The RPM is architecture-independent. Fedora and RHEL 10 compatible builds use the system `python3` and require version 3.10 or newer. RHEL 9 compatible builds install the parallel `python3.11` dependency without replacing the system Python 3.9. The builder is checked on Fedora, AlmaLinux 9, and AlmaLinux 10.
+Both RPMs are architecture-independent. Fedora and RHEL 10 compatible builds use the system `python3` and require version 3.10 or newer. The `.el9` build installs the parallel `python3.11` dependency without replacing the system Python 3.9. The builder is checked on Fedora, AlmaLinux 9, and AlmaLinux 10.
 
 ### GitHub Releases
 
-GitHub Releases provides the matching source archive, DEB, RPM, Plasma widget, and `SHA256SUMS` file. Verify downloaded assets with `sha256sum -c SHA256SUMS` from the same directory.
+GitHub Releases provides the matching source archive, DEB, RPM files, Plasma widget, and `SHA256SUMS` file. Verify downloaded assets with `sha256sum -c SHA256SUMS` from the same directory.
 
 ### KDE Store (widget-only channel)
 

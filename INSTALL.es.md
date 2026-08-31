@@ -138,11 +138,18 @@ El constructor DEB se comprueba en Debian 12, Ubuntu 22.04 y Ubuntu 24.04.
 
 ### Opción B: RPM nativo en Fedora o un sistema compatible con RHEL 9 o 10
 
-Esto instala la suite bajo `/usr` y deja que DNF administre las actualizaciones y la desinstalación.
+Esto instala la suite bajo `/usr` y deja que DNF administre las actualizaciones y la desinstalación. Usa el RPM general en Fedora y sistemas compatibles con RHEL 10:
 
 ```bash
 curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.6/kodexbar-suite-0.12.6-1.noarch.rpm
 sudo dnf install ./kodexbar-suite-0.12.6-1.noarch.rpm
+```
+
+Usa el RPM `.el9` dedicado en sistemas compatibles con RHEL 9:
+
+```bash
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.6/kodexbar-suite-0.12.6-1.el9.noarch.rpm
+sudo dnf install ./kodexbar-suite-0.12.6-1.el9.noarch.rpm
 ```
 
 Para construirlo desde el código fuente:

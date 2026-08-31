@@ -126,11 +126,18 @@ El paquete instala la suite bajo `/usr` y después se puede actualizar o quitar 
 
 ### RPM (Fedora y sistemas compatibles con RHEL 9 o 10)
 
-Descarga e instala el paquete oficial de la release con:
+En Fedora o un sistema compatible con RHEL 10, descarga e instala el RPM general:
 
 ```bash
 curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.6/kodexbar-suite-0.12.6-1.noarch.rpm
 sudo dnf install ./kodexbar-suite-0.12.6-1.noarch.rpm
+```
+
+En un sistema compatible con RHEL 9, como AlmaLinux 9 o Rocky Linux 9, usa el paquete dedicado que depende del Python 3.11 paralelo:
+
+```bash
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.6/kodexbar-suite-0.12.6-1.el9.noarch.rpm
+sudo dnf install ./kodexbar-suite-0.12.6-1.el9.noarch.rpm
 ```
 
 Para construir el mismo paquete desde un checkout del repositorio:
@@ -141,11 +148,11 @@ artifact="$(./packaging/rpm/build-rpm.sh)"
 sudo dnf install "$artifact"
 ```
 
-El RPM es independiente de la arquitectura. Las compilaciones para Fedora y sistemas compatibles con RHEL 10 usan el `python3` del sistema y exigen la versión 3.10 o posterior. Las compilaciones compatibles con RHEL 9 instalan la dependencia paralela `python3.11` sin reemplazar el Python 3.9 del sistema. El constructor se comprueba en Fedora, AlmaLinux 9 y AlmaLinux 10.
+Ambos RPM son independientes de la arquitectura. Las compilaciones para Fedora y sistemas compatibles con RHEL 10 usan el `python3` del sistema y exigen la versión 3.10 o posterior. La compilación `.el9` instala la dependencia paralela `python3.11` sin reemplazar el Python 3.9 del sistema. El constructor se comprueba en Fedora, AlmaLinux 9 y AlmaLinux 10.
 
 ### GitHub Releases
 
-GitHub Releases proporciona el archivo fuente, DEB, RPM, widget de Plasma y archivo `SHA256SUMS` correspondientes. Verifica los assets descargados con `sha256sum -c SHA256SUMS` desde el mismo directorio.
+GitHub Releases proporciona el archivo fuente, DEB, archivos RPM, widget de Plasma y archivo `SHA256SUMS` correspondientes. Verifica los assets descargados con `sha256sum -c SHA256SUMS` desde el mismo directorio.
 
 ### KDE Store (canal solo para el widget)
 
