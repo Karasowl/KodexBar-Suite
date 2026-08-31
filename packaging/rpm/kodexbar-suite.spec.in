@@ -1,0 +1,65 @@
+%if 0%{?rhel} == 9
+%global kodexbar_python /usr/bin/python3.11
+%else
+%global kodexbar_python /usr/bin/python3
+%endif
+
+Name:           kodexbar-suite
+Version:        @VERSION@
+Release:        @RELEASE@%{?dist}
+Summary:        Linux AI quota monitor and KDE Plasma 6 widget
+License:        MIT
+URL:            https://github.com/Karasowl/KodexBar-Suite
+Source0:        %{name}-%{version}.tar.gz
+BuildArch:      noarch
+BuildRequires:  bash
+BuildRequires:  coreutils
+BuildRequires:  findutils
+BuildRequires:  sed
+Requires:       bash
+%if 0%{?rhel} == 9
+Requires:       python3.11
+%else
+Requires:       python3 >= 3.10
+%endif
+
+%description
+KodexBar Suite provides native quota tools for AI coding assistants,
+panel and tray integrations, local model monitoring, skill inventory,
+and an optional KDE Plasma 6 widget.
+
+%prep
+%autosetup
+
+%build
+
+%install
+bash packaging/system/stage-package.sh "%{buildroot}"
+for executable in ai kodexbar-quotas kodexbar-panel kodexbar-tray local-ai kodexbar-skills recover.py; do
+    sed -i '1s|^#!/usr/bin/env python3$|#!%{kodexbar_python}|' \
+        "%{buildroot}/usr/lib/kodexbar-suite/ai-cli-control/${executable}"
+done
+
+%posttrans
+if [ -x /usr/lib/kodexbar-suite/reload-plasma-after-upgrade ]; then
+    /usr/lib/kodexbar-suite/reload-plasma-after-upgrade || true
+fi
+
+%files
+/usr/bin/ai
+/usr/bin/kodexbar-quotas
+/usr/bin/kodexbar-panel
+/usr/bin/kodexbar-tray
+/usr/bin/local-ai
+/usr/bin/kodexbar-skills
+/usr/lib/kodexbar-suite
+/usr/share/plasma/plasmoids/org.kde.plasma.kodexbar
+/usr/share/icons/hicolor/scalable/apps/kodexbar-tray-ok.svg
+/usr/share/icons/hicolor/scalable/apps/kodexbar-tray-warning.svg
+/usr/share/icons/hicolor/scalable/apps/kodexbar-tray-critical.svg
+%license /usr/share/licenses/kodexbar-suite
+%doc /usr/share/doc/kodexbar-suite
+
+%changelog
+* @CHANGELOG_DATE@ Karasowl <96896642+Karasowl@users.noreply.github.com> - @VERSION@-@RELEASE@
+- Build the native noarch package from the shared system payload.

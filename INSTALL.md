@@ -12,7 +12,8 @@ KodexBar Suite shows AI CLI quota summaries on the desktop and includes a small 
 
 This is the main path. The AUR package installs the Plasma widget, the `ai` tools, and the companion CLI for Codex, Grok, and Antigravity quotas.
 
-Package name: `kodexbar-suite`  
+Package name: `kodexbar-suite`
+
 Dependency it pulls in: `codexbar-cli-bin`
 
 ### Option A: Graphical install with Shelly (CachyOS)
@@ -111,31 +112,40 @@ If the engine is missing, the widget shows a setup card with the install command
 
 ## 3. Debian, Ubuntu, Fedora, and other distros without AUR
 
-There is **no native `.deb` or `.rpm`** yet. The same `./install.sh` covers Plasma and the other supported desktops.
+The repository contains native DEB and RPM builders plus the universal `./install.sh`. A DEB or RPM is public only when it appears in the assets of a tagged GitHub release. Until then, you can build it from the source checkout or use the portable option.
 
-### Requirements
+### Option A: native DEB on Debian or Ubuntu
 
-- Python 3.10 or newer
-- `git`
-- `kpackagetool6` only if you want the Plasma widget
-- For the tray on GNOME or COSMIC: PyGObject plus Ayatana AppIndicator (`gir1.2-ayatanaappindicator3-0.1` on Debian/Ubuntu, `libayatana-appindicator-gtk3` on Fedora, `libayatana-appindicator` on Arch). GNOME also needs the AppIndicator extension.
+This installs the suite under `/usr` and lets APT own upgrades and removal.
 
-### What each desktop gets
+```bash
+sudo apt update
+sudo apt install git python3 dpkg-dev
+git clone https://github.com/Karasowl/KodexBar-Suite.git
+cd KodexBar-Suite
+artifact="$(./packaging/deb/build-deb.sh)"
+sudo apt install "$artifact"
+```
 
-| Desktop | After `./install.sh` |
-| --- | --- |
-| Plasma 6 | Widget plus data engine, if `kpackagetool6` is installed |
-| GNOME or COSMIC | Data engine plus `kodexbar-tray --autostart-install` |
-| Hyprland + Waybar | Data engine plus `kodexbar-panel --waybar-snippet` |
-| XFCE | Data engine plus Generic Monitor: `kodexbar-panel --format text --pango`, 60s period |
+The DEB builder is checked on Debian 12, Ubuntu 22.04, and Ubuntu 24.04.
 
-If `kpackagetool6` is missing, the installer still succeeds. It installs the engine, tray, and panel tools, and tells you which command to use on your desktop.
+### Option B: native RPM on Fedora or a RHEL 9 or 10 compatible system
 
-If `~/.local/bin` is not on `PATH`, the installer prints the exact warning. Add that directory so `ai`, `kodexbar-quotas`, `kodexbar-panel`, and `kodexbar-tray` can be found.
+This installs the suite under `/usr` and lets DNF own upgrades and removal.
 
-### Steps
+```bash
+sudo dnf install git python3 rpm-build sed tar gzip
+git clone https://github.com/Karasowl/KodexBar-Suite.git
+cd KodexBar-Suite
+artifact="$(./packaging/rpm/build-rpm.sh)"
+sudo dnf install "$artifact"
+```
 
-1. Clone the repository and run the user installer (installs under your home directory, **no sudo**):
+The RPM builder is checked on Fedora, AlmaLinux 9, and AlmaLinux 10. Fedora and RHEL 10 compatible builds use the system `python3` and require version 3.10 or newer. On RHEL 9 compatible systems, DNF installs `python3.11` alongside the system Python 3.9 and KodexBar uses only that parallel interpreter.
+
+### Option C: portable user install on any supported distribution
+
+This installs under your home directory and does not use `sudo`:
 
 ```bash
 git clone https://github.com/Karasowl/KodexBar-Suite.git
@@ -143,7 +153,27 @@ cd KodexBar-Suite
 ./install.sh
 ```
 
-2. For Codex, Grok, and Antigravity quota numbers, also install the official CodexBar CLI and keep `codexbar` on your `PATH`. See the [CodexBar CLI documentation](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
+### Requirements and optional desktop integrations
+
+- Python 3.10 or newer
+- `git` when installing from a source checkout
+- `kpackagetool6` only when the portable installer should add the Plasma widget
+- For the tray on GNOME or COSMIC: PyGObject plus Ayatana AppIndicator (`gir1.2-ayatanaappindicator3-0.1` on Debian/Ubuntu, `libayatana-appindicator-gtk3` on Fedora, `libayatana-appindicator` on Arch). GNOME also needs the AppIndicator extension.
+
+### What each desktop gets
+
+| Desktop | Result |
+| --- | --- |
+| Plasma 6 | Widget plus data engine. The portable installer needs `kpackagetool6` |
+| GNOME or COSMIC | Data engine plus `kodexbar-tray --autostart-install` |
+| Hyprland + Waybar | Data engine plus `kodexbar-panel --waybar-snippet` |
+| XFCE | Data engine plus Generic Monitor: `kodexbar-panel --format text --pango`, 60s period |
+
+If `kpackagetool6` is missing, the installer still succeeds. It installs the engine, tray, and panel tools, and tells you which command to use on your desktop.
+
+If `~/.local/bin` is not on `PATH`, the portable installer prints the exact warning. Add that directory so `ai`, `kodexbar-quotas`, `kodexbar-panel`, and `kodexbar-tray` can be found.
+
+For Codex, Grok, and Antigravity quota numbers, also install the official CodexBar CLI and keep `codexbar` on your `PATH`. See the [CodexBar CLI documentation](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
 
 On Plasma, add the widget the same way as in [After installation](#after-installation). On GNOME or COSMIC run `kodexbar-tray --autostart-install`. On Hyprland paste the snippet from `kodexbar-panel --waybar-snippet`.
 
@@ -160,6 +190,18 @@ sudo pacman -R kodexbar-suite codexbar-cli-bin
 ```
 
 Remove `codexbar-cli-bin` only if nothing else needs it.
+
+### Installed with APT / DEB (`kodexbar-suite`)
+
+```bash
+sudo apt remove kodexbar-suite
+```
+
+### Installed with DNF / RPM (`kodexbar-suite`)
+
+```bash
+sudo dnf remove kodexbar-suite
+```
 
 ### Installed with `./install.sh`
 
@@ -191,4 +233,4 @@ Open an issue on the project repository:
 
 https://github.com/Karasowl/KodexBar-Suite/issues
 
-Include your distribution, how you tried to install (Shelly, paru, yay, or `./install.sh`), and the exact error text.
+Include your distribution, how you tried to install (Shelly, paru, yay, APT, DNF, or `./install.sh`), and the exact error text.
