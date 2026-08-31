@@ -12,7 +12,8 @@ KodexBar Suite muestra resúmenes de cuotas de las CLI de IA en el escritorio e 
 
 Esta es la vía principal. El paquete de AUR instala el widget de Plasma, las herramientas `ai` y la CLI compañera para las cuotas de Codex, Grok y Antigravity.
 
-Nombre del paquete: `kodexbar-suite`  
+Nombre del paquete: `kodexbar-suite`
+
 Dependencia que trae: `codexbar-cli-bin`
 
 ### Opción A: instalación gráfica con Shelly (CachyOS)
@@ -111,31 +112,40 @@ Si falta el motor, el widget muestra una tarjeta de guía con el comando de inst
 
 ## 3. Debian, Ubuntu, Fedora y otras distros sin AUR
 
-Todavía **no hay `.deb` ni `.rpm` nativos**. El mismo `./install.sh` cubre Plasma y los demás escritorios soportados.
+El repositorio contiene constructores nativos DEB y RPM, además del `./install.sh` universal. Un DEB o RPM solo es público cuando aparece entre los assets de una release con tag en GitHub. Hasta entonces puedes construirlo desde el checkout o usar la opción portable.
 
-### Requisitos
+### Opción A: DEB nativo en Debian o Ubuntu
 
-- Python 3.10 o posterior
-- `git`
-- `kpackagetool6` solo si quieres el widget de Plasma
-- Para la bandeja en GNOME o COSMIC: PyGObject más Ayatana AppIndicator (`gir1.2-ayatanaappindicator3-0.1` en Debian/Ubuntu, `libayatana-appindicator-gtk3` en Fedora, `libayatana-appindicator` en Arch). GNOME también necesita la extensión AppIndicator.
+Esto instala la suite bajo `/usr` y deja que APT administre las actualizaciones y la desinstalación.
 
-### Qué recibe cada escritorio
+```bash
+sudo apt update
+sudo apt install git python3 dpkg-dev
+git clone https://github.com/Karasowl/KodexBar-Suite.git
+cd KodexBar-Suite
+paquete="$(./packaging/deb/build-deb.sh)"
+sudo apt install "$paquete"
+```
 
-| Escritorio | Después de `./install.sh` |
-| --- | --- |
-| Plasma 6 | Widget más motor de datos, si está `kpackagetool6` |
-| GNOME o COSMIC | Motor de datos más `kodexbar-tray --autostart-install` |
-| Hyprland + Waybar | Motor de datos más `kodexbar-panel --waybar-snippet` |
-| XFCE | Motor de datos más Generic Monitor: `kodexbar-panel --format text --pango`, periodo 60s |
+El constructor DEB se comprueba en Debian 12, Ubuntu 22.04 y Ubuntu 24.04.
 
-Si falta `kpackagetool6`, el instalador igual termina bien. Instala el motor, la bandeja y las herramientas de panel, y te dice qué comando usar en tu escritorio.
+### Opción B: RPM nativo en Fedora o un sistema compatible con RHEL 9 o 10
 
-Si `~/.local/bin` no está en `PATH`, el instalador imprime el aviso. Añade ese directorio para que se encuentren `ai`, `kodexbar-quotas`, `kodexbar-panel` y `kodexbar-tray`.
+Esto instala la suite bajo `/usr` y deja que DNF administre las actualizaciones y la desinstalación.
 
-### Pasos
+```bash
+sudo dnf install git python3 rpm-build sed tar gzip
+git clone https://github.com/Karasowl/KodexBar-Suite.git
+cd KodexBar-Suite
+paquete="$(./packaging/rpm/build-rpm.sh)"
+sudo dnf install "$paquete"
+```
 
-1. Clona el repositorio y ejecuta el instalador de usuario (instala en el directorio home, **sin sudo**):
+El constructor RPM se comprueba en Fedora, AlmaLinux 9 y AlmaLinux 10. Las compilaciones para Fedora y sistemas compatibles con RHEL 10 usan el `python3` del sistema y exigen la versión 3.10 o posterior. En sistemas compatibles con RHEL 9, DNF instala `python3.11` junto al Python 3.9 del sistema y KodexBar usa solo ese intérprete paralelo.
+
+### Opción C: instalación portable de usuario en cualquier distribución admitida
+
+Esto instala bajo tu directorio home y no usa `sudo`:
 
 ```bash
 git clone https://github.com/Karasowl/KodexBar-Suite.git
@@ -143,7 +153,27 @@ cd KodexBar-Suite
 ./install.sh
 ```
 
-2. Para los números de cuota de Codex, Grok y Antigravity, instala también la CLI oficial de CodexBar y deja `codexbar` en tu `PATH`. Consulta la [documentación de la CLI de CodexBar](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
+### Requisitos e integraciones opcionales de escritorio
+
+- Python 3.10 o posterior
+- `git` cuando se instala desde un checkout del código
+- `kpackagetool6` solo cuando el instalador portable debe añadir el widget de Plasma
+- Para la bandeja en GNOME o COSMIC: PyGObject más Ayatana AppIndicator (`gir1.2-ayatanaappindicator3-0.1` en Debian/Ubuntu, `libayatana-appindicator-gtk3` en Fedora, `libayatana-appindicator` en Arch). GNOME también necesita la extensión AppIndicator.
+
+### Qué recibe cada escritorio
+
+| Escritorio | Resultado |
+| --- | --- |
+| Plasma 6 | Widget más motor de datos. El instalador portable necesita `kpackagetool6` |
+| GNOME o COSMIC | Motor de datos más `kodexbar-tray --autostart-install` |
+| Hyprland + Waybar | Motor de datos más `kodexbar-panel --waybar-snippet` |
+| XFCE | Motor de datos más Generic Monitor: `kodexbar-panel --format text --pango`, periodo 60s |
+
+Si falta `kpackagetool6`, el instalador igual termina bien. Instala el motor, la bandeja y las herramientas de panel, y te dice qué comando usar en tu escritorio.
+
+Si `~/.local/bin` no está en `PATH`, el instalador portable imprime el aviso. Añade ese directorio para que se encuentren `ai`, `kodexbar-quotas`, `kodexbar-panel` y `kodexbar-tray`.
+
+Para los números de cuota de Codex, Grok y Antigravity, instala también la CLI oficial de CodexBar y deja `codexbar` en tu `PATH`. Consulta la [documentación de la CLI de CodexBar](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
 
 En Plasma, añade el widget igual que en [Después de instalar](#después-de-instalar). En GNOME o COSMIC ejecuta `kodexbar-tray --autostart-install`. En Hyprland pega el snippet de `kodexbar-panel --waybar-snippet`.
 
@@ -160,6 +190,18 @@ sudo pacman -R kodexbar-suite codexbar-cli-bin
 ```
 
 Quita `codexbar-cli-bin` solo si nada más lo necesita.
+
+### Instalada con APT / DEB (`kodexbar-suite`)
+
+```bash
+sudo apt remove kodexbar-suite
+```
+
+### Instalada con DNF / RPM (`kodexbar-suite`)
+
+```bash
+sudo dnf remove kodexbar-suite
+```
 
 ### Instalada con `./install.sh`
 
@@ -191,4 +233,4 @@ Abre un issue en el repositorio del proyecto:
 
 https://github.com/Karasowl/KodexBar-Suite/issues
 
-Incluye tu distribución, cómo intentaste instalar (Shelly, paru, yay o `./install.sh`) y el texto exacto del error.
+Incluye tu distribución, cómo intentaste instalar (Shelly, paru, yay, APT, DNF o `./install.sh`) y el texto exacto del error.

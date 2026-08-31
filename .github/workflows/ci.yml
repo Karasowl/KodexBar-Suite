@@ -47,6 +47,9 @@ jobs:
       - name: root installer tests
         run: python3 tests/test_root_install.py
 
+      - name: shared system package tests
+        run: python3 tests/test_system_packaging.py
+
   python310-engine:
     runs-on: ubuntu-latest
     container: python:3.10-bookworm
@@ -64,6 +67,7 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s packages/ai-cli-control/tests -v
           python3 tests/test_root_install.py
+          python3 tests/test_system_packaging.py
 
   portable-install:
     runs-on: ubuntu-latest
@@ -120,6 +124,134 @@ jobs:
               \"\$HOME/.local/share/ai-cli-control/local-ai\" \\
               \"\$HOME/.local/share/ai-cli-control/kodexbar-skills\"
           "
+
+  native-deb:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: debian-12
+            image: debian:bookworm-slim
+          - name: ubuntu-22.04
+            image: ubuntu:22.04
+          - name: ubuntu-24.04
+            image: ubuntu:24.04
+    container:
+      image: ${{ matrix.image }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install DEB build tools
+        run: |
+          set -euo pipefail
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            bash \
+            ca-certificates \
+            coreutils \
+            dpkg-dev \
+            git \
+            python3
+
+      - uses: actions/checkout@v4
+
+      - name: Build and install native DEB
+        id: build
+        run: |
+          set -euo pipefail
+          artifact="$(./packaging/deb/build-deb.sh)"
+          test -f "$artifact"
+          test "$(dpkg-deb --field "$artifact" Package)" = kodexbar-suite
+          test "$(dpkg-deb --field "$artifact" Architecture)" = all
+          dpkg-deb --contents "$artifact" | grep -F ./usr/bin/kodexbar-quotas
+          # Minimal container images exclude /usr/share/doc through dpkg config.
+          # Re-include this package's docs so dpkg -V remains a strict check.
+          apt-get \
+            -o "Dpkg::Options::=--path-include=/usr/share/doc/kodexbar-suite/**" \
+            install -y "$artifact"
+          test "$(readlink /usr/bin/ai)" = ../lib/kodexbar-suite/ai-cli-control/ai
+          test "$(head -n 1 /usr/lib/kodexbar-suite/ai-cli-control/ai)" = '#!/usr/bin/env python3'
+          version="$(python3 -c 'import json; print(json.load(open("packages/kodexbar/metadata.json"))["KPlugin"]["Version"])')"
+          ai --version | grep -F "ai-cli-control $version"
+          kodexbar-quotas --version | grep -F "kodexbar-quotas $version"
+          kodexbar-panel --waybar-snippet | grep -F custom/kodexbar
+          test -f /usr/share/plasma/plasmoids/org.kde.plasma.kodexbar/contents/ui/main.qml
+          test -z "$(dpkg -V kodexbar-suite)"
+          printf 'artifact=%s\n' "$artifact" >> "$GITHUB_OUTPUT"
+
+      - name: Upload native DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: kodexbar-suite-${{ matrix.name }}-deb
+          path: ${{ steps.build.outputs.artifact }}
+          if-no-files-found: error
+
+  native-rpm:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: fedora
+            image: fedora:latest
+            python: /usr/bin/python3
+          - name: almalinux-9
+            image: almalinux:9
+            python: /usr/bin/python3.11
+          - name: almalinux-10
+            image: almalinux:10
+            python: /usr/bin/python3
+    container:
+      image: ${{ matrix.image }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install RPM build tools
+        run: |
+          set -euo pipefail
+          dnf install -y \
+            --setopt=install_weak_deps=False \
+            bash \
+            findutils \
+            git \
+            gzip \
+            python3 \
+            rpm-build \
+            sed \
+            tar
+
+      - uses: actions/checkout@v4
+
+      - name: Build and install native RPM
+        id: build
+        run: |
+          set -euo pipefail
+          artifact="$(./packaging/rpm/build-rpm.sh)"
+          test -f "$artifact"
+          test "$(rpm -qp --queryformat '%{NAME}' "$artifact")" = kodexbar-suite
+          test "$(rpm -qp --queryformat '%{ARCH}' "$artifact")" = noarch
+          rpm -qpl "$artifact" | grep -F /usr/bin/kodexbar-quotas
+          dnf install -y "$artifact"
+          test "$(readlink /usr/bin/ai)" = ../lib/kodexbar-suite/ai-cli-control/ai
+          test "$(head -n 1 /usr/lib/kodexbar-suite/ai-cli-control/ai)" = '#!${{ matrix.python }}'
+          test -x '${{ matrix.python }}'
+          version="$(python3 -c 'import json; print(json.load(open("packages/kodexbar/metadata.json"))["KPlugin"]["Version"])')"
+          ai --version | grep -F "ai-cli-control $version"
+          kodexbar-quotas --version | grep -F "kodexbar-quotas $version"
+          kodexbar-panel --waybar-snippet | grep -F custom/kodexbar
+          test -f /usr/share/plasma/plasmoids/org.kde.plasma.kodexbar/contents/ui/main.qml
+          test -z "$(rpm -V kodexbar-suite)"
+          printf 'artifact=%s\n' "$artifact" >> "$GITHUB_OUTPUT"
+
+      - name: Upload native RPM
+        uses: actions/upload-artifact@v4
+        with:
+          name: kodexbar-suite-${{ matrix.name }}-rpm
+          path: ${{ steps.build.outputs.artifact }}
+          if-no-files-found: error
 
   packaging:
     runs-on: ubuntu-latest

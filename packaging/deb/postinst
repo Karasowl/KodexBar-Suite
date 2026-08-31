@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+case "${1:-}" in
+    configure|triggered)
+        if [ -x /usr/lib/kodexbar-suite/reload-plasma-after-upgrade ]; then
+            /usr/lib/kodexbar-suite/reload-plasma-after-upgrade || true
+        fi
+        ;;
+esac
+
+exit 0

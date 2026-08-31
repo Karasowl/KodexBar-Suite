@@ -14,9 +14,9 @@ KodexBar Suite puts AI coding quota and usage tracking in one Linux panel. The w
 
 [Full 26s clip](docs/kodexbar-demo.mp4)
 
-The KDE Plasma 6 widget shows provider usage windows, reset times, credits, costs, accounts, and errors without requiring a separate dashboard for every assistant. It is designed for Arch Linux, CachyOS, and other Linux systems running Plasma 6.
+The KDE Plasma 6 widget shows provider usage windows, reset times, credits, costs, accounts, and errors without requiring a separate dashboard for every assistant. The suite supports Arch and CachyOS, Debian and Ubuntu, Fedora, RHEL 9 and 10 compatible systems, and other Linux distributions with Python 3.10 or newer.
 
-The complete suite is distributed through the [AUR](https://aur.archlinux.org/packages/kodexbar-suite), [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases), and a user-local installer from this repository. If this saves you from opening several provider dashboards, star the project so other Linux users can find it.
+The public installation paths are the [AUR](https://aur.archlinux.org/packages/kodexbar-suite) and the user-local installer from this repository. Native DEB and RPM recipes are also maintained here and are prepared for GitHub release assets. If this saves you from opening several provider dashboards, star the project so other Linux users can find it.
 
 The repository contains two installable packages and their shared tooling:
 
@@ -53,7 +53,7 @@ Beyond quota monitoring, the suite includes:
 
 **New to this? Follow the [step-by-step install guide](INSTALL.md).**
 
-On CachyOS, Arch Linux, or another Linux system:
+The portable path works on any supported Linux distribution and does not need administrator access:
 
 ```bash
 git clone https://github.com/Karasowl/KodexBar-Suite.git
@@ -80,7 +80,7 @@ The **Skills** tab uses `kodexbar-skills` to compare Codex, Claude, Grok, Gemini
 
 ## Installation channels
 
-The complete KodexBar Suite is published through AUR and GitHub Releases.
+Use the package format native to your distribution when available. The portable installer remains the universal fallback.
 
 ### AUR (Arch and CachyOS)
 
@@ -105,13 +105,37 @@ How quotas work after install:
 - **Antigravity** still needs the companion CLI [`codexbar` by steipete](https://github.com/steipete/CodexBar). The same CLI is an optional fallback for Codex and Grok when the native path hits a retryable network or infrastructure failure. On Arch/CachyOS install it as `codexbar-cli-bin` (not the unrelated AUR package also named `codexbar`).
 - An existing CodexBar config is never overwritten. The widget does **not** invent placeholder quota numbers.
 
+### DEB (Debian and Ubuntu)
+
+From a repository checkout, build and install the native package with:
+
+```bash
+sudo apt install git python3 dpkg-dev
+artifact="$(./packaging/deb/build-deb.sh)"
+sudo apt install "$artifact"
+```
+
+The package installs the suite under `/usr` and can later be upgraded or removed through APT. The builder is checked on Debian 12, Ubuntu 22.04, and Ubuntu 24.04.
+
+### RPM (Fedora and RHEL 9 or 10 compatible systems)
+
+From a repository checkout, build and install the native package with:
+
+```bash
+sudo dnf install git python3 rpm-build sed tar gzip
+artifact="$(./packaging/rpm/build-rpm.sh)"
+sudo dnf install "$artifact"
+```
+
+The RPM is architecture-independent. Fedora and RHEL 10 compatible builds use the system `python3` and require version 3.10 or newer. RHEL 9 compatible builds install the parallel `python3.11` dependency without replacing the system Python 3.9. The builder is checked on Fedora, AlmaLinux 9, and AlmaLinux 10.
+
 ### GitHub Releases
 
-GitHub Releases provides the matching source archive and release artifacts.
+GitHub Releases provides the matching source archive. A DEB or RPM is an official binary release only when that file appears in the assets for the selected tag.
 
 ### KDE Store (widget-only channel)
 
-KDE Store is a separate distribution channel for the Plasma widget only. The published `.plasmoid` is built by `packaging/kde-store/build-plasmoid.sh`, and its version comes from `packages/kodexbar/metadata.json`. That channel delivers the applet UI only. The data engine (`kodexbar-quotas` and related tools) still comes from the AUR package or from the repository `install.sh` below. If the widget is installed without the engine, the popup shows a setup card with the Arch AUR command on Arch family systems, or the portable `./install.sh` command on other distros, plus a link to the repository. After the suite is installed, the next refresh detects your CLIs and shows their quotas without manual provider configuration.
+KDE Store is a separate distribution channel for the Plasma widget only. The published `.plasmoid` is built by `packaging/kde-store/build-plasmoid.sh`, and its version comes from `packages/kodexbar/metadata.json`. That channel delivers the applet UI only. The data engine (`kodexbar-quotas` and related tools) comes from AUR, a native DEB or RPM, or the repository `install.sh` below. If the widget is installed without the engine, the popup shows a setup card with the Arch AUR command on Arch family systems, or the portable `./install.sh` command on other distros, plus a link to the repository. After the suite is installed, the next refresh detects your CLIs and shows their quotas without manual provider configuration.
 
 ### Manual install from this repository
 
@@ -129,7 +153,7 @@ For Antigravity quotas (and optional Codex/Grok fallback) on a non-Arch install,
 
 A previous manual install under `~/.local` takes priority over the system package: a typical `PATH` puts `~/.local/bin` before `/usr/bin`, and Plasma prefers user-local applet data over `/usr/share/plasma/plasmoids`. To use only the packaged files:
 
-1. From a clone of this repository (the same tree you used to install), run `./uninstall.sh`. That script only touches `~/.local` and follows its ownership checks. It does not remove the pacman package.
+1. From a clone of this repository (the same tree you used to install), run `./uninstall.sh`. That script only touches `~/.local` and follows its ownership checks. It does not remove a system package.
 2. Restart plasmashell so Plasma reloads the system plasmoid, for example: `systemctl --user restart plasma-plasmashell.service` (or log out and back in).
 
 After that, `which ai` and `which kodexbar-quotas` should resolve under `/usr/bin` when the package is installed.
@@ -172,7 +196,7 @@ make test
 make check
 ```
 
-`make check` runs the KodexBar fixture, JSON, XML, QML, and safety checks, the `ai-cli-control` Python and shell checks, and root script syntax and whitespace checks. It does not install or uninstall anything.
+`make check` runs the KodexBar fixture, JSON, XML, QML, and safety checks, the `ai-cli-control` Python and shell checks, the shared DEB/RPM payload tests, and root script syntax and whitespace checks. It does not install or uninstall anything.
 
 ## Repository layout
 
@@ -181,6 +205,11 @@ KodexBar-Suite/
 ├── packages/
 │   ├── kodexbar/
 │   └── ai-cli-control/
+├── packaging/
+│   ├── aur/
+│   ├── deb/
+│   ├── rpm/
+│   └── system/
 ├── install.sh
 ├── uninstall.sh
 ├── Makefile

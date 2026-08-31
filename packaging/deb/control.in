@@ -1,0 +1,14 @@
+Package: kodexbar-suite
+Version: @VERSION@-@RELEASE@
+Section: utils
+Priority: optional
+Architecture: all
+Maintainer: Karasowl <96896642+Karasowl@users.noreply.github.com>
+Installed-Size: @INSTALLED_SIZE@
+Depends: bash, python3 (>= 3.10)
+Suggests: plasma-workspace, konsole, python3-gi, gir1.2-ayatanaappindicator3-0.1, wl-clipboard, xclip, xsel
+Homepage: https://github.com/Karasowl/KodexBar-Suite
+Description: Linux AI quota monitor and KDE Plasma 6 widget
+ KodexBar Suite provides native quota tools for AI coding assistants,
+ panel and tray integrations, local model monitoring, skill inventory,
+ and an optional KDE Plasma 6 widget.
