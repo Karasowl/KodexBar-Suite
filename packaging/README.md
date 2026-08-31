@@ -33,7 +33,7 @@ artifact="$(./packaging/rpm/build-rpm.sh)"
 sudo dnf install "$artifact"
 ```
 
-The result is written to `packaging/rpm/dist/` unless `KODEXBAR_OUTPUT_DIR` is set.
+The result is written to `packaging/rpm/dist/` unless `KODEXBAR_OUTPUT_DIR` is set. Fedora and RHEL 10 compatible systems produce the general `kodexbar-suite-VERSION-RELEASE.noarch.rpm`. RHEL 9 compatible systems produce `kodexbar-suite-VERSION-RELEASE.el9.noarch.rpm` with a parallel Python 3.11 dependency.
 
 ## Package contract
 

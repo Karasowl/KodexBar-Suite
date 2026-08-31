@@ -197,12 +197,15 @@ jobs:
           - name: fedora
             image: fedora:latest
             python: /usr/bin/python3
+            release: "1"
           - name: almalinux-9
             image: almalinux:9
             python: /usr/bin/python3.11
+            release: "1.el9"
           - name: almalinux-10
             image: almalinux:10
             python: /usr/bin/python3
+            release: "1"
     container:
       image: ${{ matrix.image }}
     defaults:
@@ -232,6 +235,7 @@ jobs:
           artifact="$(./packaging/rpm/build-rpm.sh)"
           test -f "$artifact"
           test "$(rpm -qp --queryformat '%{NAME}' "$artifact")" = kodexbar-suite
+          test "$(rpm -qp --queryformat '%{RELEASE}' "$artifact")" = '${{ matrix.release }}'
           test "$(rpm -qp --queryformat '%{ARCH}' "$artifact")" = noarch
           rpm -qpl "$artifact" | grep -F /usr/bin/kodexbar-quotas
           dnf install -y "$artifact"

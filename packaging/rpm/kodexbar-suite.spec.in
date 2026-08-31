@@ -6,7 +6,7 @@
 
 Name:           kodexbar-suite
 Version:        @VERSION@
-Release:        @RELEASE@
+Release:        @RELEASE@@RELEASE_SUFFIX@
 Summary:        Linux AI quota monitor and KDE Plasma 6 widget
 License:        MIT
 URL:            https://github.com/Karasowl/KodexBar-Suite
@@ -61,5 +61,5 @@ fi
 %doc /usr/share/doc/kodexbar-suite
 
 %changelog
-* @CHANGELOG_DATE@ Karasowl <96896642+Karasowl@users.noreply.github.com> - @VERSION@-@RELEASE@
+* @CHANGELOG_DATE@ Karasowl <96896642+Karasowl@users.noreply.github.com> - @VERSION@-@RELEASE@@RELEASE_SUFFIX@
 - Build the native noarch package from the shared system payload.
