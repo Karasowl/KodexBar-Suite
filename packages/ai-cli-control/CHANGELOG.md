@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.12.7, 2026-09-10
+
 ### Added
 
 - Windows tray application (`kodexbar-tray-win`) with a quota panel window, HKCU Run autostart, portable zip, and per-user installer.
@@ -13,6 +15,10 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Quota engine paths, file locks, and process spawning work on Windows. Provider data follows each CLI's Windows layout.
+
+### Fixed
+
+- Windows console tools are built as onefile executables so the portable zip includes `kodexbar-quotas.exe` and the sibling tools.
 
 ## 0.12.6, 2026-08-30
 
