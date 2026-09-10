@@ -34,7 +34,7 @@ function Copy-Entrypoint([string]$SourceName, [string]$TargetName) {
 
 function Invoke-PyInstaller([string]$Entrypoint, [string]$Name, [switch]$Windowed) {
     $arguments = @(
-        "-m", "PyInstaller", "--noconfirm", "--clean",
+        "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile",
         "--distpath", $distRoot, "--workpath", (Join-Path $workRoot $Name),
         "--specpath", (Join-Path $workRoot $Name),
         "--name", $Name
