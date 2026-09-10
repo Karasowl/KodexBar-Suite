@@ -56,7 +56,7 @@ plasmoid assets stay on the existing manual release path.
 ## Windows scope notes
 
 - Quota providers read the same files as on Linux: `~\.claude`,
-  `~\.codex`, `~\.grok`; the Cursor token comes from
+  `~\.codex`, `~\.grok`, `~\.hermes`; the Cursor token comes from
   `%APPDATA%\Cursor\User\globalStorage\state.vscdb`.
 - Profiles and account sidecars live under `%APPDATA%\kodexbar-suite`; the
   cost cache under `%LOCALAPPDATA%\kodexbar-suite\cache`.

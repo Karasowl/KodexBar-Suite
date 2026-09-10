@@ -8,7 +8,7 @@
 [![CodexBar CLI](https://img.shields.io/badge/powered%20by-CodexBar%20CLI-0a0a0c?style=flat-square)](https://github.com/steipete/CodexBar)
 [![Licencia: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-KodexBar Suite es un monitor de cuotas de IA para KDE Plasma 6 y Linux. Ofrece un resumen compacto configurable en el panel y un popup completo para Claude Code, OpenAI Codex, Cursor, Grok, OpenCode Go, Antigravity y otros proveedores devueltos por la [CLI CodexBar](https://github.com/steipete/CodexBar). También incluye un visor opcional de modelos locales y un inventario de skills entre proveedores.
+KodexBar Suite es un monitor de cuotas de IA para KDE Plasma 6 y Linux. Ofrece un resumen compacto configurable en el panel y un popup completo para Claude Code, OpenAI Codex, Cursor, Grok, OpenCode Go, Hermes, Antigravity y otros proveedores devueltos por la [CLI CodexBar](https://github.com/steipete/CodexBar). Los créditos restantes de Hermes salen del login local de Nous Portal. También incluye un visor opcional de modelos locales y un inventario de skills entre proveedores.
 
 Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../README.es.md). Desde la raíz de ese repositorio, usa `./install.sh` para instalarlo junto con `ai-cli-control`. El paquete todavía puede validarse e instalarse por separado.
 
@@ -21,9 +21,9 @@ Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../REA
 - Añade un destino **Local** con etiqueta. Agrupa pesos instalados y montados, muestra estado, confianza de clasificación, rendimiento real cuando el runtime lo aporta, sparkline acotado de actividad y controles seguros de montar o desmontar.
 - Añade un destino **Skills** con etiqueta. Una matriz compacta muestra cada skill frente a Codex, Claude, Grok, Gemini CLI, OpenCode y Hermes. Sus checkboxes preparan cambios por celda, por columna o para todos los destinos seguros.
 - Conserva atenuados los modelos instalados sin montar, omite los que no están instalados y usa una lista local solo vertical. Así siguen disponibles proveedor, cuenta, plan, fuente, cuotas, créditos, coste, errores, caché y tira compacta sin desborde horizontal.
-- Muestra una cuenta de proveedor a la vez, ordenada como Codex, Claude, Grok, Antigravity y después todos los demás proveedores habilitados.
+- Muestra una cuenta de proveedor a la vez, ordenada como Codex, Claude, Grok, Antigravity, Cursor, Hermes y después todos los demás proveedores habilitados.
 - Mantiene separadas las cuentas repetidas con ordinales estables no sensibles en pestañas y salida compacta.
-- Usa los SVG suministrados de Codex, Claude, Grok, Antigravity y Gemini, y mantiene distintas las identidades de Antigravity y Gemini.
+- Usa los SVG suministrados de Codex, Claude, Grok, Cursor, Hermes, Antigravity y Gemini, y mantiene distintas las identidades de Antigravity y Gemini.
 - Agrega `compactProviderOrder`, una selección ordenada de proveedores para el panel compacto.
 - Agrega `compactQuotaSelection`, una selección de cuotas para el panel compacto.
 - Usa `codex,claude,grok,antigravity,opencodego,hermes` como valor predeterminado.
@@ -158,7 +158,7 @@ El popup usa `Gemini (Antigravity)` para Antigravity y `Gemini` para el proveedo
 | Skills engine | Nombre o ruta completa de `kodexbar-skills`. Vacío restaura el nombre predeterminado. |
 | Source | `Best available`, `auto`, `web`, `cli`, `oauth` o `api`. |
 | Refresh | Intervalo de consulta entre 10 y 3600 segundos. |
-| Compact providers | Identificadores ordenados y separados por comas que usa la bandeja del sistema. Las casillas visibles cubren Codex, Claude, Grok y Antigravity. Vacío muestra todos los proveedores devueltos y nunca filtra el popup. |
+| Compact providers | Identificadores ordenados y separados por comas que usa la bandeja del sistema. Los chips visibles cubren los proveedores devueltos, como Codex, Claude, Grok, Antigravity, Cursor, OpenCode Go y Hermes. Vacío muestra todos los proveedores devueltos y nunca filtra el popup. |
 | Compact quotas | Claves de cuota separadas por comas. Admite claves globales y calificadas por proveedor. Vacío muestra solo etiquetas y nunca filtra el popup. |
 | Show provider in panel | Incluye el icono de cada proveedor seleccionado en el resumen compacto. |
 | Show used percent in panel | Incluye porcentajes de uso en la salida compacta. |

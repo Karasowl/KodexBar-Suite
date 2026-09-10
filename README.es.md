@@ -2,13 +2,13 @@
 
 [Read in English](README.md)
 
-> Monitor de cuotas y uso de IA para asistentes de programación: widget de KDE Plasma 6 y herramientas de panel en Linux, más una app de bandeja para Windows.
+> Monitor de cuotas y uso de IA para asistentes de programación, incluidos los créditos restantes nativos de Hermes desde Nous Portal: widget de KDE Plasma 6 y herramientas de panel en Linux, más una app de bandeja para Windows.
 
 [![Última release](https://img.shields.io/github/v/release/Karasowl/KodexBar-Suite?display_name=tag&sort=semver)](https://github.com/Karasowl/KodexBar-Suite/releases/latest)
 [![KDE Plasma 6](https://img.shields.io/badge/KDE%20Plasma-6-1d99f3?style=flat-square)](https://kde.org/plasma-desktop/)
 [![Licencia: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-KodexBar Suite concentra en un panel de Linux las cuotas y el uso de asistentes de programación con IA. El widget muestra uso en vivo, reinicios, gasto y errores. En Compact panel puedes ocultar un proveedor que está en ERR.
+KodexBar Suite concentra en un panel de Linux las cuotas y el uso de asistentes de programación con IA, incluidos los créditos restantes nativos de Hermes desde Nous Portal. El widget muestra uso en vivo, reinicios, gasto y errores. En Compact panel puedes ocultar un proveedor que está en ERR.
 
 ![KodexBar en Plasma 6: chips en la barra, cuotas, Claude en ERR y luego ocultar Claude en Compact panel](docs/kodexbar-demo.gif)
 

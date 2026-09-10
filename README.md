@@ -2,13 +2,13 @@
 
 [Leer en español](README.es.md)
 
-> AI quota monitor for coding assistants: KDE Plasma 6 widget and Linux panel tools, plus a Windows tray app.
+> AI quota monitor for coding assistants, including native Hermes remaining credits from Nous Portal: KDE Plasma 6 widget and Linux panel tools, plus a Windows tray app.
 
 [![Latest release](https://img.shields.io/github/v/release/Karasowl/KodexBar-Suite?display_name=tag&sort=semver)](https://github.com/Karasowl/KodexBar-Suite/releases/latest)
 [![KDE Plasma 6](https://img.shields.io/badge/KDE%20Plasma-6-1d99f3?style=flat-square)](https://kde.org/plasma-desktop/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-KodexBar Suite puts AI coding quota and usage tracking in one Linux panel. The widget shows live usage, reset times, spend, and errors. Compact panel lets you hide a provider that is in ERR.
+KodexBar Suite puts AI coding quota and usage tracking in one Linux panel, including native Hermes remaining credits from Nous Portal. The widget shows live usage, reset times, spend, and errors. Compact panel lets you hide a provider that is in ERR.
 
 ![KodexBar on Plasma 6: panel chips, provider quotas, Claude ERR, then hiding Claude in Compact panel](docs/kodexbar-demo.gif)
 

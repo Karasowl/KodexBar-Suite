@@ -24,9 +24,9 @@ Requires:       python3 >= 3.10
 %endif
 
 %description
-KodexBar Suite provides native quota tools for AI coding assistants,
-panel and tray integrations, local model monitoring, skill inventory,
-and an optional KDE Plasma 6 widget.
+KodexBar Suite provides native remaining quotas for Claude, Codex,
+Cursor, Grok, OpenCode Go, and Hermes, plus panel and tray integrations,
+local model monitoring, skill inventory, and an optional Plasma 6 widget.
 
 %prep
 %autosetup

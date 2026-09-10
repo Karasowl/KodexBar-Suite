@@ -182,7 +182,7 @@ The installer places it at `~/.local/share/ai-cli-control/kodexbar-quotas` and l
 
 ## Panel adapters
 
-`kodexbar-panel` invokes the sibling `kodexbar-quotas` engine first, then the command on `PATH`. It prints the compact `Cx`, `Cl`, `Gk`, and `Ag` quota line used by the suite, with session and weekly usage where available. It has a 20-second engine timeout and returns a short error instead of a traceback when quota data is unavailable.
+`kodexbar-panel` invokes the sibling `kodexbar-quotas` engine first, then the command on `PATH`. It prints the compact quota line used by the suite (`Cx`, `Cl`, `Gk`, `Ag`, `Hm`, and the other returned providers), with session and weekly usage where available. It has a 20-second engine timeout and returns a short error instead of a traceback when quota data is unavailable.
 
 ```bash
 kodexbar-panel --format text

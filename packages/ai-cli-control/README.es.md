@@ -182,7 +182,7 @@ El instalador lo coloca en `~/.local/share/ai-cli-control/kodexbar-quotas` y enl
 
 ## Adaptadores de panel
 
-`kodexbar-panel` invoca primero el motor `kodexbar-quotas` que está a su lado y después el comando disponible en `PATH`. Muestra la línea compacta de cuotas `Cx`, `Cl`, `Gk` y `Ag` usada por el conjunto, con uso de sesión y semanal cuando está disponible. Tiene un límite total de 20 segundos para el motor y devuelve un error corto en vez de un traceback cuando no hay datos de cuotas.
+`kodexbar-panel` invoca primero el motor `kodexbar-quotas` que está a su lado y después el comando disponible en `PATH`. Muestra la línea compacta de cuotas usada por el conjunto (`Cx`, `Cl`, `Gk`, `Ag`, `Hm` y los demás proveedores devueltos), con uso de sesión y semanal cuando está disponible. Tiene un límite total de 20 segundos para el motor y devuelve un error corto en vez de un traceback cuando no hay datos de cuotas.
 
 ```bash
 kodexbar-panel --format text

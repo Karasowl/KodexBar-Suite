@@ -4,13 +4,13 @@
 
 Esta guía te lleva paso a paso a instalar KodexBar Suite si no tienes experiencia con las herramientas de paquetes de Linux. Describe las ventanas que verás y qué hacer en cada una.
 
-KodexBar Suite muestra resúmenes de cuotas de las CLI de IA en el escritorio e incluye un selector pequeño `ai` para iniciar y actualizar las CLI de los proveedores.
+KodexBar Suite muestra resúmenes de cuotas de las CLI de IA en el escritorio, incluidos los créditos restantes nativos de Hermes desde Nous Portal, e incluye un selector pequeño `ai` para iniciar y actualizar las CLI de los proveedores.
 
 ---
 
 ## 1. Arch, CachyOS, Manjaro y derivados (vía recomendada)
 
-Esta es la vía principal. El paquete de AUR instala el widget de Plasma, las herramientas `ai` y la CLI compañera para las cuotas de Codex, Grok y Antigravity.
+Esta es la vía principal. El paquete de AUR instala el widget de Plasma, las herramientas `ai` y la lectura nativa de cuotas de Claude, Codex, Cursor, Grok, OpenCode Go y Hermes. Antigravity sigue usando la CLI compañera opcional.
 
 Nombre del paquete: `kodexbar-suite`
 
@@ -91,7 +91,8 @@ Pulsa **Enter** para aceptar las respuestas por defecto en cada pregunta, salvo 
 
 2. **Las cuotas aparecen solas**
    - Abre el popup del widget.
-   - Si ya tienes instaladas e iniciadas sesión en las CLI de proveedores (por ejemplo Claude, Codex, Grok o Antigravity), sus cuotas aparecen sin editar archivos de configuración.
+   - Si ya tienes instaladas e iniciadas sesión en las CLI de proveedores (por ejemplo Claude, Codex, Cursor, Grok, Hermes o Antigravity), sus cuotas aparecen sin editar archivos de configuración.
+   - Hermes aparece cuando `hermes` está en el `PATH` o `~/.hermes/auth.json` tiene un login de Nous Portal (`hermes setup --portal`). El widget muestra los créditos restantes. El porcentaje mensual solo aparece si Portal manda remaining y el tope del mes.
    - La suite no inventa números de relleno. Solo muestra datos reales de las CLI detectadas.
 
 ---
@@ -194,7 +195,7 @@ Si falta `kpackagetool6`, el instalador igual termina bien. Instala el motor, la
 
 Si `~/.local/bin` no está en `PATH`, el instalador portable imprime el aviso. Añade ese directorio para que se encuentren `ai`, `kodexbar-quotas`, `kodexbar-panel` y `kodexbar-tray`.
 
-Para los números de cuota de Codex, Grok y Antigravity, instala también la CLI oficial de CodexBar y deja `codexbar` en tu `PATH`. Consulta la [documentación de la CLI de CodexBar](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
+Antigravity sigue necesitando la CLI oficial de CodexBar y `codexbar` en el `PATH`. Claude, Codex, Cursor, Grok, OpenCode Go y Hermes son nativos y no requieren ese compañero. Consulta la [documentación de la CLI de CodexBar](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
 
 En Plasma, añade el widget igual que en [Después de instalar](#después-de-instalar). En GNOME o COSMIC ejecuta `kodexbar-tray --autostart-install`. En Hyprland pega el snippet de `kodexbar-panel --waybar-snippet`.
 

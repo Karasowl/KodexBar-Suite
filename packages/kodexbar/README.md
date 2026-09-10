@@ -8,7 +8,7 @@
 [![CodexBar CLI](https://img.shields.io/badge/powered%20by-CodexBar%20CLI-0a0a0c?style=flat-square)](https://github.com/steipete/CodexBar)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-KodexBar Suite is a KDE Plasma 6 AI quota monitor for Linux. It provides a configurable compact summary in the panel and a complete popup for Claude Code, OpenAI Codex, Cursor, Grok, OpenCode Go, Antigravity, and other providers returned by the [CodexBar CLI](https://github.com/steipete/CodexBar). It also includes an optional local-model viewer and a cross-provider skill inventory.
+KodexBar Suite is a KDE Plasma 6 AI quota monitor for Linux. It provides a configurable compact summary in the panel and a complete popup for Claude Code, OpenAI Codex, Cursor, Grok, OpenCode Go, Hermes, Antigravity, and other providers returned by the [CodexBar CLI](https://github.com/steipete/CodexBar). Hermes remaining credits come from the local Nous Portal login. It also includes an optional local-model viewer and a cross-provider skill inventory.
 
 This package is also maintained inside the [KodexBar Suite monorepo](../../README.md). From that repository root, use `./install.sh` to install it together with `ai-cli-control`. The package can still be validated and installed independently.
 
@@ -21,9 +21,9 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 - Adds a labeled **Local** destination. It groups installed and mounted local weights, shows state, classification confidence, real runtime throughput when available, a bounded activity sparkline, and safe mount or unload controls.
 - Adds a labeled **Skills** destination. A compact matrix shows every skill across Codex, Claude, Grok, Gemini CLI, OpenCode, and Hermes. Its checkboxes stage changes per cell, per provider column, or for every safe target.
 - Keeps installed but unmounted models dimmed, omits models that are not installed, and uses a vertical-only local list so provider data, account identity, plan, source, quotas, credits, costs, errors, cache state, and compact strip remain available without horizontal overflow.
-- Shows one provider account at a time, ordered as Codex, Claude, Grok, Antigravity, then every other enabled provider.
+- Shows one provider account at a time, ordered as Codex, Claude, Grok, Antigravity, Cursor, Hermes, then every other enabled provider.
 - Keeps repeated accounts separate with stable non-sensitive ordinals in tabs and compact output.
-- Uses the supplied Codex, Claude, Grok, Antigravity, and Gemini SVG assets while keeping Antigravity and Gemini distinct.
+- Uses the supplied Codex, Claude, Grok, Cursor, Hermes, Antigravity, and Gemini SVG assets while keeping Antigravity and Gemini distinct.
 - Adds `compactProviderOrder`, an ordered comma-separated provider selection for the compact panel.
 - Adds `compactQuotaSelection`, a comma-separated quota selection for the compact panel.
 - Defaults to `codex,claude,grok,antigravity,opencodego,hermes`.
@@ -158,7 +158,7 @@ The popup uses `Gemini (Antigravity)` for Antigravity and `Gemini` for the indep
 | Skills engine | `kodexbar-skills` binary name or full path. Empty restores the default name. |
 | Source | `Best available`, `auto`, `web`, `cli`, `oauth`, or `api`. |
 | Refresh | Poll interval from 10 to 3600 seconds. |
-| Compact providers | Display-only ordered comma-separated provider IDs used by the system tray. The visible provider checkboxes cover Codex, Claude, Grok, and Antigravity. Empty shows every returned provider and never filters the popup. |
+| Compact providers | Display-only ordered comma-separated provider IDs used by the system tray. The visible provider chips cover returned providers such as Codex, Claude, Grok, Antigravity, Cursor, OpenCode Go, and Hermes. Empty shows every returned provider and never filters the popup. |
 | Compact quotas | Display-only comma-separated quota keys. Supports global keys and provider-qualified keys. Empty shows provider labels only and never filters the popup. |
 | Show provider in panel | Includes each selected provider icon in the compact system tray summary. |
 | Show used percent in panel | Includes usage percentages in compact output. |

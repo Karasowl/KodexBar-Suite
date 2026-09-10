@@ -35,6 +35,11 @@ code { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .pills button { background: #12121a; color: var(--text); border: 1px solid var(--line); border-radius: 999px; padding: .35rem .75rem; cursor: pointer; font: inherit; }
 .pills button.on { border-color: var(--purple); color: #fff; }
 .choose-label { margin: 0 0 .45rem; color: var(--muted); font-size: .9rem; }
+.providers { margin: 1.2rem 0 0; }
+.providers-label { margin: 0 0 .45rem; color: var(--muted); font-size: .9rem; }
+.provider-list { display: flex; flex-wrap: wrap; gap: .45rem; list-style: none; margin: 0; padding: 0; }
+.provider-list li { background: #12121a; border: 1px solid var(--line); border-radius: 999px; padding: .3rem .75rem; font-size: .92rem; }
+.providers-note { margin: .7rem 0 0; color: var(--muted); font-size: .9rem; }
 .demo { margin: 2rem 0 0; }
 .demo img { width: min(100%, 554px); height: auto; border-radius: .8rem; border: 1px solid var(--line); background: #000; }
 footer { max-width: 40rem; margin: 0 auto; padding: 0 1.2rem 2.5rem; color: var(--muted); display: flex; gap: .5rem; flex-wrap: wrap; }

@@ -4,13 +4,13 @@
 
 This guide walks you through installing KodexBar Suite when you are new to Linux package tools. It describes the windows you will see and what to do in each one.
 
-KodexBar Suite shows AI CLI quota summaries on the desktop and includes a small `ai` selector for launching and updating provider CLIs.
+KodexBar Suite shows AI CLI quota summaries on the desktop, including native Hermes remaining credits from Nous Portal, and includes a small `ai` selector for launching and updating provider CLIs.
 
 ---
 
 ## 1. Arch, CachyOS, Manjaro, and derivatives (recommended)
 
-This is the main path. The AUR package installs the Plasma widget, the `ai` tools, and the companion CLI for Codex, Grok, and Antigravity quotas.
+This is the main path. The AUR package installs the Plasma widget, the `ai` tools, and native quota reading for Claude, Codex, Cursor, Grok, OpenCode Go, and Hermes. Antigravity still uses the optional companion CLI.
 
 Package name: `kodexbar-suite`
 
@@ -91,7 +91,8 @@ Press **Enter** to accept default answers at each prompt unless you know you nee
 
 2. **Quotas appear automatically**
    - Open the widget popup.
-   - If you already have provider CLIs installed and signed in (for example Claude, Codex, Grok, or Antigravity), their quotas show up without editing config files.
+   - If you already have provider CLIs installed and signed in (for example Claude, Codex, Cursor, Grok, Hermes, or Antigravity), their quotas show up without editing config files.
+   - Hermes appears after `hermes` is on `PATH` or `~/.hermes/auth.json` has a Nous Portal login (`hermes setup --portal`). The widget shows remaining credits. The monthly percent appears only when Portal reports both remaining and the monthly cap.
    - The suite does not invent placeholder numbers. Only real data from detected CLIs appears.
 
 ---
@@ -194,7 +195,7 @@ If `kpackagetool6` is missing, the installer still succeeds. It installs the eng
 
 If `~/.local/bin` is not on `PATH`, the portable installer prints the exact warning. Add that directory so `ai`, `kodexbar-quotas`, `kodexbar-panel`, and `kodexbar-tray` can be found.
 
-For Codex, Grok, and Antigravity quota numbers, also install the official CodexBar CLI and keep `codexbar` on your `PATH`. See the [CodexBar CLI documentation](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
+Antigravity quota numbers still need the official CodexBar CLI and `codexbar` on your `PATH`. Claude, Codex, Cursor, Grok, OpenCode Go, and Hermes are native and do not require that companion. See the [CodexBar CLI documentation](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
 
 On Plasma, add the widget the same way as in [After installation](#after-installation). On GNOME or COSMIC run `kodexbar-tray --autostart-install`. On Hyprland paste the snippet from `kodexbar-panel --waybar-snippet`.
 
