@@ -87,7 +87,7 @@ PlasmoidItem {
     property bool includeStatus: Plasmoid.configuration.includeStatus === undefined ? false : Plasmoid.configuration.includeStatus
     property bool showCostSummary: Plasmoid.configuration.showCostSummary === undefined ? true : Plasmoid.configuration.showCostSummary
     property int costRefreshSeconds: Math.max(1, Plasmoid.configuration.costRefreshSeconds || 900)
-    readonly property string defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego"
+    readonly property string defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,musecode"
     property string compactProviderOrder: Plasmoid.configuration.compactProviderOrder === undefined
         ? defaultCompactProviderOrder
         : Plasmoid.configuration.compactProviderOrder
@@ -1533,6 +1533,10 @@ PlasmoidItem {
                 && src.toLowerCase() === "local") {
             return i18n("local · estimated")
         }
+        if (ProviderLogic.providerId(provider) === "musecode"
+                && src.toLowerCase() === "local") {
+            return i18n("local · activity")
+        }
         return src
     }
 
@@ -1587,7 +1591,8 @@ PlasmoidItem {
             "copilot": "Copilot",
             "gemini": "Gemini",
             "kilo": "Kilo Code",
-            "ollama": "Ollama"
+            "ollama": "Ollama",
+            "musecode": "Muse Code"
         }
         return names[key] || (raw ? String(raw).charAt(0).toUpperCase() + String(raw).slice(1) : i18n("Provider"))
     }
@@ -1643,7 +1648,8 @@ PlasmoidItem {
             "copilot": "copilot",
             "gemini": "gemini",
             "kilo": "kilo",
-            "ollama": "ollama"
+            "ollama": "ollama",
+            "musecode": "musecode"
         }
         return Qt.resolvedUrl("../icons/providers/" + (icons[key] || "codex") + ".svg")
     }
@@ -1711,6 +1717,29 @@ PlasmoidItem {
         }
 
         return resetTimeFromDescription(window.resetDescription || window.resetsIn || "")
+    }
+
+    function museActivityDetail(activity) {
+        var parts = []
+        if (activity && typeof activity.prompts === "number" && activity.prompts > 0) {
+            parts.push(i18n("%1 prompts", activity.prompts))
+        }
+        var tokens = (activity && typeof activity.inputTokens === "number" ? activity.inputTokens : 0)
+            + (activity && typeof activity.outputTokens === "number" ? activity.outputTokens : 0)
+        if (tokens > 0) {
+            parts.push(museTokenText(tokens))
+        }
+        return parts.join(" - ")
+    }
+
+    function museTokenText(value) {
+        if (value >= 1000000) {
+            return i18n("%1M tokens", Math.round(value / 100000) / 10)
+        }
+        if (value >= 1000) {
+            return i18n("%1k tokens", Math.round(value / 100) / 10)
+        }
+        return i18n("%1 tokens", value)
     }
 
     function windowDetail(window, usageKnown) {
@@ -1895,6 +1924,22 @@ PlasmoidItem {
                 })
             }
         }
+        var museActivity = usage.museActivity && typeof usage.museActivity === "object" ? usage.museActivity : null
+        if (ProviderLogic.providerId(entry.provider) === "musecode"
+                && museActivity && museActivity.prompts > 0) {
+            // Muse Code reports no official usage endpoint yet: this row shows only
+            // real local counts (prompts and tokens) inside the documented 5h window.
+            rows.push({
+                title: i18n("5-hour activity"),
+                percentLeft: null,
+                resetsAt: typeof museActivity.resetsAt === "string" ? museActivity.resetsAt : null,
+                detail: museActivityDetail(museActivity),
+                usageKnown: false,
+                compactKey: ProviderLogic.compactQuotaKey("5-hour activity"),
+                compactExtra: false,
+                windowBadge: "5h"
+            })
+        }
         var costRow = providerCostRow(providerCost)
         if (costRow !== null) {
             rows.push(costRow)
@@ -1925,7 +1970,11 @@ PlasmoidItem {
             profileId: entry.profileId || "",
             profileLabel: entry.profileLabel || "",
             plan: usage.loginMethod || identity.loginMethod || dashboard.accountPlan
-                || (ProviderLogic.providerId(entry.provider) === "opencodego" ? i18n("OpenCode Go") : ""),
+                || (ProviderLogic.providerId(entry.provider) === "opencodego" ? i18n("OpenCode Go") : "")
+                || (ProviderLogic.providerId(entry.provider) === "musecode" ? i18n("Muse Code") : ""),
+            activityPrompts: (museActivity && typeof museActivity.prompts === "number" && museActivity.prompts > 0)
+                ? museActivity.prompts
+                : null,
             primaryPercentLeft: displayPercentLeft(entry.provider, primary, secondary),
             compactPrimaryPercentLeft: antigravity ? null : primaryLeft,
             primaryResetsAt: antigravity ? null : resetAt(primary),

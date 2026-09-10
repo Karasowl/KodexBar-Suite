@@ -46,6 +46,33 @@ class PanelAdapterTests(unittest.TestCase):
         self.assertIn("Gemini weekly", tooltip)
         self.assertIn("Gemini 5-hour", tooltip)
 
+    def test_musecode_surfaces_real_activity_counts(self) -> None:
+        entries = [{
+            "provider": "musecode",
+            "source": "local",
+            "usage": {
+                "identity": {"providerID": "musecode", "loginMethod": "Meta account"},
+                "museActivity": {
+                    "windowMinutes": 300, "prompts": 12,
+                    "inputTokens": 40000, "outputTokens": 5200,
+                    "reasoningTokens": 0, "cachedTokens": 0,
+                },
+            },
+        }]
+        model = panel.compact_model(entries, [])
+        self.assertEqual(model["text"], "Mu 12p")
+        provider = model["providers"][0]
+        self.assertFalse(provider["error"])
+        self.assertEqual(provider["activity"], {"prompts": 12})
+        tooltip = "\n".join(panel.tooltip_lines([provider]))
+        self.assertIn("12 prompts in the last 5 hours", tooltip)
+        # Without activity the provider stays honest: label only.
+        quiet = panel.compact_model([{
+            "provider": "musecode", "source": "local",
+            "usage": {"identity": {"providerID": "musecode"}},
+        }], [])
+        self.assertEqual(quiet["text"], "Mu")
+
     def test_provider_filter_is_case_insensitive_ordered_and_deduplicated(self) -> None:
         selected = panel.normalize_providers(" ANTIGRAVITY,claude,antigravity ")
         model = panel.compact_model(self.entries, selected)

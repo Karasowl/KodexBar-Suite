@@ -83,9 +83,9 @@ GROK_SURFACE_NAMES: dict[int, str] = {
 GROK_SEGMENTS_FLOAT_ABS_TOL = 1e-3
 PROTOBUF_MAX_DEPTH = 32
 PROTOBUF_MAX_FIELDS = 4096
-SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok", "opencodego", "cursor"}
+SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok", "opencodego", "cursor", "musecode"}
 # Stable order for auto-generated CodexBar config (upstream Codable expects version + providers).
-AUTO_CONFIG_PROVIDER_IDS = ("claude", "codex", "grok", "antigravity", "opencodego", "cursor")
+AUTO_CONFIG_PROVIDER_IDS = ("claude", "codex", "grok", "antigravity", "opencodego", "cursor", "musecode")
 PROFILES_CONFIG_VERSION = 1
 PROFILE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 PROFILE_KINDS = frozenset({
@@ -103,6 +103,7 @@ PROVIDER_ALLOWED_KINDS: dict[str, frozenset[str]] = {
     "cursor": frozenset({"default", "cursor-state-db"}),
     "opencodego": frozenset({"default", "opencodego-auth"}),
     "antigravity": frozenset({"default"}),
+    "musecode": frozenset({"default"}),
 }
 PROFILE_FETCH_MAX_WORKERS = 4
 _CLAUDE_FETCH_LOCK = threading.Lock()
@@ -694,6 +695,8 @@ def enabled_providers(home: Path | None = None) -> list[str]:
             result.append(normalized_id)
     if "opencodego" not in explicit_ids and detect_opencodego_installed(root):
         result.append("opencodego")
+    if "musecode" not in explicit_ids and detect_musecode_installed(root):
+        result.append("musecode")
     if "cursor" not in explicit_ids and detect_cursor_installed(root):
         result.append("cursor")
     return result
@@ -816,6 +819,187 @@ def detect_cursor_installed(home: Path | None = None) -> bool:
         return False
 
 
+MUSE_ACTIVITY_EVENT_KIND = "model_completed"
+MUSE_SESSIONS_WINDOW_MINUTES = 300
+
+
+def muse_sessions_root(home: Path | None = None) -> Path:
+    """Local Muse Code session event logs (~/.local/share/muse/sessions)."""
+    if IS_WINDOWS:
+        root = Path(os.environ.get("LOCALAPPDATA") or (home or home_directory()))
+        return root / "muse" / "sessions"
+    root = home or home_directory()
+    return root / ".local" / "share" / "muse" / "sessions"
+
+
+def _muse_activity_files(root: Path, current: float) -> list[Path]:
+    """Today's and yesterday's session.jsonl files only, keeping the scan bounded."""
+    files: list[Path] = []
+    base = datetime.fromtimestamp(current, timezone.utc)
+    for offset in (0, 1):
+        day = base - timedelta(days=offset)
+        day_dir = root / f"{day.year:04d}" / f"{day.month:02d}" / f"{day.day:02d}"
+        if not day_dir.is_dir():
+            continue
+        files.extend(sorted(day_dir.glob("*/session.jsonl")))
+    return files
+
+
+def _muse_usage_int(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    return int(value)
+
+
+def muse_session_activity(home: Path | None = None, *, now: float | None = None) -> dict[str, Any] | None:
+    """Real Muse Code activity inside the documented rolling 5-hour prompt window.
+
+    Counts local session event logs only (`model_completed` runs); never contacts
+    Meta. resetsAt marks when the oldest counted prompt exits the rolling window,
+    derived locally from the documented 5-hour cadence. Returns None without data.
+    """
+    current = time.time() if now is None else now
+    root = muse_sessions_root(home)
+    if not root.is_dir():
+        return None
+    cutoff = current - MUSE_SESSIONS_WINDOW_MINUTES * 60
+    runs: set[str] = set()
+    totals = {"inputTokens": 0, "outputTokens": 0, "reasoningTokens": 0, "cachedTokens": 0}
+    oldest: float | None = None
+    for path in _muse_activity_files(root, current):
+        try:
+            handle = path.open(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        with handle:
+            for line in handle:
+                if MUSE_ACTIVITY_EVENT_KIND not in line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                payload = event.get("payload")
+                if not isinstance(payload, dict):
+                    continue
+                inner = payload.get("event")
+                if not isinstance(inner, dict) or inner.get("kind") != MUSE_ACTIVITY_EVENT_KIND:
+                    continue
+                recorded = event.get("recorded_at")
+                if isinstance(recorded, bool) or not isinstance(recorded, (int, float)):
+                    continue
+                seconds = recorded / 1_000_000
+                if seconds < cutoff or seconds > current + 60:
+                    continue
+                usage = inner.get("usage")
+                if isinstance(usage, dict):
+                    totals["inputTokens"] += _muse_usage_int(usage.get("input_tokens"))
+                    totals["outputTokens"] += _muse_usage_int(usage.get("output_tokens"))
+                    totals["reasoningTokens"] += _muse_usage_int(usage.get("reasoning_tokens"))
+                    totals["cachedTokens"] += _muse_usage_int(usage.get("cached_tokens"))
+                run_id = inner.get("run_id")
+                if isinstance(run_id, str) and run_id:
+                    runs.add(run_id)
+                if oldest is None or seconds < oldest:
+                    oldest = seconds
+    if not runs:
+        return None
+    activity: dict[str, Any] = {
+        "windowMinutes": MUSE_SESSIONS_WINDOW_MINUTES,
+        "prompts": len(runs),
+        **totals,
+    }
+    if oldest is not None:
+        activity["resetsAt"] = (
+            datetime.fromtimestamp(oldest + MUSE_SESSIONS_WINDOW_MINUTES * 60, timezone.utc)
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+    return activity
+
+
+def muse_auth_path(home: Path | None = None) -> Path:
+    """Credential file of the Muse Code CLI (~/.config/muse, Muse dir under the platform config root)."""
+    return user_config_directory(home) / "muse" / "auth.json"
+
+
+def detect_musecode_installed(home: Path | None = None) -> bool:
+    """Muse Code is present when its CLI, credential file, or META_API_KEY exists."""
+    if command_on_path("muse") or command_on_path("muse-code"):
+        return True
+    if os.environ.get("META_API_KEY", "").strip():
+        return True
+    return muse_auth_path(home).is_file()
+
+
+MUSE_AUTH_MISSING = (
+    "Sign in with `muse login` to connect your Meta account, or set META_API_KEY "
+    "for pay-as-you-go API keys."
+)
+
+
+def muse_identity(auth: Any, *, api_key: bool) -> dict[str, Any]:
+    """Copy only account fields genuinely present in the credential file.
+
+    Muse Code does not expose a documented usage endpoint, so the native entry
+    carries identity only: never invented quota windows or percentages.
+    """
+    identity: dict[str, Any] = {
+        "providerID": "musecode",
+        "loginMethod": "Meta API key" if api_key else "Meta account",
+    }
+    if not isinstance(auth, dict):
+        return identity
+    for field in ("accountEmail", "email", "userEmail", "user_email"):
+        value = auth.get(field)
+        if isinstance(value, str) and value.strip():
+            identity.setdefault("accountEmail", value.strip())
+            break
+    if not api_key:
+        for field in ("plan", "planName", "plan_name", "tier", "subscription"):
+            value = auth.get(field)
+            if isinstance(value, str) and value.strip():
+                identity["loginMethod"] = value.strip()
+                break
+    return identity
+
+
+def fetch_muse(home: Path | None = None) -> dict[str, Any]:
+    """Muse Code entry with real identity only until Meta documents a usage endpoint."""
+    auth: Any = None
+    auth_path = muse_auth_path(home)
+    if auth_path.is_file():
+        try:
+            auth = read_json(auth_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            auth = None
+        if not isinstance(auth, dict):
+            auth = None
+    api_key = bool(os.environ.get("META_API_KEY", "").strip())
+    if auth is None and not api_key and not detect_musecode_installed(home):
+        raise FetchFallback(MUSE_AUTH_MISSING, "authentication", False)
+    if auth is None and not api_key:
+        # CLI on PATH but no stored browser session yet.
+        raise FetchFallback(MUSE_AUTH_MISSING, "authentication", False)
+    entry = {
+        "provider": "musecode",
+        "source": "local",
+        "usage": {
+            "identity": muse_identity(auth, api_key=api_key),
+            "updatedAt": iso_now(),
+        },
+    }
+    activity = muse_session_activity(home)
+    if activity is not None:
+        entry["usage"]["museActivity"] = activity
+    return entry
+
+
+
+
 def detect_installed_providers(home: Path | None = None) -> dict[str, bool]:
     """Local-only detection of installed provider CLIs/credentials (pure, testable)."""
     root = home or home_directory()
@@ -826,6 +1010,7 @@ def detect_installed_providers(home: Path | None = None) -> dict[str, bool]:
         "antigravity": detect_antigravity_installed(root),
         "opencodego": detect_opencodego_installed(root),
         "cursor": detect_cursor_installed(root),
+        "musecode": detect_musecode_installed(root),
     }
 
 
@@ -5017,7 +5202,7 @@ def fetch_provider(
                 allow_upstream_fallback=allow_fallback,
             )
         )
-    if not allow_fallback and normalized in ("opencodego", "antigravity"):
+    if not allow_fallback and normalized in ("opencodego", "antigravity", "musecode"):
         return stamp(
             [
                 provider_error(
@@ -5029,6 +5214,17 @@ def fetch_provider(
                     False,
                 )
             ]
+        )
+    if normalized == "musecode" and source in (None, "auto", "muse", "local"):
+        return stamp(
+            _native_provider_result(
+                normalized,
+                source,
+                home,
+                lambda: fetch_muse(home),
+                "local",
+                allow_upstream_fallback=False,
+            )
         )
     return stamp(fallback_entry(normalized, source))
 

@@ -39,6 +39,7 @@ The suite has dedicated quota paths for the providers below:
 | Grok | Native usage and billing data from the local account session |
 | OpenCode Go | Native quota detection and provider identity |
 | Antigravity | Optional companion path through the upstream CodexBar CLI |
+| Muse Code (Meta) | Account identity plus a real local activity counter for the documented rolling 5-hour window (prompts and tokens from session logs); percentage windows appear once Meta exposes a documented usage endpoint |
 
 The widget can also display other providers returned by CodexBar when they are enabled. The suite does not invent quota values when a provider does not return real data.
 

@@ -27,6 +27,7 @@ LABELS = {
     "grok": "Gk",
     "antigravity": "Ag",
     "gemini": "Gm",
+    "musecode": "Mu",
 }
 
 
@@ -186,6 +187,10 @@ def compact_provider(entry: Any) -> dict[str, Any] | None:
         "error": error is not None,
         "error_message": error,
     }
+    if identifier == "musecode" and isinstance(entry.get("usage"), dict):
+        activity = entry["usage"].get("museActivity")
+        if isinstance(activity, dict) and isinstance(activity.get("prompts"), int) and activity["prompts"] > 0:
+            result["activity"] = {"prompts": activity["prompts"]}
     if quotas:
         # Full list for tooltip detail; compact surfaces filter to Gemini.
         result["quotas"] = quotas
@@ -223,6 +228,9 @@ def block_text(provider: dict[str, Any]) -> str:
             parts.append(f"S {session}%")
         if weekly is not None:
             parts.append(f"W {weekly}%")
+        activity = provider.get("activity")
+        if isinstance(activity, dict) and isinstance(activity.get("prompts"), int):
+            parts.append(f'{activity["prompts"]}p')
     return " ".join(parts)
 
 
@@ -259,6 +267,10 @@ def tooltip_lines(providers: list[dict[str, Any]]) -> list[str]:
             if not known:
                 lines.append(f"{title}: no Antigravity quotas reported")
             continue
+        activity = provider.get("activity")
+        if isinstance(activity, dict) and isinstance(activity.get("prompts"), int):
+            known = True
+            lines.append(f'{title}: {activity["prompts"]} prompts in the last 5 hours')
         for key, title_key in (("session", "Session"), ("weekly", "Weekly")):
             percent = provider["percentages"][key]
             reset = provider["resets"][key]

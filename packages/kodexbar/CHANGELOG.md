@@ -4,6 +4,10 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+### Added
+
+- Native Muse Code (Meta) provider: official mark, compact label `Mu`, inclusion in the default compact order, and a popup row for real local 5-hour activity (prompts and tokens from session logs). Percentage windows stay absent until Meta documents a usage endpoint.
+
 ## 0.12.6, 2026-08-30
 
 ### Added

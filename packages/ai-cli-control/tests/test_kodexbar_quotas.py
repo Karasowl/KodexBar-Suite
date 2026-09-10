@@ -408,7 +408,9 @@ class QuotasEngineTests(unittest.TestCase):
                 {"id": "claude", "enabled": False},
                 {"id": "grok", "enabled": True},
             ]}), encoding="utf-8")
-            self.assertEqual(quotas.enabled_providers(home), ["codex", "grok"])
+            # Empty PATH keeps locally installed provider CLIs (e.g. muse) out of detection.
+            with patch.dict(os.environ, {"PATH": ""}):
+                self.assertEqual(quotas.enabled_providers(home), ["codex", "grok"])
 
     def test_cli_aggregates_native_auth_and_antigravity_upstream(self) -> None:
         """Claude uses fixture, Codex/Grok missing auth stay native, Antigravity still upstream."""
@@ -1667,15 +1669,16 @@ class QuotasEngineTests(unittest.TestCase):
             "antigravity": False,
             "opencodego": True,
             "cursor": True,
+            "musecode": False,
         })
         self.assertEqual(payload["version"], 1)
         self.assertEqual(
             [item["id"] for item in payload["providers"]],
-            ["claude", "codex", "grok", "antigravity", "opencodego", "cursor"],
+            ["claude", "codex", "grok", "antigravity", "opencodego", "cursor", "musecode"],
         )
         self.assertEqual(
             [item["enabled"] for item in payload["providers"]],
-            [True, False, True, False, True, True],
+            [True, False, True, False, True, True, False],
         )
 
     def test_existing_config_adds_detected_opencodego_without_writing_config(self) -> None:
@@ -1696,7 +1699,8 @@ class QuotasEngineTests(unittest.TestCase):
             )
             original = config.read_text(encoding="utf-8")
 
-            self.assertEqual(quotas.enabled_providers(home), ["claude", "codex", "opencodego"])
+            with patch.dict(os.environ, {"PATH": ""}):
+                self.assertEqual(quotas.enabled_providers(home), ["claude", "codex", "opencodego"])
             self.assertEqual(config.read_text(encoding="utf-8"), original)
 
     def test_explicitly_disabled_opencodego_stays_disabled(self) -> None:
@@ -1715,7 +1719,8 @@ class QuotasEngineTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            self.assertEqual(quotas.enabled_providers(home), ["claude"])
+            with patch.dict(os.environ, {"PATH": ""}):
+                self.assertEqual(quotas.enabled_providers(home), ["claude"])
 
     def test_opencodego_normalizes_subscription_identity_without_changing_limits(self) -> None:
         fixture = json.loads((FIXTURES / "opencodego-widget-entry.json").read_text(encoding="utf-8"))
@@ -1727,6 +1732,99 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(entry["usage"]["primary"]["usedPercent"], 1.9)
         self.assertEqual(entry["usage"]["secondary"]["usedPercent"], 7.1)
         self.assertEqual(entry["usage"]["tertiary"]["usedPercent"], 3.5)
+
+    def test_musecode_detects_auth_file_and_reports_identity_without_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"PATH": ""}):
+            home = Path(directory)
+            self.assertFalse(quotas.detect_musecode_installed(home))
+            auth_dir = home / ".config" / "muse"
+            auth_dir.mkdir(parents=True)
+            (auth_dir / "auth.json").write_text(
+                json.dumps({"email": "muse-dev@meta", "plan": "High Usage"}),
+                encoding="utf-8",
+            )
+            self.assertTrue(quotas.detect_musecode_installed(home))
+            entry = quotas.fetch_muse(home)
+        self.assertEqual(entry["provider"], "musecode")
+        self.assertEqual(entry["source"], "local")
+        self.assertEqual(entry["usage"]["identity"], {
+            "providerID": "musecode",
+            "loginMethod": "High Usage",
+            "accountEmail": "muse-dev@meta",
+        })
+        # No documented usage endpoint yet: the entry must never invent windows.
+        for field in ("primary", "secondary", "tertiary", "extraRateWindows"):
+            self.assertNotIn(field, entry["usage"])
+
+    def test_musecode_detects_api_key_without_auth_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"META_API_KEY": "test-key-123"}
+        ):
+            home = Path(directory)
+            self.assertTrue(quotas.detect_musecode_installed(home))
+            entry = quotas.fetch_muse(home)
+        self.assertEqual(entry["usage"]["identity"]["loginMethod"], "Meta API key")
+        self.assertNotIn("accountEmail", entry["usage"]["identity"])
+
+    def test_musecode_session_activity_counts_real_local_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            now = time.time()
+            stamp = time.gmtime(now)
+            session_dir = (
+                home / ".local" / "share" / "muse" / "sessions"
+                / f"{stamp.tm_year:04d}" / f"{stamp.tm_mon:02d}" / f"{stamp.tm_mday:02d}" / "sess-1"
+            )
+            session_dir.mkdir(parents=True)
+            def event(seconds_ago, run_id, input_tokens):
+                return json.dumps({
+                    "record_type": "event",
+                    "recorded_at": int((now - seconds_ago) * 1_000_000),
+                    "payload": {"event": {
+                        "kind": "model_completed", "run_id": run_id,
+                        "usage": {"input_tokens": input_tokens, "output_tokens": 1, "reasoning_tokens": 0, "cached_tokens": 0},
+                    }},
+                })
+            (session_dir / "session.jsonl").write_text("\n".join((
+                event(60, "run-a", 100),
+                event(120, "run-a", 100),
+                event(299 * 60, "run-b", 10),
+                event(301 * 60, "run-c", 999),
+            )) + "\n", encoding="utf-8")
+            activity = quotas.muse_session_activity(home, now=now)
+            self.assertEqual(activity["prompts"], 2)
+            self.assertEqual(activity["inputTokens"], 210)
+            self.assertIn("resetsAt", activity)
+            # The native entry carries the same real counts; outside the window, nothing.
+            (home / ".config" / "muse").mkdir(parents=True)
+            (home / ".config" / "muse" / "auth.json").write_text("{}", encoding="utf-8")
+            entry = quotas.fetch_muse(home)
+            self.assertEqual(entry["usage"]["museActivity"]["prompts"], 2)
+            self.assertIsNone(quotas.muse_session_activity(home, now=now + 400 * 60))
+
+    def test_musecode_without_credentials_reports_relogin_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"META_API_KEY": ""}, clear=False
+        ):
+            entries = quotas.fetch_provider("musecode", None, Path(directory))
+        self.assertEqual(len(entries), 1)
+        error = entries[0]
+        self.assertEqual(error["provider"], "musecode")
+        self.assertEqual(error["error"]["category"], "authentication")
+        self.assertIn("muse login", error["error"]["message"])
+
+    def test_musecode_secondary_profile_is_rejected_upfront(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            profile = quotas.ProviderProfile(
+                provider="musecode",
+                profile_id="second",
+                profile_label="Second",
+                credential_source=quotas.CredentialSource(kind="default"),
+                provider_order=0,
+                profile_order=1,
+            )
+            entries = quotas.fetch_provider("musecode", "auto", Path(directory), profile=profile)
+        self.assertEqual(entries[0]["error"]["category"], "permanent")
 
     def test_existing_config_is_never_overwritten_byte_for_byte(self) -> None:
         """Config present (valid): remains intact after a full usage invoke."""
@@ -1802,7 +1900,7 @@ class QuotasEngineTests(unittest.TestCase):
             by_id = {item["id"]: item["enabled"] for item in payload["providers"]}
             self.assertEqual(
                 by_id,
-                {"claude": True, "codex": True, "grok": True, "antigravity": False, "opencodego": False, "cursor": False},
+                {"claude": True, "codex": True, "grok": True, "antigravity": False, "opencodego": False, "cursor": False, "musecode": False},
             )
             # Normal path: only detected/enabled providers are queried.
             entries = json.loads(result.stdout)
@@ -1881,7 +1979,7 @@ class QuotasEngineTests(unittest.TestCase):
             self.assertEqual(payload["version"], 1)
             self.assertEqual(
                 {item["id"]: item["enabled"] for item in payload["providers"]},
-                {"claude": False, "codex": True, "grok": False, "antigravity": False, "opencodego": False, "cursor": False},
+                {"claude": False, "codex": True, "grok": False, "antigravity": False, "opencodego": False, "cursor": False, "musecode": False},
             )
             entries = json.loads(result.stdout)
             self.assertEqual([entry["provider"] for entry in entries], ["codex"])

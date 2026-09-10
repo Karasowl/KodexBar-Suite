@@ -8,6 +8,7 @@ All notable changes to this project are documented in this file.
 
 - Windows tray application (`kodexbar-tray-win`) with a quota panel window, HKCU Run autostart, portable zip, and per-user installer.
 - CI builds the Windows zip and installer on every push. Pushing a `v*` tag publishes those artifacts, plus `SHA256SUMS-windows`, to the GitHub Release.
+- Native Muse Code provider: account identity plus a local activity counter for the documented rolling 5-hour window, read from Muse session logs. The engine never invents percentage windows.
 
 ### Changed
 

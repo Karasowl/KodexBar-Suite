@@ -1001,6 +1001,12 @@ function composeCompactBlocks(entries, options) {
                 }
             }
         }
+        var musePrompts = museActivityPrompts(entry)
+        if (musePrompts !== null && settings.showUsed !== false) {
+            var activityPart = musePrompts + "p"
+            block.push(activityPart)
+            quotaParts.push(activityPart)
+        }
         if (settings.showCredits !== false && entry.creditsRemaining !== null
                 && entry.creditsRemaining !== undefined && !isNaN(entry.creditsRemaining)
                 && entry.creditsRemaining > 0) {
@@ -1194,8 +1200,24 @@ function migrateLegacyProvider(legacyProvider, currentOrder, defaultOrder, migra
     }
 }
 
+function museActivityPrompts(entry) {
+    if (providerId(entry && entry.provider) !== "musecode") {
+        return null
+    }
+    var prompts = entry && entry.activityPrompts
+    if (typeof prompts !== "number" || !isFinite(prompts) || prompts <= 0) {
+        return null
+    }
+    return Math.round(prompts)
+}
+
 function entryHasSelectedQuota(entry, configuredSelection) {
     if (normalizeQuotaSelection(configuredSelection).length === 0 || (entry && entry.errorMessage)) {
+        return true
+    }
+    // Muse Code has no official percentage windows yet. Keep the account visible
+    // in the compact panel so a connected Meta session does not disappear.
+    if (providerId(entry && entry.provider) === "musecode") {
         return true
     }
     var standard = [
@@ -1282,7 +1304,8 @@ function compactProviderLabel(provider, name) {
         "antigravity": "Ag",
         "opencodego": "Og",
         "cursor": "Cr",
-        "gemini": "Gm"
+        "gemini": "Gm",
+        "musecode": "Mu"
     }
     if (labels[id]) {
         return labels[id]

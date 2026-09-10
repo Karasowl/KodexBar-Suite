@@ -115,6 +115,22 @@ class WindowsPathTests(unittest.TestCase):
             self.assertFalse(engine.detect_opencodego_installed())
 
 
+class MuseWindowsPathTests(unittest.TestCase):
+    def test_muse_auth_path_lands_on_appdata_on_windows(self) -> None:
+        with mock.patch.object(engine, "IS_WINDOWS", True), mock.patch.dict(
+            os.environ, {"APPDATA": "C:\\Users\\dev\\AppData\\Roaming"}
+        ):
+            self.assertEqual(
+                str(engine.muse_auth_path(WINDOWS_HOME)).replace("\\", "/"),
+                "C:/Users/dev/AppData/Roaming/muse/auth.json",
+            )
+        with mock.patch.object(engine, "IS_WINDOWS", False):
+            self.assertEqual(
+                engine.muse_auth_path(Path("/home/dev")),
+                Path("/home/dev/.config/muse/auth.json"),
+            )
+
+
 class WindowsSpawnTests(unittest.TestCase):
     def test_detached_kwargs_on_windows_use_creationflags(self) -> None:
         with mock.patch.object(engine, "IS_WINDOWS", True):

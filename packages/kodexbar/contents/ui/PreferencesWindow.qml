@@ -23,7 +23,7 @@ QQC2.ApplicationWindow {
     property string workingSourceDefault: "detect"
     property int workingRefreshInterval: 60
     property int workingClaudeRefreshInterval: 300
-    property string workingCompactProviderOrder: "codex,claude,grok,antigravity"
+    property string workingCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,musecode"
     property string workingCompactQuotaSelection: "primary,weekly"
     property bool workingShowProviderInPanel: true
     property bool workingShowUsedPercentInPanel: true
@@ -186,7 +186,7 @@ QQC2.ApplicationWindow {
         workingClaudeRefreshInterval = Math.max(60, Math.min(3600,
             Number(Plasmoid.configuration.claudeRefreshInterval || 300)))
         workingCompactProviderOrder = Plasmoid.configuration.compactProviderOrder === undefined
-            ? "codex,claude,grok,antigravity,opencodego"
+            ? "codex,claude,grok,antigravity,opencodego,musecode"
             : String(Plasmoid.configuration.compactProviderOrder)
         workingCompactQuotaSelection = Plasmoid.configuration.compactQuotaSelection === undefined
             ? "primary,weekly"
@@ -233,7 +233,7 @@ QQC2.ApplicationWindow {
         workingSourceDefault = "detect"
         workingRefreshInterval = 60
         workingClaudeRefreshInterval = 300
-        workingCompactProviderOrder = "codex,claude,grok,antigravity"
+        workingCompactProviderOrder = "codex,claude,grok,antigravity,opencodego,musecode"
         workingCompactQuotaSelection = "primary,weekly"
         workingShowProviderInPanel = true
         workingShowUsedPercentInPanel = true

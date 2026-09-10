@@ -39,6 +39,7 @@ La suite tiene rutas dedicadas de cuotas para estos proveedores:
 | Grok | Datos nativos de uso y facturación desde la sesión local |
 | OpenCode Go | Detección nativa de cuota e identidad del proveedor |
 | Antigravity | Ruta opcional mediante la CLI CodexBar upstream |
+| Muse Code (Meta) | Identidad de cuenta y contador real de actividad local para la ventana rodante de 5 horas documentada (prompts y tokens de los logs de sesión); los porcentajes aparecerán cuando Meta exponga un endpoint de uso documentado |
 
 El widget también puede mostrar otros proveedores devueltos por CodexBar cuando están habilitados. La suite no inventa valores de cuota cuando un proveedor no devuelve datos reales.
 

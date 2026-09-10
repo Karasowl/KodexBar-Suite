@@ -163,13 +163,17 @@ def provider_menu_label(provider: Any) -> str | None:
         )
         quotas = [f"{quota.get('label') or 'Cuota'} {quota['percentage']}%" for quota in selected]
         return f"{label} ({identifier}): {', '.join(quotas) if quotas else 'sin cuotas reportadas'}"
-    if not isinstance(percentages, dict):
+    activity = provider.get("activity")
+    if not isinstance(percentages, dict) and not isinstance(activity, dict):
         return f"{label} ({identifier}): sin cuotas reportadas"
     quotas = []
-    if isinstance(percentages.get("session"), int):
-        quotas.append(f"Sesión {percentages['session']}%")
-    if isinstance(percentages.get("weekly"), int):
-        quotas.append(f"Semanal {percentages['weekly']}%")
+    if isinstance(percentages, dict):
+        if isinstance(percentages.get("session"), int):
+            quotas.append(f"Sesión {percentages['session']}%")
+        if isinstance(percentages.get("weekly"), int):
+            quotas.append(f"Semanal {percentages['weekly']}%")
+    if isinstance(activity, dict) and isinstance(activity.get("prompts"), int):
+        quotas.append(f"{activity['prompts']} prompts/5h")
     return f"{label} ({identifier}): {', '.join(quotas) if quotas else 'sin cuotas reportadas'}"
 
 

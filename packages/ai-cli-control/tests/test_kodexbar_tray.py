@@ -31,6 +31,21 @@ class TrayLogicTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "clase inválida"):
             tray.parse_panel_output('{"text":"x","tooltip":"x","class":"bad","providers":[]}')
 
+    def test_menu_label_surfaces_muse_activity_and_quiet_default(self) -> None:
+        with_activity = tray.provider_menu_label({
+            "provider": "musecode",
+            "label": "Muse Code",
+            "percentages": {"session": None, "weekly": None},
+            "activity": {"prompts": 7},
+        })
+        self.assertEqual(with_activity, "Muse Code (musecode): 7 prompts/5h")
+        quiet = tray.provider_menu_label({
+            "provider": "musecode",
+            "label": "Muse Code",
+            "percentages": {"session": None, "weekly": None},
+        })
+        self.assertEqual(quiet, "Muse Code (musecode): sin cuotas reportadas")
+
     def test_resolve_icon_directory_prefers_first_complete_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

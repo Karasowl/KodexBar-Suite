@@ -330,6 +330,22 @@ assert.equal(
     "the compact label keeps the monthly M override"
 )
 assert.equal(context.compactProviderLabel("cursor", "Cursor"), "Cr", "Cursor has a stable compact provider label")
+assert.equal(context.compactProviderLabel("musecode", "Muse Code"), "Mu", "Muse Code has a stable compact provider label")
+const museCompact = plain(context.composeCompactBlocks([{
+    provider: "musecode",
+    name: "Muse Code",
+    activityPrompts: 7
+}], {
+    providerOrder: "musecode", quotaSelection: "primary,weekly", showProvider: true, showUsed: true, showCredits: false
+}))
+assert.equal(museCompact.text, "Mu 7p", "Muse Code compact text uses real local prompt counts")
+const museQuiet = plain(context.composeCompactBlocks([{
+    provider: "musecode",
+    name: "Muse Code"
+}], {
+    providerOrder: "musecode", quotaSelection: "primary,weekly", showProvider: true, showUsed: true, showCredits: false
+}))
+assert.equal(museQuiet.text, "Mu", "a quiet Muse Code account stays visible without invented percentages")
 assert.equal(
     context.standardWindowRow("primary", "Session", null, null, ""),
     null,
@@ -1816,10 +1832,11 @@ assert.match(preferencesQml, /Plasmoid\.globalShortcut = workingShortcut/, "pref
 assert.match(preferencesQml, /KeySequenceItem/, "preferences expose a native key-sequence capture control")
 assert.match(preferencesQml, /compactResultForOrder\(workingCompactProviderOrder, \{[\s\S]*quotaSelection: workingCompactQuotaSelection[\s\S]*showProvider: workingShowProviderInPanel[\s\S]*showUsed: workingShowUsedPercentInPanel[\s\S]*showCredits: workingShowCreditsInPanel/, "the live preview uses the working compact composition")
 assert.match(mainQml, /function compactResultForOrder\(providerOrder, overrides\) \{[\s\S]*overrides \|\| \{\}[\s\S]*values\.quotaSelection === undefined[\s\S]*values\.showProvider === undefined[\s\S]*values\.showUsed === undefined[\s\S]*values\.showCredits === undefined/, "compact composition accepts preview overrides while preserving configured fallbacks")
-assert.match(mainQml, /defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego"/, "the compact default includes detected OpenCode Go")
+assert.match(mainQml, /defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,musecode"/, "the compact default includes Muse Code after OpenCode Go")
 assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey\)[\s\S]*OpenCode Go/, "OpenCode Go uses its five-hour, weekly, and monthly window labels")
 assert.match(mainQml, /ProviderLogic\.providerId\(entry\.provider\) === "opencodego"/, "OpenCode Go keeps its plan label when upstream omits identity")
 assert.match(mainQml, /function formatUsageSource\(provider, source\)[\s\S]*opencodego[\s\S]*local · estimated/, "OpenCode Go local usage is labeled as estimated")
+assert.match(mainQml, /function formatUsageSource\(provider, source\)[\s\S]*musecode[\s\S]*local · activity/, "Muse Code local usage is labeled as activity")
 assert.match(mainQml, /root\.formatUsageSource\(\s*root\.activeEntry\.provider,\s*root\.activeEntry\.source/, "provider identity surfaces the estimated OpenCode Go source label")
 assert.equal((mainQml.match(/root\.formatUsageSource\(/g) || []).length, 3, "all three provider identity surfaces use the estimated source label")
 assert.match(preferencesQml, /objectName: "quotaSelectionField"/, "preferences expose the compact quota field")
