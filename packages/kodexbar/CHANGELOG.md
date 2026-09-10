@@ -4,6 +4,12 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+## 0.12.8, 2026-09-10
+
+### Fixed
+
+- Keep Hermes in the popup provider list so the compact `Hm` chip opens its panel.
+
 ## 0.12.7, 2026-09-10
 
 ### Added

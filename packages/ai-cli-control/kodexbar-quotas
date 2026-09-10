@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover - Python < 3.11
     tomllib = None  # type: ignore[assignment]
 
 
-VERSION = "0.12.7"
+VERSION = "0.12.8"
 IS_WINDOWS = os.name == "nt"
 TIMEOUT_SECONDS = 15
 COST_CACHE_TTL_SECONDS = 15 * 60
@@ -3280,7 +3280,7 @@ def fetch_hermes(
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
-        "User-Agent": "KodexBar-Suite/0.12.7",
+        "User-Agent": "KodexBar-Suite/0.12.8",
     }
 
     last_error: FetchFallback | None = None

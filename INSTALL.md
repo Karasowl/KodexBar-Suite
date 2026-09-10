@@ -119,8 +119,8 @@ Official DEB and RPM files are published in [GitHub Releases](https://github.com
 This installs the suite under `/usr` and lets APT own upgrades and removal.
 
 ```bash
-curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.7/kodexbar-suite_0.12.7-1_all.deb
-sudo apt install ./kodexbar-suite_0.12.7-1_all.deb
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.8/kodexbar-suite_0.12.8-1_all.deb
+sudo apt install ./kodexbar-suite_0.12.8-1_all.deb
 ```
 
 To build it from source instead:
@@ -141,15 +141,15 @@ The DEB builder is checked on Debian 12, Ubuntu 22.04, and Ubuntu 24.04.
 This installs the suite under `/usr` and lets DNF own upgrades and removal. Use the general RPM on Fedora and RHEL 10 compatible systems:
 
 ```bash
-curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.7/kodexbar-suite-0.12.7-1.noarch.rpm
-sudo dnf install ./kodexbar-suite-0.12.7-1.noarch.rpm
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.8/kodexbar-suite-0.12.8-1.noarch.rpm
+sudo dnf install ./kodexbar-suite-0.12.8-1.noarch.rpm
 ```
 
 Use the dedicated `.el9` RPM on RHEL 9 compatible systems:
 
 ```bash
-curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.7/kodexbar-suite-0.12.7-1.el9.noarch.rpm
-sudo dnf install ./kodexbar-suite-0.12.7-1.el9.noarch.rpm
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.8/kodexbar-suite-0.12.8-1.el9.noarch.rpm
+sudo dnf install ./kodexbar-suite-0.12.8-1.el9.noarch.rpm
 ```
 
 To build it from source instead:

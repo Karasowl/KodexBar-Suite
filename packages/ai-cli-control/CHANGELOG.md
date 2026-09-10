@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.12.8, 2026-09-10
+
+### Changed
+
+- Align the bundled CLI version with the Hermes popup selection fix.
+
 ## 0.12.7, 2026-09-10
 
 ### Added
