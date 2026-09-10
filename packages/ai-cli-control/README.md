@@ -221,6 +221,8 @@ kodexbar-tray --autostart-remove
 
 The installer places the executable in `~/.local/share/ai-cli-control/kodexbar-tray`, links `~/.local/bin/kodexbar-tray`, and installs its three icons under `~/.local/share/icons/hicolor/scalable/apps/`. It never enables autostart by itself. The runtime needs PyGObject with Ayatana AppIndicator or AppIndicator bindings. Install `libayatana-appindicator` on Arch, `gir1.2-ayatanaappindicator3-0.1` on Debian or Ubuntu, or `libayatana-appindicator-gtk3` on Fedora. GNOME also needs the **AppIndicator and KStatusNotifierItem Support** extension.
 
+On Windows the same entry point dispatches to `kodexbar-tray-win`, a native tray icon built on pystray with a tkinter quota panel window and a HKCU Run autostart entry. It needs `pip install pystray pillow` when run from source; the packaged Windows build bundles both. See [the Windows packaging notes](../../packaging/windows/README.md).
+
 ## Development
 
 ```bash

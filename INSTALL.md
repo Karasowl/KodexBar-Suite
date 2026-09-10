@@ -200,7 +200,19 @@ On Plasma, add the widget the same way as in [After installation](#after-install
 
 ---
 
-## 4. Uninstall
+## 4. Windows 10 and 11
+
+Windows runs the suite as a tray application plus the console tools. The KDE Plasma widget is not part of the Windows build.
+
+1. Download `KodexBar-Suite-<version>-windows-setup.exe` (or the portable zip) from [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest).
+2. Run the installer. It installs per user under `%LOCALAPPDATA%\Programs\KodexBar-Suite` and never asks for administrator rights. Two optional tasks appear on the way: start KodexBar Tray with Windows, and add the tools to your user PATH.
+3. `KodexBar Tray` shows up in the notification area. Left-click the icon or use its menu to open the quota panel; the same menu refreshes on demand, opens AI CLI Control, and toggles autostart.
+
+Python is not required: the published build is standalone. Provider CLIs (Claude Code, Codex, Grok, Cursor, ...) are detected exactly as on Linux, from `~\.claude`, `~\.codex`, `~\.grok`, and the Cursor database under `%APPDATA%\Cursor`. Profiles and account sidecars live in `%APPDATA%\kodexbar-suite`.
+
+Prefer not to install? Extract the zip anywhere and run `KodexBarTray.exe`; the tray finds its sibling tools in the same folder. To build both artifacts yourself, see [the Windows packaging guide](packaging/windows/README.md).
+
+## 5. Uninstall
 
 How you remove the suite depends on how you installed it.
 
@@ -224,6 +236,10 @@ sudo apt remove kodexbar-suite
 sudo dnf remove kodexbar-suite
 ```
 
+### Installed on Windows
+
+Use "Apps & features" (search for KodexBar Suite) or run `Uninstall.exe` inside `%LOCALAPPDATA%\Programs\KodexBar-Suite`. The optional PATH entry and the autostart registry value are removed with the app.
+
 ### Installed with `./install.sh`
 
 From a clone of this repository:
@@ -236,7 +252,7 @@ That script only removes the user-local install under `~/.local` and refuses to 
 
 ---
 
-## 5. Known problems
+## 6. Known problems
 
 **Graphical AUR helper fails with "Permission denied" on its cache**
 

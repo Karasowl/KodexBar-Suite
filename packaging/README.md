@@ -11,7 +11,7 @@ KodexBar Suite uses one system payload for its Debian and RPM packages. The shar
 | Fedora and RHEL 9 or 10 compatible systems | `packaging/rpm/build-rpm.sh` | Fedora, AlmaLinux 9, AlmaLinux 10 |
 | Other Linux systems with Python 3.10 or newer | Root `install.sh` under `~/.local` | Portable container matrix |
 
-Official DEB and RPM files are attached to tagged [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest), together with the Plasma widget and `SHA256SUMS`. These recipes reproduce those system packages from source.
+Official DEB and RPM files are attached to tagged [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest), together with the Plasma widget and `SHA256SUMS`. These recipes reproduce those system packages from source. The Windows zip, setup exe, and `SHA256SUMS-windows` are built by CI and attached to the same tagged release by `.github/workflows/release-windows.yml`.
 
 ## Build a DEB
 

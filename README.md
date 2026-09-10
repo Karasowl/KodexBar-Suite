@@ -2,7 +2,7 @@
 
 [Leer en español](README.es.md)
 
-> Linux AI quota monitor and KDE Plasma 6 widget for coding assistants.
+> AI quota monitor for coding assistants: KDE Plasma 6 widget and Linux panel tools, plus a Windows tray app.
 
 [![Latest release](https://img.shields.io/github/v/release/Karasowl/KodexBar-Suite?display_name=tag&sort=semver)](https://github.com/Karasowl/KodexBar-Suite/releases/latest)
 [![KDE Plasma 6](https://img.shields.io/badge/KDE%20Plasma-6-1d99f3?style=flat-square)](https://kde.org/plasma-desktop/)
@@ -14,7 +14,7 @@ KodexBar Suite puts AI coding quota and usage tracking in one Linux panel. The w
 
 [Full 26s clip](docs/kodexbar-demo.mp4)
 
-The KDE Plasma 6 widget shows provider usage windows, reset times, credits, costs, accounts, and errors without requiring a separate dashboard for every assistant. The suite supports Arch and CachyOS, Debian and Ubuntu, Fedora, RHEL 9 and 10 compatible systems, and other Linux distributions with Python 3.10 or newer.
+The KDE Plasma 6 widget shows provider usage windows, reset times, credits, costs, accounts, and errors without requiring a separate dashboard for every assistant. The suite supports Arch and CachyOS, Debian and Ubuntu, Fedora, RHEL 9 and 10 compatible systems, and other Linux distributions with Python 3.10 or newer. Windows 10 and 11 get the same quota engine behind a native tray application.
 
 The public installation paths are the [AUR](https://aur.archlinux.org/packages/kodexbar-suite), native DEB and RPM files from [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest), and the user-local installer from this repository. If this saves you from opening several provider dashboards, star the project so other Linux users can find it.
 
@@ -152,7 +152,15 @@ Both RPMs are architecture-independent. Fedora and RHEL 10 compatible builds use
 
 ### GitHub Releases
 
-GitHub Releases provides the matching source archive, DEB, RPM files, Plasma widget, and `SHA256SUMS` file. Verify downloaded assets with `sha256sum -c SHA256SUMS` from the same directory.
+GitHub Releases provides the matching source archive, DEB, RPM files, Plasma widget, and `SHA256SUMS` file. Verify downloaded assets with `sha256sum -c SHA256SUMS` from the same directory. The Windows setup exe and portable zip are published with every release and also built on every push as CI artifacts.
+
+### Windows 10 and 11
+
+Windows runs the suite as a tray application plus the console tools; the quota engine is shared with the Linux build. `KodexBar Tray` shows a status icon in the notification area, opens a "Panel de cuotas" window with per-provider usage, and its menu covers refresh, AI CLI Control, autostart, and quit. `ai`, `kodexbar-quotas`, `kodexbar-skills`, `local-ai`, and `ai recover` ship beside the tray executable.
+
+- Install the per-user setup exe (no administrator rights) or extract the portable zip and run `KodexBarTray.exe`. Both come from [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest).
+- Provider data paths follow each CLI's Windows layout: `~\.claude`, `~\.codex`, `~\.grok`, and the Cursor token database under `%APPDATA%\Cursor`.
+- The Plasma 6 widget, Waybar/XFCE panel output, and the GTK tray stay Linux-only. Scope details and build-from-source steps live in [the Windows packaging notes](packaging/windows/README.md).
 
 ### KDE Store (widget-only channel)
 

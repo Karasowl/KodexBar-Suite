@@ -200,7 +200,19 @@ En Plasma, añade el widget igual que en [Después de instalar](#después-de-ins
 
 ---
 
-## 4. Desinstalar
+## 4. Windows 10 y 11
+
+En Windows la suite funciona como una aplicación de bandeja más las herramientas de consola. El widget de KDE Plasma no forma parte del build de Windows.
+
+1. Descarga `KodexBar-Suite-<versión>-windows-setup.exe` (o el zip portátil) desde [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest).
+2. Ejecuta el instalador. Se instala por usuario en `%LOCALAPPDATA%\Programs\KodexBar-Suite` y nunca pide permisos de administrador. En el camino aparecen dos tareas opcionales: iniciar KodexBar Tray con Windows y añadir las herramientas al PATH del usuario.
+3. `KodexBar Tray` aparece en el área de notificación. Haz clic en el icono o usa su menú para abrir el panel de cuotas; el mismo menú refresca a demanda, abre AI CLI Control y activa el inicio automático.
+
+Python no es necesario: el build publicado es autónomo. Los CLI de proveedores (Claude Code, Codex, Grok, Cursor, ...) se detectan igual que en Linux, desde `~\.claude`, `~\.codex`, `~\.grok`, y la base de datos de Cursor en `%APPDATA%\Cursor`. Los perfiles y cuentas viven en `%APPDATA%\kodexbar-suite`.
+
+¿Prefieres no instalar? Extrae el zip donde quieras y ejecuta `KodexBarTray.exe`; la bandeja encuentra sus herramientas hermanas en la misma carpeta. Para compilar ambos artefactos, consulta [la guía de empaquetado para Windows](packaging/windows/README.md).
+
+## 5. Desinstalar
 
 Cómo quitar la suite depende de cómo la instalaste.
 
@@ -224,6 +236,10 @@ sudo apt remove kodexbar-suite
 sudo dnf remove kodexbar-suite
 ```
 
+### Instalada en Windows
+
+Usa "Aplicaciones y características" (busca KodexBar Suite) o ejecuta `Uninstall.exe` dentro de `%LOCALAPPDATA%\Programs\KodexBar-Suite`. La entrada opcional del PATH y el valor de inicio automático en el registro se eliminan con la app.
+
 ### Instalada con `./install.sh`
 
 Desde un clon de este repositorio:
@@ -236,7 +252,7 @@ Ese script solo elimina la instalación de usuario bajo `~/.local` y se niega a 
 
 ---
 
-## 5. Problemas conocidos
+## 6. Problemas conocidos
 
 **El gestor gráfico de AUR falla con "Permission denied" en su caché**
 

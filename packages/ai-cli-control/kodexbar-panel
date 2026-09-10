@@ -294,6 +294,10 @@ def error_model(message: str) -> dict[str, Any]:
 
 
 def engine_path() -> str | None:
+    if getattr(sys, "frozen", False):
+        packaged = Path(sys.executable).resolve().with_name("kodexbar-quotas.exe")
+        if packaged.is_file():
+            return str(packaged)
     sibling = Path(__file__).resolve().with_name("kodexbar-quotas")
     if sibling.is_file() and os.access(sibling, os.X_OK):
         return str(sibling)

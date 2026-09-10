@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import math
@@ -19,10 +18,17 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
+
+try:
+    import fcntl
+except ImportError:  # Windows: byte-range locks come from msvcrt instead.
+    fcntl = None  # type: ignore[assignment]
+    import msvcrt  # type: ignore[import-not-found]
 
 try:
     import tomllib
@@ -31,6 +37,7 @@ except ImportError:  # pragma: no cover - Python < 3.11
 
 
 VERSION = "0.12.6"
+IS_WINDOWS = os.name == "nt"
 TIMEOUT_SECONDS = 15
 COST_CACHE_TTL_SECONDS = 15 * 60
 COST_ANCHOR_TTL_SECONDS = 6 * 60 * 60
@@ -279,18 +286,26 @@ def human_native_error_message(provider: str, category: str, original: str | Non
 
 
 def home_directory() -> Path:
+    if IS_WINDOWS:
+        return Path(os.environ.get("USERPROFILE", str(Path.home()))).expanduser()
     return Path(os.environ.get("HOME", str(Path.home()))).expanduser()
 
 
-def codexbar_config_path(home: Path | None = None) -> Path:
+def user_config_directory(home: Path | None = None) -> Path:
+    """Per-user configuration root: ~/.config on POSIX, %APPDATA% on Windows."""
     root = home or home_directory()
-    return root / ".config" / "codexbar" / "config.json"
+    if IS_WINDOWS:
+        return Path(os.environ.get("APPDATA", str(root / "AppData" / "Roaming")))
+    return root / ".config"
+
+
+def codexbar_config_path(home: Path | None = None) -> Path:
+    return user_config_directory(home) / "codexbar" / "config.json"
 
 
 def profiles_config_path(home: Path | None = None) -> Path:
     """Sidecar multi-account profiles (not CodexBar's enabled-provider list)."""
-    root = home or home_directory()
-    return root / ".config" / "kodexbar-suite" / "profiles.json"
+    return user_config_directory(home) / "kodexbar-suite" / "profiles.json"
 
 
 class ProfilesConfigError(Exception):
@@ -715,10 +730,17 @@ def detect_antigravity_installed(home: Path | None = None) -> bool:
 def detect_opencodego_installed(home: Path | None = None) -> bool:
     """OpenCode Go is present when OpenCode stores a non-empty Go credential."""
     root = home or home_directory()
-    candidates = (
-        root / ".local" / "share" / "opencode" / "auth.json",
-        root / ".config" / "opencode" / "auth.json",
-    )
+    if IS_WINDOWS:
+        # OpenCode maps its XDG data dir to %LOCALAPPDATA% on Windows.
+        candidates = (
+            root / "AppData" / "Local" / "opencode" / "auth.json",
+            root / "AppData" / "Roaming" / "opencode" / "auth.json",
+        )
+    else:
+        candidates = (
+            root / ".local" / "share" / "opencode" / "auth.json",
+            root / ".config" / "opencode" / "auth.json",
+        )
     for path in candidates:
         try:
             auth = read_json(path)
@@ -737,6 +759,9 @@ def detect_opencodego_installed(home: Path | None = None) -> bool:
 def cursor_state_db_path(home: Path | None = None) -> Path:
     """Path of the Cursor globalStorage SQLite DB that holds the session token."""
     root = home or home_directory()
+    if IS_WINDOWS:
+        # Cursor keeps Electron globalStorage under the user's roaming profile.
+        return root / "AppData" / "Roaming" / "Cursor" / "User" / "globalStorage" / "state.vscdb"
     return root / CURSOR_STATE_DB_RELATIVE
 
 
@@ -754,7 +779,18 @@ def cursor_access_token(
     if not path.is_file():
         raise FetchFallback(CURSOR_AUTH_NOT_FOUND, "authentication")
     try:
-        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        # Quote the path so Windows drive letters and separators stay valid in the URI.
+        uri = "file:" + quote(str(path), safe="/") + "?mode=ro"
+        if IS_WINDOWS:
+            # Cursor holds the DB open while running; fall back to an immutable
+            # read when Windows sharing locks block the normal read-only open.
+            try:
+                connection = sqlite3.connect(uri, uri=True, timeout=5)
+                connection.execute("SELECT 1 FROM ItemTable LIMIT 1").fetchone()
+            except sqlite3.OperationalError:
+                connection = sqlite3.connect(uri + "&immutable=1", uri=True, timeout=5)
+        else:
+            connection = sqlite3.connect(uri, uri=True, timeout=5)
         try:
             row = connection.execute(
                 "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'"
@@ -2962,6 +2998,9 @@ def cost_cache_directory(home: Path | None = None) -> Path:
     configured = os.environ.get("XDG_CACHE_HOME")
     if configured:
         return Path(configured).expanduser() / "kodexbar-suite"
+    if IS_WINDOWS:
+        root = Path(os.environ.get("LOCALAPPDATA") or (home or home_directory()))
+        return root / "kodexbar-suite" / "cache"
     root = home or home_directory()
     return root / ".cache" / "kodexbar-suite"
 
@@ -4179,43 +4218,99 @@ def write_cost_cache_atomic(cache_path: Path, fetched_at: float, payload: Any) -
             pass
 
 
-def acquire_cost_lock(lock_path: Path, *, blocking: bool) -> Any | None:
-    """Acquire the process-wide cost lock, with a bounded wait for foreground calls."""
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    handle = lock_path.open("a+", encoding="utf-8")
-    flags = fcntl.LOCK_EX | fcntl.LOCK_NB
-    if not blocking:
-        try:
-            fcntl.flock(handle.fileno(), flags)
-        except BlockingIOError:
-            handle.close()
-            return None
-        return handle
+COST_LOCK_REGION_BYTES = 1
 
+
+def _acquire_flock(handle: Any, *, blocking: bool) -> Any | None:
+    flags = fcntl.LOCK_EX | fcntl.LOCK_NB
     deadline = time.monotonic() + COST_UPSTREAM_TIMEOUT_SECONDS
     while True:
         try:
             fcntl.flock(handle.fileno(), flags)
             return handle
         except BlockingIOError:
-            if time.monotonic() >= deadline:
+            if not blocking or time.monotonic() >= deadline:
                 handle.close()
                 return None
             time.sleep(0.1)
 
 
+def _acquire_msvcrt_lock(handle: Any, *, blocking: bool) -> Any | None:
+    deadline = time.monotonic() + COST_UPSTREAM_TIMEOUT_SECONDS
+    while True:
+        try:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, COST_LOCK_REGION_BYTES)
+            return handle
+        except OSError:
+            # msvcrt reports contention as EACCES (PermissionError), not BlockingIOError.
+            if not blocking or time.monotonic() >= deadline:
+                handle.close()
+                return None
+            time.sleep(0.1)
+
+
+def acquire_cost_lock(lock_path: Path, *, blocking: bool) -> Any | None:
+    """Acquire the process-wide cost lock, with a bounded wait for foreground calls."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("a+", encoding="utf-8")
+    if fcntl is not None:
+        return _acquire_flock(handle, blocking=blocking)
+    return _acquire_msvcrt_lock(handle, blocking=blocking)
+
+
 def release_cost_lock(handle: Any) -> None:
     try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        else:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, COST_LOCK_REGION_BYTES)
     finally:
         handle.close()
 
 
 def _nice_cost_process() -> None:
     try:
-        os.nice(10)
+        if hasattr(os, "nice"):
+            os.nice(10)
     except OSError:
         pass
+
+
+def detached_spawn_kwargs() -> dict[str, Any]:
+    """Keyword arguments that detach a child process on the current platform."""
+    if IS_WINDOWS:
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        return {"creationflags": flags}
+    return {"start_new_session": True}
+
+
+def new_console_spawn_kwargs() -> dict[str, Any]:
+    """Keyword arguments that give an interactive child a visible console."""
+    if IS_WINDOWS:
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_CONSOLE", 0)}
+    return {"start_new_session": True}
+
+
+def resolved_command(argv: list[str]) -> list[str]:
+    """Resolve bare command names through PATH, including Windows .cmd shims."""
+    if not IS_WINDOWS:
+        return argv
+    name = argv[0]
+    if Path(name).name == name:
+        resolved = shutil.which(name)
+        if resolved:
+            return [resolved, *argv[1:]]
+    return argv
+
+
+def low_priority_spawn_kwargs() -> dict[str, Any]:
+    """Run a child at low priority on every supported platform."""
+    if IS_WINDOWS:
+        below_normal = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0x00004000)
+        return {"creationflags": below_normal}
+    return {"preexec_fn": _nice_cost_process}
 
 
 def systemd_scope_is_available(systemd_run: str) -> bool:
@@ -4249,7 +4344,7 @@ def systemd_scope_is_available(systemd_run: str) -> bool:
             stderr=subprocess.DEVNULL,
             timeout=TIMEOUT_SECONDS,
             check=False,
-            preexec_fn=_nice_cost_process,
+            **low_priority_spawn_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired):
         SYSTEMD_SCOPE_AVAILABLE = False
@@ -4284,7 +4379,7 @@ def run_cost_upstream(executable: str) -> subprocess.CompletedProcess[str]:
             text=True,
             timeout=COST_UPSTREAM_TIMEOUT_SECONDS,
             check=False,
-            preexec_fn=_nice_cost_process,
+            **low_priority_spawn_kwargs(),
         )
     return subprocess.run(
         upstream_command,
@@ -4292,7 +4387,7 @@ def run_cost_upstream(executable: str) -> subprocess.CompletedProcess[str]:
         text=True,
         timeout=COST_UPSTREAM_TIMEOUT_SECONDS,
         check=False,
-        preexec_fn=_nice_cost_process,
+        **low_priority_spawn_kwargs(),
     )
 
 
@@ -4347,13 +4442,17 @@ def refresh_cost_cache_nonblocking() -> int:
 def start_cost_cache_refresh() -> None:
     """Detach a cache refresh so stale results never block the widget."""
     try:
+        if getattr(sys, "frozen", False):
+            command = [sys.executable, "--refresh-cost-cache"]
+        else:
+            command = [sys.executable, str(Path(__file__).resolve()), "--refresh-cost-cache"]
         with open(os.devnull, "w", encoding="utf-8") as null:
             subprocess.Popen(
-                [sys.executable, str(Path(__file__).resolve()), "--refresh-cost-cache"],
+                command,
                 stdin=null,
                 stdout=null,
                 stderr=null,
-                start_new_session=True,
+                **detached_spawn_kwargs(),
             )
     except OSError:
         pass
@@ -5038,8 +5137,7 @@ MANAGED_PROFILE_PROVIDERS = frozenset({"codex", "claude"})
 
 
 def accounts_root_path(home: Path | None = None) -> Path:
-    root = home or home_directory()
-    return root / ".config" / "kodexbar-suite" / "accounts"
+    return user_config_directory(home) / "kodexbar-suite" / "accounts"
 
 
 def _slugify_profile_id(label: str) -> str:
@@ -5261,25 +5359,31 @@ def open_login_terminal(
     env = os.environ.copy()
     env.update(env_updates)
     # Hold the window so the user can read success or errors after login.
-    launchers = [
-        ["konsole", "--hold", "-e", *argv],
-        ["xdg-terminal-exec", "--", *argv],
-        ["gnome-terminal", "--", *argv],
-        ["xterm", "-hold", "-e", *argv],
-    ]
+    if IS_WINDOWS:
+        # `start` resolves npm .cmd shims itself and keeps the console open.
+        launchers = [
+            ["cmd", "/c", "start", "", *argv],
+        ]
+    else:
+        launchers = [
+            ["konsole", "--hold", "-e", *argv],
+            ["xdg-terminal-exec", "--", *argv],
+            ["gnome-terminal", "--", *argv],
+            ["xterm", "-hold", "-e", *argv],
+        ]
     errors: list[str] = []
     for launcher in launchers:
         if not command_on_path(launcher[0]):
             continue
         try:
-            subprocess.Popen(launcher, env=env, start_new_session=True)
+            subprocess.Popen(launcher, env=env, **new_console_spawn_kwargs())
             label = profile_id
             return f"Opened sign-in for {provider}/{label}. {hint}"
         except OSError as error:
             errors.append(f"{launcher[0]}: {error}")
     # Fallback: run without a terminal UI when none is available (still interactive if TTY).
     try:
-        subprocess.Popen(argv, env=env, start_new_session=True)
+        subprocess.Popen(resolved_command(argv), env=env, **new_console_spawn_kwargs())
         return f"Started sign-in for {provider}/{profile_id}. {hint}"
     except OSError as error:
         raise ValueError(

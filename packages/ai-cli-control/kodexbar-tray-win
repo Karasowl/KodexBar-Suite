@@ -1,0 +1,465 @@
+#!/usr/bin/env python3
+"""KodexBar quota tray icon for the Windows notification area.
+
+Shares the quota text logic with `kodexbar-tray` and adds a Windows-native
+shell: pystray for the notification icon, tkinter for the quota panel
+window, and a HKCU Run entry for autostart. Runtime dependencies:
+`pip install pystray pillow`.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import importlib.machinery
+import importlib.util
+import os
+from pathlib import Path
+import queue
+import shutil
+import subprocess
+import sys
+import threading
+from typing import Any
+
+
+THIS = Path(__file__).resolve()
+FROZEN = bool(getattr(sys, "frozen", False))
+RUN_KEY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
+RUN_VALUE_NAME = "KodexBarTray"
+ICON_CLASSES = ("ok", "warning", "critical")
+STATUS_COLORS = {"ok": "#35d07f", "warning": "#f5a623", "critical": "#ff5c5c"}
+BADGE_COLOR = (0x5A, 0x45, 0xF0)
+MISSING_DEPENDENCIES_MESSAGE = (
+    "Faltan dependencias del area de notificacion de KodexBar Tray.\n"
+    "Instalalas con:  py -m pip install --user pystray pillow\n"
+    "y vuelve a iniciar KodexBar Tray."
+)
+
+
+def load_shared_tray() -> Any | None:
+    """Load the sibling Linux tray module for menu and status helpers."""
+    candidates = [Path(sys.executable).resolve().with_name("kodexbar-tray")] if FROZEN else []
+    candidates.append(THIS.with_name("kodexbar-tray"))
+    for path in candidates:
+        if not path.is_file():
+            continue
+        loader = importlib.machinery.SourceFileLoader("kodexbar_tray_shared", str(path))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        if spec is None:
+            continue
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        return module
+    return None
+
+
+def validate_interval(value: str) -> int:
+    try:
+        interval = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("--interval debe ser un número entero") from error
+    if interval < 60:
+        raise argparse.ArgumentTypeError("--interval debe ser al menos 60")
+    return interval
+
+
+def status_class(status: dict[str, Any]) -> str:
+    return str(status.get("class")) if status.get("class") in ICON_CLASSES else "critical"
+
+
+def icon_directory() -> Path:
+    candidates = []
+    if FROZEN:
+        candidates.append(Path(sys.executable).resolve().parent / "icons" / "windows")
+        bundle = getattr(sys, "_MEIPASS", None)
+        if bundle:
+            candidates.append(Path(bundle) / "icons" / "windows")
+    candidates.append(THIS.parent / "icons" / "windows")
+    for directory in candidates:
+        if all((directory / f"kodexbar-tray-{name}.png").is_file() for name in ICON_CLASSES):
+            return directory
+    return candidates[-1]
+
+
+def tray_image(status: dict[str, Any], directory: Path) -> Any:
+    """Return a PIL Image for the tray; draw a fallback badge when PNGs miss."""
+    from PIL import Image, ImageDraw
+
+    key = status_class(status)
+    path = directory / f"kodexbar-tray-{key}.png"
+    if path.is_file():
+        try:
+            with Image.open(path) as handle:
+                return handle.copy()
+        except OSError:
+            pass
+    color = tuple(int(STATUS_COLORS[key][index : index + 2], 16) for index in (1, 3, 5))
+    image = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((0, 0, 31, 31), radius=7, fill=(*BADGE_COLOR, 255))
+    draw.ellipse((19, 19, 31, 31), fill=(*color, 255))
+    return image
+
+
+def sibling_executable(name: str) -> str | None:
+    """Find a packaged or development sibling tool of this script."""
+    if FROZEN:
+        candidates = [Path(sys.executable).resolve().parent / f"{name}.exe"]
+    else:
+        candidates = [THIS.with_name(name)]
+    for path in candidates:
+        if path.is_file():
+            return str(path)
+    return shutil.which(name)
+
+
+def open_in_new_console(executable: str) -> None:
+    flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+    subprocess.Popen(
+        [executable],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=flags,
+    )
+
+
+def autostart_command() -> str:
+    if FROZEN:
+        return f'"{sys.executable}"'
+    pythonw = Path(sys.executable).with_name("pythonw.exe")
+    interpreter = pythonw if pythonw.is_file() else Path(sys.executable)
+    return f'"{interpreter}" "{THIS}"'
+
+
+def autostart_enabled() -> bool:
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY_PATH) as key:
+            winreg.QueryValueEx(key, RUN_VALUE_NAME)
+        return True
+    except OSError:
+        return False
+
+
+def set_autostart(enabled: bool) -> bool:
+    import winreg
+
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY_PATH, 0, winreg.KEY_SET_VALUE) as key:
+        if enabled:
+            winreg.SetValueEx(key, RUN_VALUE_NAME, 0, winreg.REG_SZ, autostart_command())
+            return True
+        try:
+            winreg.DeleteValue(key, RUN_VALUE_NAME)
+        except FileNotFoundError:
+            return False
+    return True
+
+
+def time_stamp() -> str:
+    return datetime.datetime.now().strftime("Actualizado %H:%M")
+
+
+class PanelWindow:
+    """Small always-available quota window, the Windows take on the widget popup."""
+
+    def __init__(self, tk_module: Any, root: Any, application: "WindowsTrayApplication") -> None:
+        self.tk = tk_module
+        self.root = root
+        self.application = application
+        self.window = tk_module.Toplevel(root)
+        self.window.title("KodexBar Suite")
+        self.window.withdraw()
+        self.window.protocol("WM_DELETE_WINDOW", self.window.withdraw)
+        self.window.attributes("-topmost", True)
+        self.window.configure(bg="#1b1b22")
+        header = tk_module.Frame(self.window, bg="#1b1b22")
+        header.pack(fill="x", padx=14, pady=(12, 4))
+        tk_module.Label(
+            header,
+            text="KodexBar Suite",
+            bg="#1b1b22",
+            fg="#ffffff",
+            font=("Segoe UI", 12, "bold"),
+        ).pack(side="left")
+        self.updated = tk_module.Label(
+            header,
+            text="",
+            bg="#1b1b22",
+            fg="#8a8a96",
+            font=("Segoe UI", 8),
+        )
+        self.updated.pack(side="right")
+        self.rows = tk_module.Frame(self.window, bg="#1b1b22")
+        self.rows.pack(fill="both", expand=True, padx=14, pady=4)
+        actions = tk_module.Frame(self.window, bg="#1b1b22")
+        actions.pack(fill="x", padx=14, pady=(4, 12))
+        tk_module.Button(
+            actions,
+            text="Actualizar",
+            command=application.request_refresh,
+            bg="#5a45f0",
+            fg="#ffffff",
+            activebackground="#8f7bff",
+            activeforeground="#ffffff",
+            relief="flat",
+            padx=12,
+        ).pack(side="left")
+        tk_module.Button(
+            actions,
+            text="Cerrar",
+            command=self.window.withdraw,
+            bg="#2a2a33",
+            fg="#c9c9d4",
+            activebackground="#3a3a46",
+            activeforeground="#ffffff",
+            relief="flat",
+            padx=12,
+        ).pack(side="right")
+
+    def refresh_rows(self) -> None:
+        application = self.application
+        status = application.status
+        for child in self.rows.winfo_children():
+            child.destroy()
+        labels: list[tuple[str, str]] = []
+        for provider in status.get("providers", []):
+            label = application.shared.provider_menu_label(provider)
+            if label:
+                error = bool(provider.get("error")) if isinstance(provider, dict) else False
+                labels.append((label, "#ff5c5c" if error else "#e8e8f0"))
+        if status.get("error"):
+            labels.append((str(status["error"]), "#ff5c5c"))
+        if not labels:
+            labels.append((str(status.get("tooltip") or "Sin datos de cuotas"), "#8a8a96"))
+        for label, color in labels:
+            self.tk.Label(
+                self.rows,
+                text=label,
+                bg="#1b1b22",
+                fg=color,
+                font=("Segoe UI", 9),
+                anchor="w",
+                wraplength=380,
+                justify="left",
+            ).pack(fill="x", pady=1)
+        self.updated.config(text=application.last_refresh_text)
+
+    def show(self) -> None:
+        self.refresh_rows()
+        self.window.update_idletasks()
+        x = self.root.winfo_pointerx() - 180
+        y = self.root.winfo_pointery() - 60
+        width = self.window.winfo_reqwidth()
+        height = self.window.winfo_reqheight()
+        x = max(0, min(x, self.root.winfo_screenwidth() - width - 8))
+        y = max(0, min(y, self.root.winfo_screenheight() - height - 40))
+        self.window.geometry(f"+{x}+{y}")
+        self.window.deiconify()
+        self.window.lift()
+        try:
+            self.window.focus_force()
+        except Exception:
+            pass
+
+
+class WindowsTrayApplication:
+    def __init__(self, shared: Any, interval: int, panel_executable: str | None) -> None:
+        self.shared = shared
+        self.interval = interval
+        self.panel_executable = panel_executable
+        self.status = shared.error_status("Consultando cuotas por primera vez…")
+        self.events: queue.Queue[str] = queue.Queue()
+        self.lock = threading.Lock()
+        self.refreshing = False
+        self.last_refresh_text = ""
+        self.pystray: Any = None
+        self.icon: Any = None
+        self.window: PanelWindow | None = None
+        self.icon_images: dict[str, Any] = {}
+        self.icon_directory = icon_directory()
+
+    # -- icon and menu -----------------------------------------------------
+    def image_for(self, status: dict[str, Any]) -> Any:
+        key = status_class(status)
+        if key not in self.icon_images:
+            self.icon_images[key] = tray_image(status, self.icon_directory)
+        return self.icon_images[key]
+
+    def build_menu(self) -> Any:
+        status = self.status
+        pystray = self.pystray
+        items: list[Any] = []
+        for provider in status.get("providers", []):
+            label = self.shared.provider_menu_label(provider)
+            if label:
+                items.append(pystray.MenuItem(label, None, enabled=False))
+        if status.get("error"):
+            items.append(pystray.MenuItem(str(status["error"]), None, enabled=False))
+        if not items:
+            items.append(pystray.MenuItem(str(status.get("tooltip") or "Sin datos"), None, enabled=False))
+        items.extend(
+            [
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Abrir panel de cuotas", self.on_open_panel, default=True),
+                pystray.MenuItem("Actualizar ahora", self.on_menu_refresh),
+                pystray.MenuItem("Abrir AI CLI Control", self.on_open_ai),
+                pystray.MenuItem(
+                    "Iniciar con Windows",
+                    self.on_toggle_autostart,
+                    checked=lambda _item: autostart_enabled(),
+                ),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Salir", self.on_quit),
+            ]
+        )
+        return pystray.Menu(*items)
+
+    def apply_status(self, status: dict[str, Any]) -> None:
+        with self.lock:
+            self.status = status
+            self.last_refresh_text = time_stamp()
+        if self.icon is not None:
+            self.icon.icon = self.image_for(status)
+            self.icon.title = f"KodexBar — {status.get('text', '')}".rstrip(" —")
+            self.icon.menu = self.build_menu()
+            self.icon.update_menu()
+        self.events.put("refreshed")
+
+    # -- actions -----------------------------------------------------------
+    def request_refresh(self) -> None:
+        with self.lock:
+            if self.refreshing:
+                return
+            self.refreshing = True
+        thread = threading.Thread(target=self.refresh_worker, daemon=True)
+        thread.start()
+
+    def refresh_worker(self) -> None:
+        try:
+            status = self.shared.fetch_status(self.panel_executable)
+        except Exception as error:  # defensive: the tray must never die on a bad refresh
+            status = self.shared.error_status(error)
+        self.refreshing = False
+        self.apply_status(status)
+
+    def on_open_panel(self, _icon: Any = None, _item: Any = None) -> None:
+        self.events.put("panel")
+
+    def on_menu_refresh(self, _icon: Any = None, _item: Any = None) -> None:
+        self.request_refresh()
+
+    def on_open_ai(self, _icon: Any = None, _item: Any = None) -> None:
+        executable = sibling_executable("ai")
+        if executable:
+            try:
+                open_in_new_console(executable)
+            except OSError:
+                pass
+
+    def on_toggle_autostart(self, _icon: Any = None, _item: Any = None) -> None:
+        try:
+            set_autostart(not autostart_enabled())
+        except OSError:
+            pass
+        if self.icon is not None:
+            self.icon.menu = self.build_menu()
+            self.icon.update_menu()
+
+    def on_quit(self, _icon: Any = None, _item: Any = None) -> None:
+        self.events.put("quit")
+
+    # -- event loop --------------------------------------------------------
+    def drain_events(self, root: Any) -> None:
+        try:
+            while True:
+                event = self.events.get_nowait()
+                if event == "panel" and self.window is not None:
+                    self.window.show()
+                elif event == "quit":
+                    root.quit()
+                    return
+                elif event == "refreshed" and self.window is not None and self.window.window.winfo_viewable():
+                    self.window.refresh_rows()
+        except queue.Empty:
+            pass
+        root.after(100, lambda: self.drain_events(root))
+
+    def schedule_refreshes(self, root: Any) -> None:
+        self.request_refresh()
+        root.after(self.interval * 1000, self.schedule_refreshes, root)
+
+    def run(self) -> int:
+        import pystray
+        import tkinter
+
+        self.pystray = pystray
+        root = tkinter.Tk()
+        root.withdraw()
+        self.window = PanelWindow(tkinter, root, self)
+        self.icon = pystray.Icon(
+            "kodexbar-tray",
+            self.image_for(self.status),
+            "KodexBar",
+            self.build_menu(),
+        )
+        self.icon.run_detached()
+        self.schedule_refreshes(root)
+        self.drain_events(root)
+        root.mainloop()
+        try:
+            self.icon.stop()
+        except Exception:
+            pass
+        return 0
+
+
+def parse_arguments(arguments: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--interval", type=validate_interval, default=300, help="segundos entre actualizaciones, mínimo 60")
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument("--autostart-install", action="store_true", help="instala el inicio automático del usuario")
+    actions.add_argument("--autostart-remove", action="store_true", help="elimina el inicio automático del usuario")
+    return parser.parse_args(arguments)
+
+
+def main(arguments: list[str]) -> int:
+    if os.name != "nt":
+        print("kodexbar-tray-win solo está disponible en Windows.", file=sys.stderr)
+        return 1
+    options = parse_arguments(arguments)
+    if options.autostart_install:
+        try:
+            set_autostart(True)
+            print("Inicio automático instalado en el registro de Windows.")
+        except OSError as error:
+            print(f"No se pudo instalar el inicio automático: {error}", file=sys.stderr)
+            return 1
+        return 0
+    if options.autostart_remove:
+        try:
+            removed = set_autostart(False)
+        except OSError as error:
+            print(f"No se pudo eliminar el inicio automático: {error}", file=sys.stderr)
+            return 1
+        print("Inicio automático eliminado." if removed else "No había inicio automático instalado.")
+        return 0
+    shared = load_shared_tray()
+    if shared is None:
+        print("No se encontró kodexbar-tray junto a kodexbar-tray-win.", file=sys.stderr)
+        return 1
+    try:
+        import PIL  # noqa: F401
+        import pystray  # noqa: F401
+        import tkinter  # noqa: F401
+    except ImportError:
+        print(MISSING_DEPENDENCIES_MESSAGE, file=sys.stderr)
+        return 1
+    application = WindowsTrayApplication(shared, options.interval, sibling_executable("kodexbar-panel"))
+    return application.run()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

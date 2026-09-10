@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import importlib.machinery
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -57,6 +59,10 @@ def icon_path(status_class: Any, icon_directory: Path | None = None) -> str:
 
 
 def panel_path(script_path: Path | None = None) -> str | None:
+    if getattr(sys, "frozen", False):
+        packaged = Path(sys.executable).resolve().with_name("kodexbar-panel.exe")
+        if packaged.is_file():
+            return str(packaged)
     script = script_path or Path(__file__).resolve()
     sibling = script.with_name("kodexbar-panel")
     if sibling.is_file() and os.access(sibling, os.X_OK):
@@ -319,7 +325,28 @@ def parse_arguments(arguments: list[str]) -> argparse.Namespace:
     return parser.parse_args(arguments)
 
 
+def load_windows_tray() -> Any | None:
+    """Load the sibling Windows tray module when running on Windows."""
+    path = Path(__file__).resolve().with_name("kodexbar-tray-win")
+    if not path.is_file():
+        return None
+    loader = importlib.machinery.SourceFileLoader("kodexbar_tray_win", str(path))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    if spec is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 def main(arguments: list[str]) -> int:
+    if os.name == "nt":
+        windows_tray = load_windows_tray()
+        if windows_tray is None:
+            print("No se encontró kodexbar-tray-win junto a kodexbar-tray.", file=sys.stderr)
+            return 1
+        return windows_tray.main(arguments)
     options = parse_arguments(arguments)
     executable = str(Path(__file__).resolve())
     if options.autostart_install:

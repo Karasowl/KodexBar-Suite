@@ -430,6 +430,13 @@ def command_name(provider: str) -> str:
     return os.environ.get(variable, default)
 
 
+def resolve_executable_name(name: str) -> str:
+    """Resolve npm-style .cmd shims on Windows; POSIX keeps the plain name."""
+    if os.name != "nt" or os.path.sep in name:
+        return name
+    return shutil.which(name) or name
+
+
 def die(language: str, key: str, **values: object) -> NoReturn:
     print(f"ai: {message(language, key, **values)}", file=sys.stderr)
     raise SystemExit(EXIT_INVALID)
@@ -525,7 +532,7 @@ def load_codex_models(language: str) -> tuple[list[Option], dict[str, list[Optio
 
 
 def load_grok_models(language: str) -> list[Option]:
-    executable = command_name("grok")
+    executable = resolve_executable_name(command_name("grok"))
     try:
         result = subprocess.run([executable, "models"], text=True, capture_output=True, check=False, timeout=15)
     except (OSError, subprocess.TimeoutExpired) as error:
@@ -546,7 +553,7 @@ def load_grok_models(language: str) -> list[Option]:
 
 
 def load_antigravity_models(language: str) -> list[Option]:
-    executable = command_name("antigravity")
+    executable = resolve_executable_name(command_name("antigravity"))
     try:
         result = subprocess.run([executable, "models"], text=True, capture_output=True, check=False, timeout=15)
     except (OSError, subprocess.TimeoutExpired) as error:
@@ -612,7 +619,7 @@ class UpdateResult:
 
 def version_of(executable: str, language: str) -> str:
     try:
-        result = subprocess.run([executable, "--version"], text=True, capture_output=True, check=False)
+        result = subprocess.run([resolve_executable_name(executable), "--version"], text=True, capture_output=True, check=False)
     except OSError as error:
         return message(language, "not_available", detail=error)
     if result.returncode != 0:
@@ -648,6 +655,7 @@ def run_updates(provider_ids: Sequence[str], dry_run: bool, language: str) -> in
     results: list[UpdateResult] = []
     for provider in provider_ids:
         command = build_update_command(provider)
+        command = [resolve_executable_name(command[0]), *command[1:]]
         before = version_of(command[0], language)
         try:
             result = subprocess.run(command, check=False)
@@ -728,6 +736,10 @@ def parse_arguments(language: str) -> argparse.Namespace:
 
 def kodexbar_quotas_executable() -> Path | None:
     """Prefer the engine shipped beside this script, then PATH."""
+    if getattr(sys, "frozen", False):
+        packaged = Path(sys.executable).resolve().with_name("kodexbar-quotas.exe")
+        if packaged.is_file():
+            return packaged
     sibling = Path(__file__).resolve().with_name("kodexbar-quotas")
     if sibling.is_file() and os.access(sibling, os.X_OK):
         return sibling
@@ -859,6 +871,10 @@ def run_accounts_menu(ui: SelectorUI, language: str, dry_run: bool) -> int:
 
 def run_recover(arguments: Sequence[str]) -> int:
     """Run the standalone recovery engine located beside the real ai script."""
+    if getattr(sys, "frozen", False):
+        packaged = Path(sys.executable).resolve().with_name("ai-recover.exe")
+        if packaged.is_file():
+            return subprocess.run([str(packaged), *(arguments or ("--help",))], check=False).returncode
     recover = Path(__file__).resolve().with_name("recover.py")
     command = [sys.executable, str(recover), *(arguments or ("--help",))]
     try:
@@ -930,6 +946,10 @@ def main() -> int:
         die(language, "executable_missing_path", executable=executable)
     if os.path.sep in executable and not os.access(executable, os.X_OK):
         die(language, "executable_missing_file", executable=executable)
+    if os.name == "nt":
+        # os.execvp cannot launch npm .cmd shims; run through the resolved path.
+        resolved = shutil.which(executable) or executable
+        return subprocess.run([resolved, *command[1:]], check=False).returncode
     os.execvp(executable, command)
     return 0
 

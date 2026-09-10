@@ -16,6 +16,7 @@ RECOVER = ROOT / "recover.py"
 QUOTAS = ROOT / "kodexbar-quotas"
 PANEL = ROOT / "kodexbar-panel"
 TRAY = ROOT / "kodexbar-tray"
+TRAY_WIN = ROOT / "kodexbar-tray-win"
 LOCAL_AI = ROOT / "local-ai"
 SKILLS = ROOT / "kodexbar-skills"
 AUR_PKGBUILD = ROOT.parents[1] / "packaging" / "aur" / "PKGBUILD"
@@ -78,6 +79,9 @@ def main() -> int:
         return 1
     if not TRAY.is_file():
         print("Missing kodexbar-tray indicator", file=sys.stderr)
+        return 1
+    if not TRAY_WIN.is_file():
+        print("Missing kodexbar-tray-win Windows indicator", file=sys.stderr)
         return 1
     if not LOCAL_AI.is_file():
         print("Missing local-ai engine", file=sys.stderr)
@@ -146,6 +150,7 @@ def main() -> int:
     quotas_source = QUOTAS.read_text(encoding="utf-8")
     panel_source = PANEL.read_text(encoding="utf-8")
     tray_source = TRAY.read_text(encoding="utf-8")
+    tray_win_source = TRAY_WIN.read_text(encoding="utf-8")
     local_ai_source = LOCAL_AI.read_text(encoding="utf-8")
     skills_source = SKILLS.read_text(encoding="utf-8")
     failures = [token for token in FORBIDDEN if token in source]
@@ -172,6 +177,9 @@ def main() -> int:
         return 1
     if any(token in tray_source for token in FORBIDDEN):
         print("Forbidden execution tokens found in kodexbar-tray", file=sys.stderr)
+        return 1
+    if any(token in tray_win_source for token in FORBIDDEN):
+        print("Forbidden execution tokens found in kodexbar-tray-win", file=sys.stderr)
         return 1
     if any(token in local_ai_source for token in FORBIDDEN):
         print("Forbidden execution tokens found in local-ai", file=sys.stderr)

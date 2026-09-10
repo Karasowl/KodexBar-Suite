@@ -6,6 +6,47 @@ permissions:
   contents: read
 
 jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cross-platform engine tests
+        run: |
+          python -m py_compile packages/ai-cli-control/ai packages/ai-cli-control/kodexbar-quotas packages/ai-cli-control/kodexbar-panel packages/ai-cli-control/kodexbar-tray packages/ai-cli-control/kodexbar-tray-win packages/ai-cli-control/local-ai packages/ai-cli-control/kodexbar-skills packages/ai-cli-control/recover.py
+          python -m unittest discover -s packages/ai-cli-control/tests -p "test_windows_support.py" -v
+          python packages/ai-cli-control/tests/static_checks.py
+
+      - name: Install build dependencies
+        run: python -m pip install --upgrade pyinstaller pystray pillow
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build Windows bundle
+        run: pwsh packaging/windows/build.ps1 -Installer
+
+      - name: Upload portable zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: kodexbar-suite-windows-x64-zip
+          path: packaging/windows/build/dist/KodexBar-Suite-*-windows-x64.zip
+          if-no-files-found: error
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: kodexbar-suite-windows-x64-installer
+          path: packaging/windows/build/installer/KodexBar-Suite-*-windows-setup.exe
+          if-no-files-found: error
+
   suite-tests:
     runs-on: ubuntu-latest
     steps:

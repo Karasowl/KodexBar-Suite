@@ -2,7 +2,7 @@
 
 [Read in English](README.md)
 
-> Monitor de cuotas y uso de IA para Linux, con widget de KDE Plasma 6 para asistentes de programación.
+> Monitor de cuotas y uso de IA para asistentes de programación: widget de KDE Plasma 6 y herramientas de panel en Linux, más una app de bandeja para Windows.
 
 [![Última release](https://img.shields.io/github/v/release/Karasowl/KodexBar-Suite?display_name=tag&sort=semver)](https://github.com/Karasowl/KodexBar-Suite/releases/latest)
 [![KDE Plasma 6](https://img.shields.io/badge/KDE%20Plasma-6-1d99f3?style=flat-square)](https://kde.org/plasma-desktop/)
@@ -14,7 +14,7 @@ KodexBar Suite concentra en un panel de Linux las cuotas y el uso de asistentes 
 
 [Clip completo de 26s](docs/kodexbar-demo.mp4)
 
-El widget de KDE Plasma 6 muestra ventanas de uso, reinicios, créditos, costos, cuentas y errores sin obligarte a abrir un panel distinto para cada asistente. La suite admite Arch y CachyOS, Debian y Ubuntu, Fedora, sistemas compatibles con RHEL 9 y 10, y otras distribuciones Linux con Python 3.10 o posterior.
+El widget de KDE Plasma 6 muestra ventanas de uso, reinicios, créditos, costos, cuentas y errores sin obligarte a abrir un panel distinto para cada asistente. La suite admite Arch y CachyOS, Debian y Ubuntu, Fedora, sistemas compatibles con RHEL 9 y 10, y otras distribuciones Linux con Python 3.10 o posterior. Windows 10 y 11 reciben el mismo motor de cuotas detrás de una aplicación de bandeja nativa.
 
 Las vías públicas de instalación son [AUR](https://aur.archlinux.org/packages/kodexbar-suite), los archivos DEB y RPM nativos de [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest), y el instalador local de este repositorio. Si te evita abrir varios paneles de proveedores, marca el proyecto con una estrella para que otros usuarios de Linux puedan encontrarlo.
 
@@ -152,7 +152,15 @@ Ambos RPM son independientes de la arquitectura. Las compilaciones para Fedora y
 
 ### GitHub Releases
 
-GitHub Releases proporciona el archivo fuente, DEB, archivos RPM, widget de Plasma y archivo `SHA256SUMS` correspondientes. Verifica los assets descargados con `sha256sum -c SHA256SUMS` desde el mismo directorio.
+GitHub Releases proporciona el archivo fuente, DEB, archivos RPM, widget de Plasma y archivo `SHA256SUMS` correspondientes. Verifica los assets descargados con `sha256sum -c SHA256SUMS` desde el mismo directorio. El instalador y el zip portátil para Windows se publican con cada release y también se compilan en cada push como artefactos de CI.
+
+### Windows 10 y 11
+
+En Windows la suite funciona como una aplicación de bandeja más las herramientas de consola; el motor de cuotas es el mismo del build de Linux. `KodexBar Tray` muestra un icono de estado en el área de notificación, abre una ventana de "Panel de cuotas" con el uso por proveedor, y su menú cubre refresco, AI CLI Control, inicio automático y salir. `ai`, `kodexbar-quotas`, `kodexbar-skills`, `local-ai` y `ai recover` se instalan junto al ejecutable de la bandeja.
+
+- Instala el exe por usuario (sin permisos de administrador) o extrae el zip portátil y ejecuta `KodexBarTray.exe`. Ambos salen de [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest).
+- Las rutas de datos de proveedores siguen la disposición de cada CLI en Windows: `~\.claude`, `~\.codex`, `~\.grok`, y la base de datos de tokens de Cursor en `%APPDATA%\Cursor`.
+- El widget de Plasma 6, la salida para Waybar/XFCE y la bandeja GTK siguen siendo exclusivos de Linux. Los detalles del alcance y la compilación desde fuente están en [las notas de empaquetado para Windows](packaging/windows/README.md).
 
 ### KDE Store (canal solo para el widget)
 

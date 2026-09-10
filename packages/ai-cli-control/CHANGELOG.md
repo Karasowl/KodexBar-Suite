@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Windows tray application (`kodexbar-tray-win`) with a quota panel window, HKCU Run autostart, portable zip, and per-user installer.
+- CI builds the Windows zip and installer on every push. Pushing a `v*` tag publishes those artifacts, plus `SHA256SUMS-windows`, to the GitHub Release.
+
+### Changed
+
+- Quota engine paths, file locks, and process spawning work on Windows. Provider data follows each CLI's Windows layout.
+
 ## 0.12.6, 2026-08-30
 
 ### Added
