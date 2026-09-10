@@ -1057,7 +1057,14 @@ function popupProviderPriority(provider) {
 function orderPopupEntries(entries) {
     var list = Array.isArray(entries) ? entries : []
     var ordered = []
-    for (var priority = 0; priority < 5; priority++) {
+    var maxPriority = -1
+    for (var scan = 0; scan < list.length; scan++) {
+        var scanned = popupProviderPriority(list[scan] && list[scan].provider)
+        if (scanned < 100 && scanned > maxPriority) {
+            maxPriority = scanned
+        }
+    }
+    for (var priority = 0; priority <= maxPriority; priority++) {
         for (var i = 0; i < list.length; i++) {
             if (popupProviderPriority(list[i] && list[i].provider) === priority) {
                 ordered.push(list[i])

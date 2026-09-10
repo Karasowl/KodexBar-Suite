@@ -105,6 +105,31 @@ assert.equal(activeError.entry.errorMessage, "quota unavailable", "an error acco
 const activeFallback = plain(context.activeEntryData(fixture.entries, "missing:9"))
 assert.equal(activeFallback.entry.selectionKey, "codex:1", "a stale selection falls back deterministically")
 
+const popupWithHermes = plain(context.decoratePopupEntries([
+    { provider: "cursor", name: "Cursor", profileId: "default" },
+    { provider: "hermes", name: "Hermes", profileId: "default" },
+    { provider: "opencodego", name: "OpenCode Go", profileId: "default" },
+    { provider: "codex", name: "Codex", profileId: "default" }
+]))
+assert.deepEqual(
+    popupWithHermes.map(entry => entry.providerId),
+    ["codex", "cursor", "hermes", "opencodego"],
+    "popup keeps Hermes with the other known providers instead of dropping priority 5"
+)
+const hermesEntry = popupWithHermes.find(entry => entry.providerId === "hermes")
+assert.equal(hermesEntry.selectionKey, "hermes:default", "Hermes keeps a selectable popup key")
+const hermesSelectable = [
+    { provider: "cursor", name: "Cursor", profileId: "default" },
+    { provider: "hermes", name: "Hermes", profileId: "default" }
+]
+const activeHermes = plain(context.activeEntryData(hermesSelectable, "hermes:default"))
+assert.equal(activeHermes.entry.providerId, "hermes", "selecting the Hermes compact chip opens the Hermes panel")
+assert.equal(
+    context.popupSelectionKeyForEntry(hermesSelectable, hermesSelectable[1]),
+    "hermes:default",
+    "the Hermes compact chip keeps a selection key that the popup can resolve"
+)
+
 
 const multiProfileEntries = [
     { provider: "codex", profileId: "work", profileLabel: "Trabajo", name: "Codex", errorMessage: "" },
