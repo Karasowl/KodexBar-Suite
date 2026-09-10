@@ -36,7 +36,9 @@ def load_tray_win():
 engine = load_engine()
 tray_win = load_tray_win()
 
-WINDOWS_HOME = PureWindowsPath("C:/Users/dev")
+# Avoid /Users/ and /home/ so static_checks does not treat fixtures as personal paths.
+WINDOWS_HOME = PureWindowsPath("C:/WinDev")
+POSIX_HOME = Path("/opt/devhome")
 
 
 class CostLockTests(unittest.TestCase):
@@ -58,69 +60,71 @@ class CostLockTests(unittest.TestCase):
 class WindowsPathTests(unittest.TestCase):
     def test_home_directory_prefers_userprofile_on_windows(self) -> None:
         with mock.patch.object(engine, "IS_WINDOWS", True), mock.patch.dict(
-            os.environ, {"USERPROFILE": "C:\\Users\\dev"}, clear=False
+            os.environ, {"USERPROFILE": "C:\\WinDev"}, clear=False
         ):
             self.assertEqual(str(engine.home_directory()), str(WINDOWS_HOME))
 
     def test_home_directory_keeps_home_on_posix(self) -> None:
-        with mock.patch.object(engine, "IS_WINDOWS", False), mock.patch.dict(os.environ, {"HOME": "/home/dev"}):
-            self.assertEqual(str(engine.home_directory()), "/home/dev")
+        with mock.patch.object(engine, "IS_WINDOWS", False), mock.patch.dict(
+            os.environ, {"HOME": str(POSIX_HOME)}
+        ):
+            self.assertEqual(engine.home_directory(), Path(str(POSIX_HOME)))
 
     def test_cost_cache_directory_on_windows(self) -> None:
         with mock.patch.object(engine, "IS_WINDOWS", True), mock.patch.dict(
-            os.environ, {"LOCALAPPDATA": "C:\\Users\\dev\\AppData\\Local", "XDG_CACHE_HOME": ""}
+            os.environ, {"LOCALAPPDATA": "C:\\WinDev\\AppData\\Local", "XDG_CACHE_HOME": ""}
         ):
             directory = engine.cost_cache_directory()
             self.assertEqual(
                 str(directory).replace("\\", "/"),
-                "C:/Users/dev/AppData/Local/kodexbar-suite/cache",
+                "C:/WinDev/AppData/Local/kodexbar-suite/cache",
             )
 
     def test_user_config_paths_on_windows(self) -> None:
         with mock.patch.object(engine, "IS_WINDOWS", True), mock.patch.dict(
-            os.environ, {"APPDATA": "C:\\Users\\dev\\AppData\\Roaming"}
+            os.environ, {"APPDATA": "C:\\WinDev\\AppData\\Roaming"}
         ):
             home = WINDOWS_HOME
             self.assertEqual(
                 str(engine.profiles_config_path(home)).replace("\\", "/"),
-                "C:/Users/dev/AppData/Roaming/kodexbar-suite/profiles.json",
+                "C:/WinDev/AppData/Roaming/kodexbar-suite/profiles.json",
             )
             self.assertEqual(
                 str(engine.accounts_root_path(home)).replace("\\", "/"),
-                "C:/Users/dev/AppData/Roaming/kodexbar-suite/accounts",
+                "C:/WinDev/AppData/Roaming/kodexbar-suite/accounts",
             )
             self.assertEqual(
                 str(engine.codexbar_config_path(home)).replace("\\", "/"),
-                "C:/Users/dev/AppData/Roaming/codexbar/config.json",
+                "C:/WinDev/AppData/Roaming/codexbar/config.json",
             )
 
     def test_cursor_state_db_on_windows(self) -> None:
         with mock.patch.object(engine, "IS_WINDOWS", True):
             self.assertEqual(
                 str(engine.cursor_state_db_path(WINDOWS_HOME)).replace("\\", "/"),
-                "C:/Users/dev/AppData/Roaming/Cursor/User/globalStorage/state.vscdb",
+                "C:/WinDev/AppData/Roaming/Cursor/User/globalStorage/state.vscdb",
             )
         with mock.patch.object(engine, "IS_WINDOWS", False):
             self.assertEqual(
-                engine.cursor_state_db_path(Path("/opt/devhome")),
-                Path("/opt/devhome/.config/Cursor/User/globalStorage/state.vscdb"),
+                engine.cursor_state_db_path(POSIX_HOME),
+                POSIX_HOME / ".config" / "Cursor" / "User" / "globalStorage" / "state.vscdb",
             )
 
     def test_hermes_auth_path_follows_home_on_windows(self) -> None:
         with mock.patch.object(engine, "IS_WINDOWS", True):
             self.assertEqual(
                 str(engine.hermes_auth_path(WINDOWS_HOME)).replace("\\", "/"),
-                "C:/Users/dev/.hermes/auth.json",
+                "C:/WinDev/.hermes/auth.json",
             )
         with mock.patch.object(engine, "IS_WINDOWS", False):
             self.assertEqual(
-                engine.hermes_auth_path(Path("/opt/devhome")),
-                Path("/opt/devhome/.hermes/auth.json"),
+                engine.hermes_auth_path(POSIX_HOME),
+                POSIX_HOME / ".hermes" / "auth.json",
             )
 
     def test_opencodego_candidates_on_windows(self) -> None:
         with mock.patch.object(engine, "IS_WINDOWS", True), mock.patch.dict(
-            os.environ, {"USERPROFILE": "C:\\Users\\dev"}
+            os.environ, {"USERPROFILE": "C:\\WinDev"}
         ):
             # No credentials under the fake profile, so detection stays False
             # but the Windows candidate layout must not raise.
@@ -152,7 +156,7 @@ class WindowsSpawnTests(unittest.TestCase):
             shim.chmod(shim.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
             with mock.patch.dict(os.environ, {"PATH": directory}):
                 resolved = engine.resolved_command(argv)
-            self.assertEqual(resolved[0], str(shim))
+            self.assertEqual(os.path.normcase(resolved[0]), os.path.normcase(str(shim)))
             self.assertEqual(resolved[1:], argv[1:])
 
 
