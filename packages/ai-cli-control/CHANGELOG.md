@@ -8,6 +8,7 @@ All notable changes to this project are documented in this file.
 
 - Windows tray application (`kodexbar-tray-win`) with a quota panel window, HKCU Run autostart, portable zip, and per-user installer.
 - CI builds the Windows zip and installer on every push. Pushing a `v*` tag publishes those artifacts, plus `SHA256SUMS-windows`, to the GitHub Release.
+- Native Hermes support: read the Nous Portal access token from `~/.hermes/auth.json` and show remaining subscription credits, purchased top-ups, and the monthly used percent when Portal reports both remaining and the monthly cap. The engine never spends the rotating refresh token.
 
 ### Changed
 

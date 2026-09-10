@@ -38,6 +38,7 @@ La suite tiene rutas dedicadas de cuotas para estos proveedores:
 | Cursor | Uso nativo del ciclo mensual con vistas de Models, Other, Total, Auto y API |
 | Grok | Datos nativos de uso y facturación desde la sesión local |
 | OpenCode Go | Detección nativa de cuota e identidad del proveedor |
+| Hermes | Créditos restantes nativos de Nous Portal desde el login local de Hermes |
 | Antigravity | Ruta opcional mediante la CLI CodexBar upstream |
 
 El widget también puede mostrar otros proveedores devueltos por CodexBar cuando están habilitados. La suite no inventa valores de cuota cuando un proveedor no devuelve datos reales.
@@ -101,7 +102,7 @@ Qué instala el paquete bajo `/usr`:
 
 Cómo funcionan las cuotas después de instalar:
 
-- **Claude, Codex y Grok** obtienen sus cuotas de forma nativa con `kodexbar-quotas` (Python stdlib). Claude necesita credenciales OAuth de Claude Code. Codex lee `~/.codex/auth.json`. Grok lee `~/.grok/auth.json`. Si las credenciales faltan o caducaron, se muestra un mensaje de re-login (sin refresco automático de OAuth).
+- **Claude, Codex, Grok, Cursor y Hermes** obtienen sus cuotas de forma nativa con `kodexbar-quotas` (Python stdlib). Claude necesita credenciales OAuth de Claude Code. Codex lee `~/.codex/auth.json`. Grok lee `~/.grok/auth.json`. Hermes lee el access token de Nous Portal en `~/.hermes/auth.json` y no gasta el refresh token rotativo. Si las credenciales faltan o caducaron, se muestra un mensaje de re-login (sin refresco automático de OAuth).
 - **Antigravity** sigue necesitando la CLI compañera [`codexbar` de steipete](https://github.com/steipete/CodexBar). Esa misma CLI es un respaldo opcional para Codex y Grok cuando la ruta nativa falla por red o infraestructura reintentable. En Arch/CachyOS instálala como `codexbar-cli-bin` (no es el paquete AUR homónimo de otro proyecto).
 - Una configuración de CodexBar que ya exista no se sobrescribe. El widget **no** inventa números de cuota.
 
@@ -159,7 +160,7 @@ GitHub Releases proporciona el archivo fuente, DEB, archivos RPM, widget de Plas
 En Windows la suite funciona como una aplicación de bandeja más las herramientas de consola; el motor de cuotas es el mismo del build de Linux. `KodexBar Tray` muestra un icono de estado en el área de notificación, abre una ventana de "Panel de cuotas" con el uso por proveedor, y su menú cubre refresco, AI CLI Control, inicio automático y salir. `ai`, `kodexbar-quotas`, `kodexbar-skills`, `local-ai` y `ai recover` se instalan junto al ejecutable de la bandeja.
 
 - Instala el exe por usuario (sin permisos de administrador) o extrae el zip portátil y ejecuta `KodexBarTray.exe`. Ambos salen de [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest).
-- Las rutas de datos de proveedores siguen la disposición de cada CLI en Windows: `~\.claude`, `~\.codex`, `~\.grok`, y la base de datos de tokens de Cursor en `%APPDATA%\Cursor`.
+- Las rutas de datos de proveedores siguen la disposición de cada CLI en Windows: `~\.claude`, `~\.codex`, `~\.grok`, `~\.hermes`, y la base de datos de tokens de Cursor en `%APPDATA%\Cursor`.
 - El widget de Plasma 6, la salida para Waybar/XFCE y la bandeja GTK siguen siendo exclusivos de Linux. Los detalles del alcance y la compilación desde fuente están en [las notas de empaquetado para Windows](packaging/windows/README.md).
 
 ### KDE Store (canal solo para el widget)

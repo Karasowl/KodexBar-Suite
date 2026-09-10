@@ -30,6 +30,7 @@ spec.loader.exec_module(quotas)
 TEST_CODEX_TOKEN = "test-codex-access-token-SECRET-do-not-leak"
 TEST_GROK_KEY = "test-grok-key-SECRET-do-not-leak"
 TEST_CURSOR_TOKEN = "test-cursor-token-SECRET-do-not-leak"
+TEST_HERMES_TOKEN = "test-hermes-token-SECRET-do-not-leak"
 
 
 def _encode_varint(value: int) -> bytes:
@@ -1620,6 +1621,7 @@ class QuotasEngineTests(unittest.TestCase):
                 self.assertFalse(quotas.detect_grok_installed(home))
                 self.assertFalse(quotas.detect_antigravity_installed(home))
                 self.assertFalse(quotas.detect_opencodego_installed(home))
+                self.assertFalse(quotas.detect_hermes_installed(home))
 
                 credentials = home / ".claude" / ".credentials.json"
                 credentials.parent.mkdir(parents=True)
@@ -1647,19 +1649,29 @@ class QuotasEngineTests(unittest.TestCase):
                 )
                 self.assertTrue(quotas.detect_opencodego_installed(home))
 
+                hermes_auth = home / ".hermes" / "auth.json"
+                hermes_auth.parent.mkdir(parents=True)
+                hermes_auth.write_text(
+                    json.dumps({"providers": {"nous": {"access_token": TEST_HERMES_TOKEN}}}),
+                    encoding="utf-8",
+                )
+                self.assertTrue(quotas.detect_hermes_installed(home))
+
                 # PATH-only signals (no home side effects beyond what we set).
                 self._place_fake_cli(bin_dir, "claude")
                 self._place_fake_cli(bin_dir, "codex")
                 self._place_fake_cli(bin_dir, "grok")
                 self._place_fake_cli(bin_dir, "antigravity")
+                self._place_fake_cli(bin_dir, "hermes")
                 empty_home = root / "empty-home"
                 empty_home.mkdir()
                 self.assertTrue(quotas.detect_claude_installed(empty_home))
                 self.assertTrue(quotas.detect_codex_installed(empty_home))
                 self.assertTrue(quotas.detect_grok_installed(empty_home))
                 self.assertTrue(quotas.detect_antigravity_installed(empty_home))
+                self.assertTrue(quotas.detect_hermes_installed(empty_home))
 
-    def test_build_auto_config_includes_version_and_six_ids(self) -> None:
+    def test_build_auto_config_includes_version_and_seven_ids(self) -> None:
         payload = quotas.build_auto_config({
             "claude": True,
             "codex": False,
@@ -1667,15 +1679,16 @@ class QuotasEngineTests(unittest.TestCase):
             "antigravity": False,
             "opencodego": True,
             "cursor": True,
+            "hermes": True,
         })
         self.assertEqual(payload["version"], 1)
         self.assertEqual(
             [item["id"] for item in payload["providers"]],
-            ["claude", "codex", "grok", "antigravity", "opencodego", "cursor"],
+            ["claude", "codex", "grok", "antigravity", "opencodego", "cursor", "hermes"],
         )
         self.assertEqual(
             [item["enabled"] for item in payload["providers"]],
-            [True, False, True, False, True, True],
+            [True, False, True, False, True, True, True],
         )
 
     def test_existing_config_adds_detected_opencodego_without_writing_config(self) -> None:
@@ -1802,7 +1815,7 @@ class QuotasEngineTests(unittest.TestCase):
             by_id = {item["id"]: item["enabled"] for item in payload["providers"]}
             self.assertEqual(
                 by_id,
-                {"claude": True, "codex": True, "grok": True, "antigravity": False, "opencodego": False, "cursor": False},
+                {"claude": True, "codex": True, "grok": True, "antigravity": False, "opencodego": False, "cursor": False, "hermes": False},
             )
             # Normal path: only detected/enabled providers are queried.
             entries = json.loads(result.stdout)
@@ -1881,7 +1894,7 @@ class QuotasEngineTests(unittest.TestCase):
             self.assertEqual(payload["version"], 1)
             self.assertEqual(
                 {item["id"]: item["enabled"] for item in payload["providers"]},
-                {"claude": False, "codex": True, "grok": False, "antigravity": False, "opencodego": False, "cursor": False},
+                {"claude": False, "codex": True, "grok": False, "antigravity": False, "opencodego": False, "cursor": False, "hermes": False},
             )
             entries = json.loads(result.stdout)
             self.assertEqual([entry["provider"] for entry in entries], ["codex"])
@@ -2648,6 +2661,195 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(entries[0]["error"]["category"], "authentication")
         self.assertFalse(entries[0]["error"]["retryable"])
         self.assertEqual(entries[0]["error"]["message"], quotas.CURSOR_AUTH_RELOGIN)
+
+    def _write_hermes_auth(
+        self,
+        home: Path,
+        token: str = TEST_HERMES_TOKEN,
+        **extra: object,
+    ) -> Path:
+        path = quotas.hermes_auth_path(home)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        state = {"access_token": token, **extra}
+        path.write_text(
+            json.dumps({"version": 1, "providers": {"nous": state}}),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_hermes_detection_requires_nous_tokens_or_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self.assertFalse(quotas.detect_hermes_installed(home))
+            (home / ".hermes").mkdir()
+            self.assertFalse(quotas.detect_hermes_installed(home))
+            self._write_hermes_auth(home)
+            self.assertTrue(quotas.detect_hermes_installed(home))
+            self.assertEqual(quotas.hermes_access_credentials(home)[0], TEST_HERMES_TOKEN)
+
+    def test_hermes_legacy_systems_nous_portal_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            path = quotas.hermes_auth_path(home)
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps({"systems": {"nous_portal": {"access_token": TEST_HERMES_TOKEN}}}),
+                encoding="utf-8",
+            )
+            token, state = quotas.hermes_access_credentials(home)
+            self.assertEqual(token, TEST_HERMES_TOKEN)
+            self.assertEqual(state["access_token"], TEST_HERMES_TOKEN)
+
+    def test_hermes_maps_monthly_remaining_and_spendable_credits(self) -> None:
+        mapped = quotas.map_hermes_usage({
+            "subscription": {
+                "plan": "Super",
+                "monthly_credits": 110.0,
+                "current_period_end": "2026-10-01T00:00:00Z",
+                "credits_remaining": 88.42,
+            },
+            "paid_service_access": {
+                "subscription_credits_remaining": 88.42,
+                "purchased_credits_remaining": 5.0,
+                "total_usable_credits": 93.42,
+            },
+        })
+        self.assertEqual(mapped["provider"], "hermes")
+        self.assertEqual(mapped["source"], "nous-portal")
+        self.assertEqual(mapped["usage"]["identity"], {
+            "providerID": "hermes",
+            "loginMethod": "Super",
+        })
+        self.assertIsNone(mapped["usage"]["primary"])
+        self.assertAlmostEqual(mapped["usage"]["secondary"]["usedPercent"], (110.0 - 88.42) / 110.0 * 100.0)
+        self.assertEqual(mapped["usage"]["secondary"]["resetsAt"], "2026-10-01T00:00:00Z")
+        self.assertEqual(mapped["credits"]["remaining"], 93.42)
+        self.assertEqual(mapped["usage"]["extraUsage"], {
+            "enabled": True,
+            "balance": 5.0,
+            "currency": "USD",
+        })
+
+    def test_hermes_bonus_remaining_is_zero_used_not_negative(self) -> None:
+        mapped = quotas.map_hermes_usage({
+            "subscription": {"monthly_credits": 100.0},
+            "paid_service_access": {"subscription_credits_remaining": 125.0},
+        })
+        self.assertEqual(mapped["usage"]["secondary"]["usedPercent"], 0.0)
+        self.assertEqual(mapped["credits"]["remaining"], 125.0)
+
+    def test_hermes_credits_only_when_monthly_cap_is_missing(self) -> None:
+        mapped = quotas.map_hermes_usage({
+            "paid_service_access": {"total_usable_credits": 12.5},
+        })
+        self.assertIsNone(mapped["usage"]["secondary"])
+        self.assertEqual(mapped["credits"]["remaining"], 12.5)
+        self.assertEqual(mapped["usage"]["identity"]["loginMethod"], "Nous Portal")
+
+    def test_hermes_rejects_payload_without_remaining(self) -> None:
+        with self.assertRaises(quotas.FetchFallback) as raised:
+            quotas.map_hermes_usage({"subscription": {"plan": "Super"}})
+        self.assertEqual(raised.exception.category, "invalid_response")
+
+    def test_hermes_does_not_refresh_tokens(self) -> None:
+        account = {
+            "subscription": {"monthly_credits": 100.0, "plan": "Builder"},
+            "paid_service_access": {
+                "subscription_credits_remaining": 40.0,
+                "total_usable_credits": 40.0,
+            },
+        }
+        urls: list[str] = []
+        methods: list[str] = []
+
+        def fake_http(method, url, headers, body, timeout):
+            urls.append(url)
+            methods.append(method)
+            self.assertEqual(headers["Authorization"], f"Bearer {TEST_HERMES_TOKEN}")
+            self.assertIsNone(body)
+            return 200, {}, json.dumps(account).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_hermes_auth(home, portal_base_url="https://portal.nousresearch.com")
+            with patch.object(quotas, "http_request", side_effect=fake_http):
+                entry = quotas.fetch_hermes(home)
+        self.assertEqual(entry["usage"]["secondary"]["usedPercent"], 60.0)
+        self.assertEqual(urls, [quotas.HERMES_DEFAULT_PORTAL_URL + quotas.HERMES_ACCOUNT_PATH])
+        self.assertEqual(methods, ["GET"])
+        self.assertNotIn(TEST_HERMES_TOKEN, json.dumps(entry))
+        self.assertTrue(all("/api/oauth/token" not in url for url in urls))
+
+    def test_hermes_401_is_auth_relogin_without_upstream_or_refresh(self) -> None:
+        urls: list[str] = []
+
+        def fake_http(method, url, headers, body, timeout):
+            urls.append(url)
+            return 401, {}, b"{}"
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_hermes_auth(home)
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("must not delegate on auth")
+            ):
+                entries = quotas.fetch_provider("hermes", None, home)
+        self.assertEqual(entries[0]["error"]["category"], "authentication")
+        self.assertEqual(entries[0]["error"]["message"], quotas.HERMES_AUTH_RELOGIN)
+        self.assertNotIn(TEST_HERMES_TOKEN, json.dumps(entries))
+        self.assertTrue(all("/api/oauth/token" not in url for url in urls))
+
+    def test_hermes_http_portal_override_is_ignored(self) -> None:
+        def fake_http(method, url, headers, body, timeout):
+            self.assertEqual(url, quotas.HERMES_DEFAULT_PORTAL_URL + quotas.HERMES_ACCOUNT_PATH)
+            return 200, {}, json.dumps({
+                "paid_service_access": {"total_usable_credits": 1.0},
+            }).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_hermes_auth(home, portal_base_url="http://evil.example")
+            with patch.object(quotas, "http_request", side_effect=fake_http):
+                entry = quotas.fetch_hermes(home)
+        self.assertEqual(entry["credits"]["remaining"], 1.0)
+
+    def test_hermes_missing_auth_is_relogin(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            with patch.object(quotas, "upstream_path", return_value="/fake/codexbar"), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("must not delegate on auth")
+            ):
+                entries = quotas.fetch_provider("hermes", None, home)
+        self.assertEqual(entries[0]["error"]["category"], "authentication")
+        self.assertEqual(entries[0]["error"]["message"], quotas.HERMES_AUTH_RELOGIN)
+
+    def test_existing_config_adds_detected_hermes_without_writing_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "home"
+            config = home / ".config/codexbar/config.json"
+            config.parent.mkdir(parents=True)
+            config.write_text(json.dumps({"providers": [
+                {"id": "claude", "enabled": True},
+                {"id": "codex", "enabled": True},
+            ]}), encoding="utf-8")
+            self._write_hermes_auth(home)
+            original = config.read_text(encoding="utf-8")
+            self.assertEqual(quotas.enabled_providers(home), ["claude", "codex", "hermes"])
+            self.assertEqual(config.read_text(encoding="utf-8"), original)
+
+    def test_explicitly_disabled_hermes_stays_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "home"
+            config = home / ".config/codexbar/config.json"
+            config.parent.mkdir(parents=True)
+            config.write_text(json.dumps({"providers": [
+                {"id": "claude", "enabled": True},
+                {"id": "hermes", "enabled": False},
+            ]}), encoding="utf-8")
+            self._write_hermes_auth(home)
+            self.assertEqual(quotas.enabled_providers(home), ["claude"])
 
     def test_antigravity_still_delegates_to_upstream(self) -> None:
         with patch.object(

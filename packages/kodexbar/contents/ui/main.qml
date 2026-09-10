@@ -87,7 +87,7 @@ PlasmoidItem {
     property bool includeStatus: Plasmoid.configuration.includeStatus === undefined ? false : Plasmoid.configuration.includeStatus
     property bool showCostSummary: Plasmoid.configuration.showCostSummary === undefined ? true : Plasmoid.configuration.showCostSummary
     property int costRefreshSeconds: Math.max(1, Plasmoid.configuration.costRefreshSeconds || 900)
-    readonly property string defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego"
+    readonly property string defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,hermes"
     property string compactProviderOrder: Plasmoid.configuration.compactProviderOrder === undefined
         ? defaultCompactProviderOrder
         : Plasmoid.configuration.compactProviderOrder
@@ -1551,6 +1551,7 @@ PlasmoidItem {
             "openai": "OpenAI API",
             "azureopenai": "Azure OpenAI",
             "cursor": "Cursor",
+            "hermes": "Hermes",
             "opencode": "OpenCode",
             "opencodego": "OpenCode Go",
             "factory": "Droid",
@@ -1607,6 +1608,7 @@ PlasmoidItem {
             "openai": "openai",
             "azureopenai": "azureopenai",
             "cursor": "cursor",
+            "hermes": "hermes",
             "opencode": "opencode",
             "opencodego": "opencodego",
             "factory": "factory",
@@ -1787,6 +1789,11 @@ PlasmoidItem {
             // Matches cursor.com: Cursor Models is the main included pool.
             if (quotaKey === "secondary" || quotaKey === "weekly") {
                 return i18n("Cursor Models")
+            }
+        }
+        if (ProviderLogic.providerId(provider) === "hermes") {
+            if (quotaKey === "secondary" || quotaKey === "weekly") {
+                return i18n("Monthly")
             }
         }
         if (quotaKey === "primary") {

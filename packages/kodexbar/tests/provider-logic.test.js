@@ -330,6 +330,12 @@ assert.equal(
     "the compact label keeps the monthly M override"
 )
 assert.equal(context.compactProviderLabel("cursor", "Cursor"), "Cr", "Cursor has a stable compact provider label")
+assert.equal(context.compactProviderLabel("hermes", "Hermes"), "Hm", "Hermes has a stable compact provider label")
+assert.equal(
+    context.compactQuotaLabel("weekly", "Weekly", "hermes"),
+    "M",
+    "Hermes remaining in the weekly slot uses the M compact badge"
+)
 assert.equal(
     context.standardWindowRow("primary", "Session", null, null, ""),
     null,
@@ -1816,7 +1822,10 @@ assert.match(preferencesQml, /Plasmoid\.globalShortcut = workingShortcut/, "pref
 assert.match(preferencesQml, /KeySequenceItem/, "preferences expose a native key-sequence capture control")
 assert.match(preferencesQml, /compactResultForOrder\(workingCompactProviderOrder, \{[\s\S]*quotaSelection: workingCompactQuotaSelection[\s\S]*showProvider: workingShowProviderInPanel[\s\S]*showUsed: workingShowUsedPercentInPanel[\s\S]*showCredits: workingShowCreditsInPanel/, "the live preview uses the working compact composition")
 assert.match(mainQml, /function compactResultForOrder\(providerOrder, overrides\) \{[\s\S]*overrides \|\| \{\}[\s\S]*values\.quotaSelection === undefined[\s\S]*values\.showProvider === undefined[\s\S]*values\.showUsed === undefined[\s\S]*values\.showCredits === undefined/, "compact composition accepts preview overrides while preserving configured fallbacks")
-assert.match(mainQml, /defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego"/, "the compact default includes detected OpenCode Go")
+assert.match(mainQml, /defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,hermes"/, "the compact default includes detected Hermes")
+assert.match(mainQml, /"hermes": "Hermes"/, "popup names Hermes")
+assert.match(mainQml, /"hermes": "hermes"/, "Hermes uses its own supplied icon")
+assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey\)[\s\S]*hermes[\s\S]*Monthly/, "Hermes monthly remaining uses the Monthly window label")
 assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey\)[\s\S]*OpenCode Go/, "OpenCode Go uses its five-hour, weekly, and monthly window labels")
 assert.match(mainQml, /ProviderLogic\.providerId\(entry\.provider\) === "opencodego"/, "OpenCode Go keeps its plan label when upstream omits identity")
 assert.match(mainQml, /function formatUsageSource\(provider, source\)[\s\S]*opencodego[\s\S]*local · estimated/, "OpenCode Go local usage is labeled as estimated")

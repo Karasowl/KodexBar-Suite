@@ -92,6 +92,18 @@ class PanelAdapterTests(unittest.TestCase):
         self.assertIn("&amp; &lt;span&gt;oops&lt;/span&gt;", payload["tooltip"])
         self.assertNotIn("<span>oops</span>", payload["tooltip"])
 
+    def test_hermes_monthly_window_uses_m_not_w(self) -> None:
+        entries = [{
+            "provider": "hermes",
+            "usage": {
+                "secondary": {"usedPercent": 19.6, "resetsAt": "2026-10-01T00:00:00Z"},
+            },
+        }]
+        model = panel.compact_model(entries, [])
+        self.assertEqual(model["text"], "Hm M 20%")
+        self.assertEqual(panel.provider_label("hermes"), "Hm")
+        self.assertIn("Monthly 20%", "\n".join(panel.tooltip_lines(model["providers"])))
+
     def test_cli_uses_sibling_engine_and_returns_valid_waybar_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

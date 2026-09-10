@@ -26,7 +26,7 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 - Uses the supplied Codex, Claude, Grok, Antigravity, and Gemini SVG assets while keeping Antigravity and Gemini distinct.
 - Adds `compactProviderOrder`, an ordered comma-separated provider selection for the compact panel.
 - Adds `compactQuotaSelection`, a comma-separated quota selection for the compact panel.
-- Defaults to `codex,claude,grok,antigravity`.
+- Defaults to `codex,claude,grok,antigravity,opencodego,hermes`.
 - Matches provider IDs without case and removes duplicate IDs.
 - Keeps listed providers with errors visible as `ERR`.
 - Omits unselected providers only from the compact panel.

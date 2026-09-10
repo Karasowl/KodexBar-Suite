@@ -208,7 +208,7 @@ En Windows la suite funciona como una aplicación de bandeja más las herramient
 2. Ejecuta el instalador. Se instala por usuario en `%LOCALAPPDATA%\Programs\KodexBar-Suite` y nunca pide permisos de administrador. En el camino aparecen dos tareas opcionales: iniciar KodexBar Tray con Windows y añadir las herramientas al PATH del usuario.
 3. `KodexBar Tray` aparece en el área de notificación. Haz clic en el icono o usa su menú para abrir el panel de cuotas; el mismo menú refresca a demanda, abre AI CLI Control y activa el inicio automático.
 
-Python no es necesario: el build publicado es autónomo. Los CLI de proveedores (Claude Code, Codex, Grok, Cursor, ...) se detectan igual que en Linux, desde `~\.claude`, `~\.codex`, `~\.grok`, y la base de datos de Cursor en `%APPDATA%\Cursor`. Los perfiles y cuentas viven en `%APPDATA%\kodexbar-suite`.
+Python no es necesario: el build publicado es autónomo. Los CLI de proveedores (Claude Code, Codex, Grok, Cursor, Hermes, ...) se detectan igual que en Linux, desde `~\.claude`, `~\.codex`, `~\.grok`, `~\.hermes`, y la base de datos de Cursor en `%APPDATA%\Cursor`. Los perfiles y cuentas viven en `%APPDATA%\kodexbar-suite`.
 
 ¿Prefieres no instalar? Extrae el zip donde quieras y ejecuta `KodexBarTray.exe`; la bandeja encuentra sus herramientas hermanas en la misma carpeta. Para compilar ambos artefactos, consulta [la guía de empaquetado para Windows](packaging/windows/README.md).
 

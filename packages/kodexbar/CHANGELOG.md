@@ -4,6 +4,10 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+### Added
+
+- Hermes compact label `Hm`, Monthly window, and provider icon for Nous Portal remaining credits.
+
 ## 0.12.6, 2026-08-30
 
 ### Added

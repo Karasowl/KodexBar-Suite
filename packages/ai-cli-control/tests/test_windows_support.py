@@ -102,8 +102,20 @@ class WindowsPathTests(unittest.TestCase):
             )
         with mock.patch.object(engine, "IS_WINDOWS", False):
             self.assertEqual(
-                engine.cursor_state_db_path(Path("/home/dev")),
-                Path("/home/dev/.config/Cursor/User/globalStorage/state.vscdb"),
+                engine.cursor_state_db_path(Path("/opt/devhome")),
+                Path("/opt/devhome/.config/Cursor/User/globalStorage/state.vscdb"),
+            )
+
+    def test_hermes_auth_path_follows_home_on_windows(self) -> None:
+        with mock.patch.object(engine, "IS_WINDOWS", True):
+            self.assertEqual(
+                str(engine.hermes_auth_path(WINDOWS_HOME)).replace("\\", "/"),
+                "C:/Users/dev/.hermes/auth.json",
+            )
+        with mock.patch.object(engine, "IS_WINDOWS", False):
+            self.assertEqual(
+                engine.hermes_auth_path(Path("/opt/devhome")),
+                Path("/opt/devhome/.hermes/auth.json"),
             )
 
     def test_opencodego_candidates_on_windows(self) -> None:

@@ -208,7 +208,7 @@ Windows runs the suite as a tray application plus the console tools. The KDE Pla
 2. Run the installer. It installs per user under `%LOCALAPPDATA%\Programs\KodexBar-Suite` and never asks for administrator rights. Two optional tasks appear on the way: start KodexBar Tray with Windows, and add the tools to your user PATH.
 3. `KodexBar Tray` shows up in the notification area. Left-click the icon or use its menu to open the quota panel; the same menu refreshes on demand, opens AI CLI Control, and toggles autostart.
 
-Python is not required: the published build is standalone. Provider CLIs (Claude Code, Codex, Grok, Cursor, ...) are detected exactly as on Linux, from `~\.claude`, `~\.codex`, `~\.grok`, and the Cursor database under `%APPDATA%\Cursor`. Profiles and account sidecars live in `%APPDATA%\kodexbar-suite`.
+Python is not required: the published build is standalone. Provider CLIs (Claude Code, Codex, Grok, Cursor, Hermes, ...) are detected exactly as on Linux, from `~\.claude`, `~\.codex`, `~\.grok`, `~\.hermes`, and the Cursor database under `%APPDATA%\Cursor`. Profiles and account sidecars live in `%APPDATA%\kodexbar-suite`.
 
 Prefer not to install? Extract the zip anywhere and run `KodexBarTray.exe`; the tray finds its sibling tools in the same folder. To build both artifacts yourself, see [the Windows packaging guide](packaging/windows/README.md).
 

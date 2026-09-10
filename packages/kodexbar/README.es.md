@@ -26,7 +26,7 @@ Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../REA
 - Usa los SVG suministrados de Codex, Claude, Grok, Antigravity y Gemini, y mantiene distintas las identidades de Antigravity y Gemini.
 - Agrega `compactProviderOrder`, una selección ordenada de proveedores para el panel compacto.
 - Agrega `compactQuotaSelection`, una selección de cuotas para el panel compacto.
-- Usa `codex,claude,grok,antigravity` como valor predeterminado.
+- Usa `codex,claude,grok,antigravity,opencodego,hermes` como valor predeterminado.
 - Compara los identificadores sin distinguir mayúsculas y elimina duplicados.
 - Mantiene visibles como `ERR` los proveedores incluidos que devuelven errores.
 - Omite proveedores no seleccionados únicamente en el panel compacto.

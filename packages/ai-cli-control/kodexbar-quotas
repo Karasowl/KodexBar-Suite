@@ -21,7 +21,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 try:
@@ -83,9 +83,11 @@ GROK_SURFACE_NAMES: dict[int, str] = {
 GROK_SEGMENTS_FLOAT_ABS_TOL = 1e-3
 PROTOBUF_MAX_DEPTH = 32
 PROTOBUF_MAX_FIELDS = 4096
-SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok", "opencodego", "cursor"}
+SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok", "opencodego", "cursor", "hermes"}
 # Stable order for auto-generated CodexBar config (upstream Codable expects version + providers).
-AUTO_CONFIG_PROVIDER_IDS = ("claude", "codex", "grok", "antigravity", "opencodego", "cursor")
+AUTO_CONFIG_PROVIDER_IDS = (
+    "claude", "codex", "grok", "antigravity", "opencodego", "cursor", "hermes",
+)
 PROFILES_CONFIG_VERSION = 1
 PROFILE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 PROFILE_KINDS = frozenset({
@@ -95,6 +97,7 @@ PROFILE_KINDS = frozenset({
     "grok-auth",
     "cursor-state-db",
     "opencodego-auth",
+    "hermes-auth",
 })
 PROVIDER_ALLOWED_KINDS: dict[str, frozenset[str]] = {
     "codex": frozenset({"default", "codex-auth"}),
@@ -102,6 +105,7 @@ PROVIDER_ALLOWED_KINDS: dict[str, frozenset[str]] = {
     "grok": frozenset({"default", "grok-auth"}),
     "cursor": frozenset({"default", "cursor-state-db"}),
     "opencodego": frozenset({"default", "opencodego-auth"}),
+    "hermes": frozenset({"default", "hermes-auth"}),
     "antigravity": frozenset({"default"}),
 }
 PROFILE_FETCH_MAX_WORKERS = 4
@@ -202,6 +206,35 @@ CURSOR_PERMANENT = (
     "Could not read Cursor quotas. Try signing in again (open Cursor), or update KodexBar."
 )
 
+# --- Hermes / Nous Portal native (account JSON, no refresh-token spend) ---
+HERMES_DEFAULT_PORTAL_URL = "https://portal.nousresearch.com"
+HERMES_ACCOUNT_PATH = "/api/oauth/account"
+HERMES_TIMEOUT_SECONDS = 15
+
+# User-visible Hermes messages (English, no technical jargon, no secrets).
+# Must NOT match the widget unfetchable-provider purge regex in providerLogic.js.
+HERMES_AUTH_RELOGIN = "Sign in to Nous Portal again to see credits (run: hermes model)."
+HERMES_AUTH_NOT_FOUND = HERMES_AUTH_RELOGIN
+HERMES_AUTH_MISSING_TOKEN = HERMES_AUTH_RELOGIN
+HERMES_AUTH_UNREADABLE = (
+    "Could not read Hermes sign-in data. Check file permissions or sign in again "
+    "(run: hermes model)."
+)
+HERMES_AUTH_INVALID_JSON = "Hermes sign-in data is damaged. Sign in again (run: hermes model)."
+HERMES_CREDENTIAL_MALFORMED = "Hermes sign-in data looks damaged. Sign in again (run: hermes model)."
+HERMES_NETWORK = "Nous Portal is unreachable right now. Check your connection and retry."
+HERMES_TIMEOUT = "Nous Portal timed out. Check your connection and retry."
+HERMES_INVALID_RESPONSE = (
+    "Could not read Nous Portal credits. Update KodexBar, or retry after signing in again."
+)
+HERMES_BOTH_FAILED = (
+    "Could not read Nous Portal credits from the native reader or the codexbar fallback. "
+    "Update KodexBar, or reinstall codexbar-cli-bin."
+)
+HERMES_PERMANENT = (
+    "Could not read Nous Portal credits. Try signing in again (run: hermes model), or update KodexBar."
+)
+
 CLAUDE_CREDENTIAL_MALFORMED = "credential looks malformed, run claude to log in"
 HTTP_REQUEST_FAILED = "Could not complete the request. Check your connection and retry."
 # Categories where native Codex/Grok may fall back to installed upstream codexbar.
@@ -248,6 +281,15 @@ def human_native_error_message(provider: str, category: str, original: str | Non
         GROK_BOTH_FAILED,
         GROK_PERMANENT,
         GROK_PERMISSION_DENIED,
+        HERMES_AUTH_RELOGIN,
+        HERMES_AUTH_UNREADABLE,
+        HERMES_AUTH_INVALID_JSON,
+        HERMES_CREDENTIAL_MALFORMED,
+        HERMES_NETWORK,
+        HERMES_TIMEOUT,
+        HERMES_INVALID_RESPONSE,
+        HERMES_BOTH_FAILED,
+        HERMES_PERMANENT,
     }
     if text in known:
         return text
@@ -282,6 +324,16 @@ def human_native_error_message(provider: str, category: str, original: str | Non
         if category == "invalid_response":
             return CURSOR_INVALID_RESPONSE
         return CURSOR_PERMANENT
+    if normalized == "hermes":
+        if category == "authentication":
+            return HERMES_AUTH_RELOGIN
+        if category == "timeout":
+            return HERMES_TIMEOUT
+        if category == "network":
+            return HERMES_NETWORK
+        if category == "invalid_response":
+            return HERMES_INVALID_RESPONSE
+        return HERMES_PERMANENT
     return text or "Could not read quotas. Retry later or update KodexBar."
 
 
@@ -433,6 +485,10 @@ def parse_credential_source(
     if kind == "opencodego-auth":
         if auth_file is None:
             raise ValueError("opencodego-auth requires authFile")
+        return CredentialSource(kind=kind, auth_file=auth_file)
+    if kind == "hermes-auth":
+        if auth_file is None:
+            raise ValueError("hermes-auth requires authFile")
         return CredentialSource(kind=kind, auth_file=auth_file)
     raise ValueError(f"unsupported credentialSource.kind: {kind}")
 
@@ -615,6 +671,8 @@ def credential_source_exists(source: CredentialSource) -> bool | None:
         return source.state_db.is_file()
     if source.kind == "opencodego-auth" and source.auth_file is not None:
         return source.auth_file.is_file()
+    if source.kind == "hermes-auth" and source.auth_file is not None:
+        return source.auth_file.is_file()
     return False
 
 
@@ -696,6 +754,8 @@ def enabled_providers(home: Path | None = None) -> list[str]:
         result.append("opencodego")
     if "cursor" not in explicit_ids and detect_cursor_installed(root):
         result.append("cursor")
+    if "hermes" not in explicit_ids and detect_hermes_installed(root):
+        result.append("hermes")
     return result
 
 
@@ -816,6 +876,62 @@ def detect_cursor_installed(home: Path | None = None) -> bool:
         return False
 
 
+def hermes_home_directory(home: Path | None = None) -> Path:
+    """Hermes data root: $HERMES_HOME when set, otherwise ~/.hermes."""
+    configured = os.environ.get("HERMES_HOME")
+    if isinstance(configured, str) and configured.strip():
+        return Path(configured).expanduser()
+    return (home or home_directory()) / ".hermes"
+
+
+def hermes_auth_path(
+    home: Path | None = None,
+    *,
+    auth_file: Path | None = None,
+) -> Path:
+    if auth_file is not None:
+        return Path(auth_file).expanduser()
+    return hermes_home_directory(home) / "auth.json"
+
+
+def hermes_nous_state(payload: Any) -> dict[str, Any] | None:
+    """Return the Nous Portal OAuth object from a Hermes auth.json payload."""
+    if not isinstance(payload, dict):
+        return None
+    providers = payload.get("providers")
+    if isinstance(providers, dict):
+        state = providers.get("nous")
+        if isinstance(state, dict):
+            return state
+    systems = payload.get("systems")
+    if isinstance(systems, dict):
+        legacy = systems.get("nous_portal")
+        if isinstance(legacy, dict):
+            return legacy
+    return None
+
+
+def hermes_state_has_nous_login(state: dict[str, Any] | None) -> bool:
+    if not isinstance(state, dict):
+        return False
+    for key in ("access_token", "refresh_token"):
+        value = state.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
+
+
+def detect_hermes_installed(home: Path | None = None) -> bool:
+    """Hermes is present when `hermes` is on PATH or Nous Portal tokens exist."""
+    if command_on_path("hermes"):
+        return True
+    try:
+        payload = read_json(hermes_auth_path(home))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+    return hermes_state_has_nous_login(hermes_nous_state(payload))
+
+
 def detect_installed_providers(home: Path | None = None) -> dict[str, bool]:
     """Local-only detection of installed provider CLIs/credentials (pure, testable)."""
     root = home or home_directory()
@@ -826,11 +942,12 @@ def detect_installed_providers(home: Path | None = None) -> dict[str, bool]:
         "antigravity": detect_antigravity_installed(root),
         "opencodego": detect_opencodego_installed(root),
         "cursor": detect_cursor_installed(root),
+        "hermes": detect_hermes_installed(root),
     }
 
 
 def build_auto_config(detected: dict[str, bool]) -> dict[str, Any]:
-    """CodexBar config payload: version 1 and all four provider ids, enabled only when detected."""
+    """CodexBar config payload: version 1 and the suite provider ids, enabled only when detected."""
     return {
         "version": 1,
         "providers": [
@@ -2988,6 +3105,246 @@ def fetch_cursor(
         raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
 
 
+def hermes_portal_base_url(state: dict[str, Any] | None) -> str:
+    """HTTPS portal origin from Hermes auth, else the official Nous Portal host."""
+    raw = state.get("portal_base_url") if isinstance(state, dict) else None
+    if isinstance(raw, str) and raw.strip():
+        cleaned = raw.strip().rstrip("/")
+        parsed = urlparse(cleaned)
+        if (
+            parsed.scheme == "https"
+            and parsed.hostname
+            and parsed.username is None
+            and parsed.password is None
+            and not credential_has_control_chars(cleaned)
+        ):
+            return cleaned
+    return HERMES_DEFAULT_PORTAL_URL
+
+
+def hermes_access_credentials(
+    home: Path | None = None,
+    *,
+    auth_file: Path | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Return (access_token, nous state). Never refreshes. Never returns secrets in exceptions."""
+    path = hermes_auth_path(home, auth_file=auth_file)
+    try:
+        payload = read_json(path)
+    except FileNotFoundError:
+        raise FetchFallback(HERMES_AUTH_NOT_FOUND, "authentication")
+    except json.JSONDecodeError:
+        raise FetchFallback(HERMES_AUTH_INVALID_JSON, "authentication")
+    except OSError as error:
+        raise FetchFallback(HERMES_AUTH_UNREADABLE, "permanent", False) from error
+    state = hermes_nous_state(payload)
+    if state is None:
+        raise FetchFallback(HERMES_AUTH_NOT_FOUND, "authentication")
+    token = state.get("access_token")
+    if not isinstance(token, str) or not token.strip():
+        raise FetchFallback(HERMES_AUTH_MISSING_TOKEN, "authentication")
+    return require_header_safe_credential(token, HERMES_CREDENTIAL_MALFORMED), state
+
+
+def hermes_resets_at(value: Any) -> str | None:
+    """Normalize a Portal period-end string to UTC ISO. None when it is not a date."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        instant = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=timezone.utc)
+    return (
+        instant.astimezone(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def hermes_used_percent(monthly: float, remaining: float) -> float:
+    """Honest monthly consumption from remaining/cap. Bonus remaining clamps to 0% used."""
+    used = (monthly - remaining) / monthly * 100.0
+    if used < 0:
+        return 0.0
+    if used > 100:
+        return 100.0
+    return used
+
+
+def map_hermes_usage(payload: Any, updated_at: str | None = None) -> dict[str, Any]:
+    """Map Nous Portal /api/oauth/account remaining credits to the widget envelope.
+
+    Remaining dollars come from paid_service_access. A usedPercent window is
+    emitted only when monthly_credits and subscription remaining are both present.
+    Never invents a percentage from a lone dollar balance. Never spends the
+    Hermes refresh token.
+    """
+    if not isinstance(payload, dict):
+        raise FetchFallback(HERMES_INVALID_RESPONSE, "invalid_response", True)
+
+    raw_access = payload.get("paid_service_access")
+    access = raw_access if isinstance(raw_access, dict) else {}
+    raw_sub = payload.get("subscription")
+    subscription = raw_sub if isinstance(raw_sub, dict) else {}
+
+    sub_remaining = _coerce_finite_number(access.get("subscription_credits_remaining"))
+    if sub_remaining is None:
+        sub_remaining = _coerce_finite_number(subscription.get("credits_remaining"))
+    purchased = _coerce_finite_number(access.get("purchased_credits_remaining"))
+    total = _coerce_finite_number(access.get("total_usable_credits"))
+    monthly = _coerce_finite_number(subscription.get("monthly_credits"))
+
+    credits_remaining: float | None = None
+    if total is not None and total >= 0:
+        credits_remaining = total
+    elif sub_remaining is not None and sub_remaining >= 0 and purchased is not None and purchased >= 0:
+        credits_remaining = sub_remaining + purchased
+    elif sub_remaining is not None and sub_remaining >= 0:
+        credits_remaining = sub_remaining
+    elif purchased is not None and purchased >= 0:
+        credits_remaining = purchased
+
+    secondary: dict[str, Any] | None = None
+    if (
+        monthly is not None
+        and monthly > 0
+        and sub_remaining is not None
+        and sub_remaining >= 0
+    ):
+        secondary = {
+            "usedPercent": hermes_used_percent(monthly, sub_remaining),
+        }
+        resets_at = hermes_resets_at(subscription.get("current_period_end"))
+        if resets_at is not None:
+            secondary["resetsAt"] = resets_at
+
+    if secondary is None and credits_remaining is None:
+        raise FetchFallback(HERMES_INVALID_RESPONSE, "invalid_response", True)
+
+    identity: dict[str, Any] = {"providerID": "hermes"}
+    plan = subscription.get("plan")
+    if isinstance(plan, str) and plan.strip():
+        identity["loginMethod"] = plan.strip()
+    else:
+        identity["loginMethod"] = "Nous Portal"
+
+    usage: dict[str, Any] = {
+        "identity": identity,
+        "primary": None,
+        "secondary": secondary,
+        "tertiary": None,
+        "updatedAt": updated_at or iso_now(),
+    }
+    if purchased is not None and purchased >= 0:
+        usage["extraUsage"] = {
+            "enabled": True,
+            "balance": purchased,
+            "currency": "USD",
+        }
+
+    entry: dict[str, Any] = {
+        "provider": "hermes",
+        "source": "nous-portal",
+        "usage": usage,
+        "engine": "kodexbar",
+    }
+    if credits_remaining is not None:
+        entry["credits"] = {"remaining": credits_remaining}
+    return entry
+
+
+def fetch_hermes(
+    home: Path | None = None,
+    *,
+    auth_file: Path | None = None,
+) -> dict[str, Any]:
+    """Native Nous Portal remaining credits. Reads the current access JWT only.
+
+    Does not POST /api/oauth/token. Hermes rotates refresh tokens, so spending
+    one here would lock the user out of the harness.
+    """
+    try:
+        token, state = hermes_access_credentials(home, auth_file=auth_file)
+    except FetchFallback as error:
+        if error.category == "authentication":
+            return provider_error("hermes", "nous-portal", str(error), "authentication", False)
+        raise
+
+    url = hermes_portal_base_url(state) + HERMES_ACCOUNT_PATH
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "User-Agent": "KodexBar-Suite/0.12.6",
+    }
+
+    last_error: FetchFallback | None = None
+    status = 0
+    body = b""
+    for attempt in range(2):
+        try:
+            status, _resp_headers, body = http_request(
+                "GET",
+                url,
+                headers,
+                None,
+                HERMES_TIMEOUT_SECONDS,
+            )
+        except FetchFallback as error:
+            last_error = error
+            if error.retryable and attempt == 0:
+                continue
+            raise FetchFallback(
+                human_native_error_message("hermes", error.category),
+                error.category,
+                error.retryable,
+            )
+        if status in (408, 502, 503, 504) and attempt == 0:
+            category = "timeout" if status == 408 else "network"
+            last_error = FetchFallback(
+                human_native_error_message("hermes", category),
+                category,
+                True,
+            )
+            continue
+        break
+    else:
+        if last_error is not None:
+            raise last_error
+
+    if status in (401, 403):
+        return provider_error("hermes", "nous-portal", HERMES_AUTH_RELOGIN, "authentication", False)
+    if status == 429:
+        return provider_error(
+            "hermes",
+            "nous-portal",
+            "Nous Portal is rate limited right now. Wait a few minutes, then click Refresh.",
+            "rate_limit",
+        )
+    if status != 200:
+        retryable = status in (408, 425) or status >= 500
+        if retryable:
+            category = "timeout" if status == 408 else "network"
+            raise FetchFallback(human_native_error_message("hermes", category), category, True)
+        raise FetchFallback(HERMES_PERMANENT, "permanent", False)
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise FetchFallback(HERMES_INVALID_RESPONSE, "invalid_response", True) from error
+    try:
+        return map_hermes_usage(payload)
+    except FetchFallback:
+        raise
+    except Exception:
+        raise FetchFallback(HERMES_INVALID_RESPONSE, "invalid_response", True)
+
+
 def upstream_path() -> str | None:
     candidate = shutil.which("codexbar")
     if candidate and os.path.realpath(candidate) != os.path.realpath(__file__):
@@ -4817,6 +5174,8 @@ def _dual_failure_message(provider: str, native_failure: FetchFallback, upstream
         return GROK_BOTH_FAILED
     if normalized == "cursor":
         return CURSOR_BOTH_FAILED
+    if normalized == "hermes":
+        return HERMES_BOTH_FAILED
     return f"{native_failure}. Fallback failed: {upstream_detail}"
 
 
@@ -4919,7 +5278,7 @@ def _native_provider_result(
         if category in (None, ""):
             return [entry]
         # Humanize structured native errors (auth returned as entry, permanent plan issues).
-        if provider.lower() in ("codex", "grok", "cursor"):
+        if provider.lower() in ("codex", "grok", "cursor", "hermes"):
             entry = {
                 **entry,
                 "error": {
@@ -5014,6 +5373,18 @@ def fetch_provider(
                 home,
                 lambda: fetch_cursor(home, state_db=state_db),
                 "cursor",
+                allow_upstream_fallback=allow_fallback,
+            )
+        )
+    if normalized == "hermes" and source in (None, "auto", "hermes", "nous", "nous-portal"):
+        auth_file = cs.auth_file if cs.kind == "hermes-auth" else None
+        return stamp(
+            _native_provider_result(
+                normalized,
+                source,
+                home,
+                lambda: fetch_hermes(home, auth_file=auth_file),
+                "nous-portal",
                 allow_upstream_fallback=allow_fallback,
             )
         )
