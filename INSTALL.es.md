@@ -4,13 +4,13 @@
 
 Esta guía te lleva paso a paso a instalar KodexBar Suite si no tienes experiencia con las herramientas de paquetes de Linux. Describe las ventanas que verás y qué hacer en cada una.
 
-KodexBar Suite muestra resúmenes de cuotas de las CLI de IA en el escritorio, incluidos los créditos restantes nativos de Hermes desde Nous Portal, e incluye un selector pequeño `ai` para iniciar y actualizar las CLI de los proveedores.
+KodexBar Suite muestra resúmenes de cuotas de las CLI de IA en el escritorio, incluidos los créditos restantes nativos de Hermes y los porcentajes restantes de Devin, e incluye un selector pequeño `ai` para iniciar y actualizar las CLI de los proveedores.
 
 ---
 
 ## 1. Arch, CachyOS, Manjaro y derivados (vía recomendada)
 
-Esta es la vía principal. El paquete de AUR instala el widget de Plasma, las herramientas `ai` y la lectura nativa de cuotas de Claude, Codex, Cursor, Grok, OpenCode Go y Hermes. Antigravity sigue usando la CLI compañera opcional.
+Esta es la vía principal. El paquete de AUR instala el widget de Plasma, las herramientas `ai` y la lectura nativa de cuotas de Claude, Codex, Cursor, Grok, OpenCode Go, Hermes y Devin. Antigravity sigue usando la CLI compañera opcional.
 
 Nombre del paquete: `kodexbar-suite`
 
@@ -91,8 +91,9 @@ Pulsa **Enter** para aceptar las respuestas por defecto en cada pregunta, salvo 
 
 2. **Las cuotas aparecen solas**
    - Abre el popup del widget.
-   - Si ya tienes instaladas e iniciadas sesión en las CLI de proveedores (por ejemplo Claude, Codex, Cursor, Grok, Hermes o Antigravity), sus cuotas aparecen sin editar archivos de configuración.
+   - Si ya tienes instaladas e iniciadas sesión en las CLI de proveedores (por ejemplo Claude, Codex, Cursor, Grok, Hermes, Devin o Antigravity), sus cuotas aparecen sin editar archivos de configuración.
    - Hermes aparece cuando `hermes` está en el `PATH` o `~/.hermes/auth.json` tiene un login de Nous Portal (`hermes setup --portal`). El widget muestra los créditos restantes. El porcentaje mensual solo aparece si Portal manda remaining y el tope del mes.
+   - Devin aparece cuando `devin` está en el `PATH` o `~/.local/share/devin/credentials.toml` tiene un `windsurf_api_key` (`devin auth login`). El widget muestra los porcentajes restantes diarios y semanales que reporta Devin. No inventa tamaños de cuota.
    - La suite no inventa números de relleno. Solo muestra datos reales de las CLI detectadas.
 
 ---
@@ -120,8 +121,8 @@ Los archivos DEB y RPM oficiales se publican en [GitHub Releases](https://github
 Esto instala la suite bajo `/usr` y deja que APT administre las actualizaciones y la desinstalación.
 
 ```bash
-curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.8/kodexbar-suite_0.12.8-1_all.deb
-sudo apt install ./kodexbar-suite_0.12.8-1_all.deb
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.9/kodexbar-suite_0.12.9-1_all.deb
+sudo apt install ./kodexbar-suite_0.12.9-1_all.deb
 ```
 
 Para construirlo desde el código fuente:
@@ -142,15 +143,15 @@ El constructor DEB se comprueba en Debian 12, Ubuntu 22.04 y Ubuntu 24.04.
 Esto instala la suite bajo `/usr` y deja que DNF administre las actualizaciones y la desinstalación. Usa el RPM general en Fedora y sistemas compatibles con RHEL 10:
 
 ```bash
-curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.8/kodexbar-suite-0.12.8-1.noarch.rpm
-sudo dnf install ./kodexbar-suite-0.12.8-1.noarch.rpm
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.9/kodexbar-suite-0.12.9-1.noarch.rpm
+sudo dnf install ./kodexbar-suite-0.12.9-1.noarch.rpm
 ```
 
 Usa el RPM `.el9` dedicado en sistemas compatibles con RHEL 9:
 
 ```bash
-curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.8/kodexbar-suite-0.12.8-1.el9.noarch.rpm
-sudo dnf install ./kodexbar-suite-0.12.8-1.el9.noarch.rpm
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.9/kodexbar-suite-0.12.9-1.el9.noarch.rpm
+sudo dnf install ./kodexbar-suite-0.12.9-1.el9.noarch.rpm
 ```
 
 Para construirlo desde el código fuente:
@@ -195,7 +196,7 @@ Si falta `kpackagetool6`, el instalador igual termina bien. Instala el motor, la
 
 Si `~/.local/bin` no está en `PATH`, el instalador portable imprime el aviso. Añade ese directorio para que se encuentren `ai`, `kodexbar-quotas`, `kodexbar-panel` y `kodexbar-tray`.
 
-Antigravity sigue necesitando la CLI oficial de CodexBar y `codexbar` en el `PATH`. Claude, Codex, Cursor, Grok, OpenCode Go y Hermes son nativos y no requieren ese compañero. Consulta la [documentación de la CLI de CodexBar](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
+Antigravity sigue necesitando la CLI oficial de CodexBar y `codexbar` en el `PATH`. Claude, Codex, Cursor, Grok, OpenCode Go, Hermes y Devin son nativos y no requieren ese compañero. Consulta la [documentación de la CLI de CodexBar](https://github.com/steipete/CodexBar/blob/main/docs/cli.md).
 
 En Plasma, añade el widget igual que en [Después de instalar](#después-de-instalar). En GNOME o COSMIC ejecuta `kodexbar-tray --autostart-install`. En Hyprland pega el snippet de `kodexbar-panel --waybar-snippet`.
 
@@ -209,7 +210,7 @@ En Windows la suite funciona como una aplicación de bandeja más las herramient
 2. Ejecuta el instalador. Se instala por usuario en `%LOCALAPPDATA%\Programs\KodexBar-Suite` y nunca pide permisos de administrador. En el camino aparecen dos tareas opcionales: iniciar KodexBar Tray con Windows y añadir las herramientas al PATH del usuario.
 3. `KodexBar Tray` aparece en el área de notificación. Haz clic en el icono o usa su menú para abrir el panel de cuotas; el mismo menú refresca a demanda, abre AI CLI Control y activa el inicio automático.
 
-Python no es necesario: el build publicado es autónomo. Los CLI de proveedores (Claude Code, Codex, Grok, Cursor, Hermes, ...) se detectan igual que en Linux, desde `~\.claude`, `~\.codex`, `~\.grok`, `~\.hermes`, y la base de datos de Cursor en `%APPDATA%\Cursor`. Los perfiles y cuentas viven en `%APPDATA%\kodexbar-suite`.
+Python no es necesario: el build publicado es autónomo. Los CLI de proveedores (Claude Code, Codex, Grok, Cursor, Hermes, Devin, ...) se detectan igual que en Linux, desde `~\.claude`, `~\.codex`, `~\.grok`, `~\.hermes`, `%APPDATA%\devin\credentials.toml`, y la base de datos de Cursor en `%APPDATA%\Cursor`. Los perfiles y cuentas viven en `%APPDATA%\kodexbar-suite`.
 
 ¿Prefieres no instalar? Extrae el zip donde quieras y ejecuta `KodexBarTray.exe`; la bandeja encuentra sus herramientas hermanas en la misma carpeta. Para compilar ambos artefactos, consulta [la guía de empaquetado para Windows](packaging/windows/README.md).
 

@@ -4,6 +4,16 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+## 0.12.9, 2026-09-13
+
+### Added
+
+- Devin compact label `Dv`, Daily window, and provider icon for Cognition remaining percents.
+
+### Fixed
+
+- Restore Defaults and the compact "show all" toggle keep Hermes, OpenCode Go, and Devin in the default provider order instead of dropping back to the old four-provider list.
+
 ## 0.12.8, 2026-09-10
 
 ### Fixed

@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover - Python < 3.11
     tomllib = None  # type: ignore[assignment]
 
 
-VERSION = "0.12.8"
+VERSION = "0.12.9"
 IS_WINDOWS = os.name == "nt"
 TIMEOUT_SECONDS = 15
 COST_CACHE_TTL_SECONDS = 15 * 60
@@ -83,10 +83,10 @@ GROK_SURFACE_NAMES: dict[int, str] = {
 GROK_SEGMENTS_FLOAT_ABS_TOL = 1e-3
 PROTOBUF_MAX_DEPTH = 32
 PROTOBUF_MAX_FIELDS = 4096
-SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok", "opencodego", "cursor", "hermes"}
+SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok", "opencodego", "cursor", "hermes", "devin"}
 # Stable order for auto-generated CodexBar config (upstream Codable expects version + providers).
 AUTO_CONFIG_PROVIDER_IDS = (
-    "claude", "codex", "grok", "antigravity", "opencodego", "cursor", "hermes",
+    "claude", "codex", "grok", "antigravity", "opencodego", "cursor", "hermes", "devin",
 )
 PROFILES_CONFIG_VERSION = 1
 PROFILE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
@@ -98,6 +98,7 @@ PROFILE_KINDS = frozenset({
     "cursor-state-db",
     "opencodego-auth",
     "hermes-auth",
+    "devin-auth",
 })
 PROVIDER_ALLOWED_KINDS: dict[str, frozenset[str]] = {
     "codex": frozenset({"default", "codex-auth"}),
@@ -106,6 +107,7 @@ PROVIDER_ALLOWED_KINDS: dict[str, frozenset[str]] = {
     "cursor": frozenset({"default", "cursor-state-db"}),
     "opencodego": frozenset({"default", "opencodego-auth"}),
     "hermes": frozenset({"default", "hermes-auth"}),
+    "devin": frozenset({"default", "devin-auth"}),
     "antigravity": frozenset({"default"}),
 }
 PROFILE_FETCH_MAX_WORKERS = 4
@@ -235,6 +237,37 @@ HERMES_PERMANENT = (
     "Could not read Nous Portal credits. Try signing in again (run: hermes model), or update KodexBar."
 )
 
+# --- Devin native (SeatManagement GetUserStatus remaining percents, no token refresh) ---
+DEVIN_DEFAULT_API_SERVER = "https://server.codeium.com"
+DEVIN_STATUS_PATH = "/exa.seat_management_pb.SeatManagementService/GetUserStatus"
+DEVIN_TIMEOUT_SECONDS = 15
+DEVIN_IDE_VERSION = "1.108.2"
+DEVIN_SOURCE = "devin-status"
+
+# User-visible Devin messages (English, no technical jargon, no secrets).
+# Must NOT match the widget unfetchable-provider purge regex in providerLogic.js.
+DEVIN_AUTH_RELOGIN = "Sign in to Devin again to see quotas (run: devin auth login)."
+DEVIN_AUTH_NOT_FOUND = DEVIN_AUTH_RELOGIN
+DEVIN_AUTH_MISSING_KEY = DEVIN_AUTH_RELOGIN
+DEVIN_AUTH_UNREADABLE = (
+    "Could not read Devin sign-in data. Check file permissions or sign in again "
+    "(run: devin auth login)."
+)
+DEVIN_AUTH_INVALID_TOML = "Devin sign-in data is damaged. Sign in again (run: devin auth login)."
+DEVIN_CREDENTIAL_MALFORMED = "Devin sign-in data looks damaged. Sign in again (run: devin auth login)."
+DEVIN_NETWORK = "Devin is unreachable right now. Check your connection and retry."
+DEVIN_TIMEOUT = "Devin timed out. Check your connection and retry."
+DEVIN_INVALID_RESPONSE = (
+    "Could not read Devin quotas. Update KodexBar, or retry after signing in again."
+)
+DEVIN_BOTH_FAILED = (
+    "Could not read Devin quotas from the native reader or the codexbar fallback. "
+    "Update KodexBar, or reinstall codexbar-cli-bin."
+)
+DEVIN_PERMANENT = (
+    "Could not read Devin quotas. Try signing in again (run: devin auth login), or update KodexBar."
+)
+
 CLAUDE_CREDENTIAL_MALFORMED = "credential looks malformed, run claude to log in"
 HTTP_REQUEST_FAILED = "Could not complete the request. Check your connection and retry."
 # Categories where native Codex/Grok may fall back to installed upstream codexbar.
@@ -290,6 +323,15 @@ def human_native_error_message(provider: str, category: str, original: str | Non
         HERMES_INVALID_RESPONSE,
         HERMES_BOTH_FAILED,
         HERMES_PERMANENT,
+        DEVIN_AUTH_RELOGIN,
+        DEVIN_AUTH_UNREADABLE,
+        DEVIN_AUTH_INVALID_TOML,
+        DEVIN_CREDENTIAL_MALFORMED,
+        DEVIN_NETWORK,
+        DEVIN_TIMEOUT,
+        DEVIN_INVALID_RESPONSE,
+        DEVIN_BOTH_FAILED,
+        DEVIN_PERMANENT,
     }
     if text in known:
         return text
@@ -334,6 +376,16 @@ def human_native_error_message(provider: str, category: str, original: str | Non
         if category == "invalid_response":
             return HERMES_INVALID_RESPONSE
         return HERMES_PERMANENT
+    if normalized == "devin":
+        if category == "authentication":
+            return DEVIN_AUTH_RELOGIN
+        if category == "timeout":
+            return DEVIN_TIMEOUT
+        if category == "network":
+            return DEVIN_NETWORK
+        if category == "invalid_response":
+            return DEVIN_INVALID_RESPONSE
+        return DEVIN_PERMANENT
     return text or "Could not read quotas. Retry later or update KodexBar."
 
 
@@ -489,6 +541,10 @@ def parse_credential_source(
     if kind == "hermes-auth":
         if auth_file is None:
             raise ValueError("hermes-auth requires authFile")
+        return CredentialSource(kind=kind, auth_file=auth_file)
+    if kind == "devin-auth":
+        if auth_file is None:
+            raise ValueError("devin-auth requires authFile")
         return CredentialSource(kind=kind, auth_file=auth_file)
     raise ValueError(f"unsupported credentialSource.kind: {kind}")
 
@@ -673,6 +729,8 @@ def credential_source_exists(source: CredentialSource) -> bool | None:
         return source.auth_file.is_file()
     if source.kind == "hermes-auth" and source.auth_file is not None:
         return source.auth_file.is_file()
+    if source.kind == "devin-auth" and source.auth_file is not None:
+        return source.auth_file.is_file()
     return False
 
 
@@ -756,6 +814,8 @@ def enabled_providers(home: Path | None = None) -> list[str]:
         result.append("cursor")
     if "hermes" not in explicit_ids and detect_hermes_installed(root):
         result.append("hermes")
+    if "devin" not in explicit_ids and detect_devin_installed(root):
+        result.append("devin")
     return result
 
 
@@ -932,6 +992,39 @@ def detect_hermes_installed(home: Path | None = None) -> bool:
     return hermes_state_has_nous_login(hermes_nous_state(payload))
 
 
+def user_data_directory(home: Path | None = None) -> Path:
+    """Per-user data root: ~/.local/share on POSIX, %APPDATA% on Windows."""
+    root = home or home_directory()
+    if IS_WINDOWS:
+        return Path(os.environ.get("APPDATA") or str(root / "AppData" / "Roaming"))
+    if home is None:
+        configured = os.environ.get("XDG_DATA_HOME")
+        if isinstance(configured, str) and configured.strip():
+            return Path(configured).expanduser()
+    return root / ".local" / "share"
+
+
+def devin_credentials_path(
+    home: Path | None = None,
+    *,
+    auth_file: Path | None = None,
+) -> Path:
+    if auth_file is not None:
+        return Path(auth_file).expanduser()
+    return user_data_directory(home) / "devin" / "credentials.toml"
+
+
+def detect_devin_installed(home: Path | None = None) -> bool:
+    """Devin is present when `devin` is on PATH or credentials.toml has an API key."""
+    if command_on_path("devin"):
+        return True
+    try:
+        devin_access_credentials(home)
+    except FetchFallback:
+        return False
+    return True
+
+
 def detect_installed_providers(home: Path | None = None) -> dict[str, bool]:
     """Local-only detection of installed provider CLIs/credentials (pure, testable)."""
     root = home or home_directory()
@@ -943,6 +1036,7 @@ def detect_installed_providers(home: Path | None = None) -> dict[str, bool]:
         "opencodego": detect_opencodego_installed(root),
         "cursor": detect_cursor_installed(root),
         "hermes": detect_hermes_installed(root),
+        "devin": detect_devin_installed(root),
     }
 
 
@@ -3280,7 +3374,7 @@ def fetch_hermes(
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
-        "User-Agent": "KodexBar-Suite/0.12.8",
+        "User-Agent": f"KodexBar-Suite/{VERSION}",
     }
 
     last_error: FetchFallback | None = None
@@ -3343,6 +3437,268 @@ def fetch_hermes(
         raise
     except Exception:
         raise FetchFallback(HERMES_INVALID_RESPONSE, "invalid_response", True)
+
+
+def _devin_toml_strings(text: str) -> dict[str, str]:
+    """Read top-level string keys from Devin credentials.toml. Fail closed on garbage."""
+    wanted = ("windsurf_api_key", "api_server_url")
+    if tomllib is not None:
+        try:
+            data = tomllib.loads(text)
+        except Exception:
+            raise FetchFallback(DEVIN_AUTH_INVALID_TOML, "authentication")
+        if not isinstance(data, dict):
+            raise FetchFallback(DEVIN_AUTH_INVALID_TOML, "authentication")
+        out: dict[str, str] = {}
+        for key in wanted:
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                out[key] = value.strip()
+        return out
+
+    found: dict[str, str] = {}
+    header = re.compile(r"^\[\[?[A-Za-z0-9_.-]+\]\]?$")
+    assignment = re.compile(r"^([A-Za-z0-9_.-]+)\s*=\s*(.+)$")
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if header.match(line):
+            continue
+        match = assignment.match(line)
+        if not match:
+            raise FetchFallback(DEVIN_AUTH_INVALID_TOML, "authentication")
+        value, ok = _parse_toml_quoted_string(match.group(2).strip())
+        if not ok or value is None:
+            raise FetchFallback(DEVIN_AUTH_INVALID_TOML, "authentication")
+        key = match.group(1)
+        if key in wanted and value.strip():
+            found[key] = value.strip()
+    return found
+
+
+def devin_api_base_url(raw: str | None) -> str:
+    """HTTPS API origin from credentials, else the official Cognition host."""
+    if isinstance(raw, str) and raw.strip():
+        cleaned = raw.strip().rstrip("/")
+        parsed = urlparse(cleaned)
+        if (
+            parsed.scheme == "https"
+            and parsed.hostname
+            and parsed.username is None
+            and parsed.password is None
+            and not credential_has_control_chars(cleaned)
+        ):
+            return cleaned
+    return DEVIN_DEFAULT_API_SERVER
+
+
+def devin_access_credentials(
+    home: Path | None = None,
+    *,
+    auth_file: Path | None = None,
+) -> tuple[str, str]:
+    """Return (windsurf_api_key, api_base_url). Never refreshes. Never leaks secrets."""
+    path = devin_credentials_path(home, auth_file=auth_file)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise FetchFallback(DEVIN_AUTH_NOT_FOUND, "authentication")
+    except OSError as error:
+        raise FetchFallback(DEVIN_AUTH_UNREADABLE, "permanent", False) from error
+    fields = _devin_toml_strings(text)
+    key = fields.get("windsurf_api_key")
+    if not key:
+        raise FetchFallback(DEVIN_AUTH_MISSING_KEY, "authentication")
+    return require_header_safe_credential(key, DEVIN_CREDENTIAL_MALFORMED), devin_api_base_url(
+        fields.get("api_server_url")
+    )
+
+
+def _devin_used_percent(remaining: float) -> float:
+    """Devin reports remaining percent. The widget stores used percent."""
+    used = 100.0 - remaining
+    if used < 0:
+        return 0.0
+    if used > 100:
+        return 100.0
+    return used
+
+
+def _devin_resets_at(value: Any) -> str | None:
+    seconds = _coerce_finite_number(value)
+    if seconds is None or seconds < CODEX_TS_MIN or seconds > CODEX_TS_MAX:
+        return None
+    return unix_seconds_to_iso(seconds)
+
+
+def _devin_quota_window(remaining: float | None, reset_unix: Any) -> dict[str, Any] | None:
+    if remaining is None:
+        return None
+    window: dict[str, Any] = {"usedPercent": _devin_used_percent(remaining)}
+    resets_at = _devin_resets_at(reset_unix)
+    if resets_at is not None:
+        window["resetsAt"] = resets_at
+    return window
+
+
+def map_devin_usage(payload: Any, updated_at: str | None = None) -> dict[str, Any]:
+    """Map SeatManagement GetUserStatus remaining percents to the widget envelope.
+
+    Daily and weekly usedPercent come only from vendor remaining fields.
+    Extra on-demand dollars come from overageBalanceMicros when that field exists.
+    Never invents a percent. Never invents a remaining dollar amount from percents.
+    """
+    if not isinstance(payload, dict):
+        raise FetchFallback(DEVIN_INVALID_RESPONSE, "invalid_response", True)
+    raw_status = payload.get("userStatus")
+    if not isinstance(raw_status, dict):
+        raise FetchFallback(DEVIN_INVALID_RESPONSE, "invalid_response", True)
+    raw_plan = raw_status.get("planStatus")
+    plan_status = raw_plan if isinstance(raw_plan, dict) else {}
+    raw_info = plan_status.get("planInfo")
+    plan_info = raw_info if isinstance(raw_info, dict) else {}
+    hide_daily = plan_info.get("hideDailyQuota") is True
+
+    daily_remaining = _coerce_finite_number(plan_status.get("dailyQuotaRemainingPercent"))
+    weekly_remaining = _coerce_finite_number(plan_status.get("weeklyQuotaRemainingPercent"))
+    overage_micros = _coerce_finite_number(plan_status.get("overageBalanceMicros"))
+
+    primary = None
+    if not hide_daily:
+        primary = _devin_quota_window(daily_remaining, plan_status.get("dailyQuotaResetAtUnix"))
+    secondary = _devin_quota_window(weekly_remaining, plan_status.get("weeklyQuotaResetAtUnix"))
+    if secondary is None and hide_daily:
+        secondary = _devin_quota_window(daily_remaining, plan_status.get("weeklyQuotaResetAtUnix"))
+
+    extra: dict[str, Any] | None = None
+    if overage_micros is not None:
+        extra = {
+            "enabled": True,
+            "balance": max(0.0, overage_micros) / 1_000_000.0,
+            "currency": "USD",
+        }
+
+    if primary is None and secondary is None and extra is None:
+        raise FetchFallback(DEVIN_INVALID_RESPONSE, "invalid_response", True)
+
+    identity: dict[str, Any] = {"providerID": "devin"}
+    plan = plan_info.get("planName")
+    if isinstance(plan, str) and plan.strip():
+        identity["loginMethod"] = plan.strip()
+    else:
+        identity["loginMethod"] = "Devin"
+
+    usage: dict[str, Any] = {
+        "identity": identity,
+        "primary": primary,
+        "secondary": secondary,
+        "tertiary": None,
+        "updatedAt": updated_at or iso_now(),
+    }
+    if extra is not None:
+        usage["extraUsage"] = extra
+    return {
+        "provider": "devin",
+        "source": DEVIN_SOURCE,
+        "usage": usage,
+        "engine": "kodexbar",
+    }
+
+
+def fetch_devin(
+    home: Path | None = None,
+    *,
+    auth_file: Path | None = None,
+) -> dict[str, Any]:
+    """Native Devin remaining quotas from the official SeatManagement RPC.
+
+    Uses the local CLI API key only. Does not refresh tokens.
+    """
+    try:
+        key, api_base = devin_access_credentials(home, auth_file=auth_file)
+    except FetchFallback as error:
+        if error.category == "authentication":
+            return provider_error("devin", DEVIN_SOURCE, str(error), "authentication", False)
+        raise
+
+    url = api_base + DEVIN_STATUS_PATH
+    body = json.dumps({
+        "metadata": {
+            "apiKey": key,
+            "ideName": "devin",
+            "ideVersion": DEVIN_IDE_VERSION,
+            "extensionName": "devin",
+            "extensionVersion": DEVIN_IDE_VERSION,
+            "locale": "en",
+        }
+    }).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "Connect-Protocol-Version": "1",
+        "User-Agent": f"KodexBar-Suite/{VERSION}",
+    }
+
+    last_error: FetchFallback | None = None
+    status = 0
+    response_body = b""
+    for attempt in range(2):
+        try:
+            status, _resp_headers, response_body = http_request(
+                "POST",
+                url,
+                headers,
+                body,
+                DEVIN_TIMEOUT_SECONDS,
+            )
+        except FetchFallback as error:
+            last_error = error
+            if error.retryable and attempt == 0:
+                continue
+            raise FetchFallback(
+                human_native_error_message("devin", error.category),
+                error.category,
+                error.retryable,
+            )
+        if status in (408, 502, 503, 504) and attempt == 0:
+            category = "timeout" if status == 408 else "network"
+            last_error = FetchFallback(
+                human_native_error_message("devin", category),
+                category,
+                True,
+            )
+            continue
+        break
+    else:
+        if last_error is not None:
+            raise last_error
+
+    if status in (401, 403):
+        return provider_error("devin", DEVIN_SOURCE, DEVIN_AUTH_RELOGIN, "authentication", False)
+    if status == 429:
+        return provider_error(
+            "devin",
+            DEVIN_SOURCE,
+            "Devin is rate limited right now. Wait a few minutes, then click Refresh.",
+            "rate_limit",
+        )
+    if status != 200:
+        retryable = status in (408, 425) or status >= 500
+        if retryable:
+            category = "timeout" if status == 408 else "network"
+            raise FetchFallback(human_native_error_message("devin", category), category, True)
+        raise FetchFallback(DEVIN_PERMANENT, "permanent", False)
+
+    try:
+        payload = json.loads(response_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise FetchFallback(DEVIN_INVALID_RESPONSE, "invalid_response", True) from error
+    try:
+        return map_devin_usage(payload)
+    except FetchFallback:
+        raise
+    except Exception:
+        raise FetchFallback(DEVIN_INVALID_RESPONSE, "invalid_response", True)
 
 
 def upstream_path() -> str | None:
@@ -5176,6 +5532,8 @@ def _dual_failure_message(provider: str, native_failure: FetchFallback, upstream
         return CURSOR_BOTH_FAILED
     if normalized == "hermes":
         return HERMES_BOTH_FAILED
+    if normalized == "devin":
+        return DEVIN_BOTH_FAILED
     return f"{native_failure}. Fallback failed: {upstream_detail}"
 
 
@@ -5278,7 +5636,7 @@ def _native_provider_result(
         if category in (None, ""):
             return [entry]
         # Humanize structured native errors (auth returned as entry, permanent plan issues).
-        if provider.lower() in ("codex", "grok", "cursor", "hermes"):
+        if provider.lower() in ("codex", "grok", "cursor", "hermes", "devin"):
             entry = {
                 **entry,
                 "error": {
@@ -5385,6 +5743,18 @@ def fetch_provider(
                 home,
                 lambda: fetch_hermes(home, auth_file=auth_file),
                 "nous-portal",
+                allow_upstream_fallback=allow_fallback,
+            )
+        )
+    if normalized == "devin" and source in (None, "auto", "devin", DEVIN_SOURCE):
+        auth_file = cs.auth_file if cs.kind == "devin-auth" else None
+        return stamp(
+            _native_provider_result(
+                normalized,
+                source,
+                home,
+                lambda: fetch_devin(home, auth_file=auth_file),
+                DEVIN_SOURCE,
                 allow_upstream_fallback=allow_fallback,
             )
         )

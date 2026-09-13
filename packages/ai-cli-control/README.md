@@ -165,12 +165,13 @@ Supported roots are `~/.codex/skills`, `~/.claude/skills`, `~/.grok/skills`, `~/
 
 ## Quotas engine
 
-`kodexbar-quotas` is the widget's default local command. It reads the enabled providers from `~/.config/codexbar/config.json`. Claude, Codex, Grok, Cursor, and Hermes are fetched natively with stdlib HTTP:
+`kodexbar-quotas` is the widget's default local command. It reads the enabled providers from `~/.config/codexbar/config.json`. Claude, Codex, Grok, Cursor, Hermes, and Devin are fetched natively with stdlib HTTP:
 
 - Claude: OAuth JSON at `https://api.anthropic.com/api/oauth/usage` (15-second timeout).
 - Codex: OAuth usage at the ChatGPT backend (`/wham/usage` or `/api/codex/usage`) using `~/.codex/auth.json`. No automatic token refresh. Auth failures ask the user to run `codex` to log in.
 - Grok: cookie-free gRPC-web billing at Grok's credits endpoint using `~/.grok/auth.json`. Auth failures ask the user to run `grok login`.
 - Hermes: Nous Portal remaining credits at `/api/oauth/account` using the access token in `~/.hermes/auth.json`. No refresh-token spend. Auth failures ask the user to run `hermes model`.
+- Devin: SeatManagement remaining percents using `windsurf_api_key` in `~/.local/share/devin/credentials.toml`. No token refresh. Auth failures ask the user to run `devin auth login`.
 
 Antigravity and any unknown provider still use upstream `codexbar` per provider. Codex and Grok may fall back to that companion only for retryable network or infrastructure failures, never for authentication errors. Provider errors retain their exact cause and structured retry category. Claude HTTP 429 remains a non-retryable provider error so the widget can retain its cached reading.
 

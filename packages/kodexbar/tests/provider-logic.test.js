@@ -108,13 +108,14 @@ assert.equal(activeFallback.entry.selectionKey, "codex:1", "a stale selection fa
 const popupWithHermes = plain(context.decoratePopupEntries([
     { provider: "cursor", name: "Cursor", profileId: "default" },
     { provider: "hermes", name: "Hermes", profileId: "default" },
+    { provider: "devin", name: "Devin", profileId: "default" },
     { provider: "opencodego", name: "OpenCode Go", profileId: "default" },
     { provider: "codex", name: "Codex", profileId: "default" }
 ]))
 assert.deepEqual(
     popupWithHermes.map(entry => entry.providerId),
-    ["codex", "cursor", "hermes", "opencodego"],
-    "popup keeps Hermes with the other known providers instead of dropping priority 5"
+    ["codex", "cursor", "hermes", "devin", "opencodego"],
+    "popup keeps Hermes and Devin with the other known providers instead of dropping later priorities"
 )
 const hermesEntry = popupWithHermes.find(entry => entry.providerId === "hermes")
 assert.equal(hermesEntry.selectionKey, "hermes:default", "Hermes keeps a selectable popup key")
@@ -356,10 +357,16 @@ assert.equal(
 )
 assert.equal(context.compactProviderLabel("cursor", "Cursor"), "Cr", "Cursor has a stable compact provider label")
 assert.equal(context.compactProviderLabel("hermes", "Hermes"), "Hm", "Hermes has a stable compact provider label")
+assert.equal(context.compactProviderLabel("devin", "Devin"), "Dv", "Devin has a stable compact provider label")
 assert.equal(
     context.compactQuotaLabel("weekly", "Weekly", "hermes"),
     "M",
     "Hermes remaining in the weekly slot uses the M compact badge"
+)
+assert.equal(
+    context.compactQuotaLabel("primary", "Daily", "devin"),
+    "D",
+    "Devin daily remaining uses the D compact badge"
 )
 assert.equal(
     context.standardWindowRow("primary", "Session", null, null, ""),
@@ -1259,7 +1266,12 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.12.8", "package metadata uses version 0.12.8")
+assert.match(
+    configXml,
+    /<entry name="compactProviderOrder" type="String">\s*<default>codex,claude,grok,antigravity,opencodego,hermes,devin<\/default>/,
+    "the compact default includes OpenCode Go, Hermes, and Devin"
+)
+assert.equal(metadata.KPlugin.Version, "0.12.9", "package metadata uses version 0.12.9")
 assert.equal(metadata.KPlugin.Website, "https://github.com/Karasowl/KodexBar-Suite", "package metadata links to the maintained suite repository")
 assert.match(mainQml, /var antigravityWindows = antigravity && Array\.isArray\(usage\.antigravityRateWindows\)/, "popup consumes the engine's Antigravity model windows")
 assert.match(mainQml, /compactLabel: antigravityKey === "gemini-weekly" \? "W"/, "compact Antigravity weekly uses W like other providers")
@@ -1847,10 +1859,13 @@ assert.match(preferencesQml, /Plasmoid\.globalShortcut = workingShortcut/, "pref
 assert.match(preferencesQml, /KeySequenceItem/, "preferences expose a native key-sequence capture control")
 assert.match(preferencesQml, /compactResultForOrder\(workingCompactProviderOrder, \{[\s\S]*quotaSelection: workingCompactQuotaSelection[\s\S]*showProvider: workingShowProviderInPanel[\s\S]*showUsed: workingShowUsedPercentInPanel[\s\S]*showCredits: workingShowCreditsInPanel/, "the live preview uses the working compact composition")
 assert.match(mainQml, /function compactResultForOrder\(providerOrder, overrides\) \{[\s\S]*overrides \|\| \{\}[\s\S]*values\.quotaSelection === undefined[\s\S]*values\.showProvider === undefined[\s\S]*values\.showUsed === undefined[\s\S]*values\.showCredits === undefined/, "compact composition accepts preview overrides while preserving configured fallbacks")
-assert.match(mainQml, /defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,hermes"/, "the compact default includes detected Hermes")
+assert.match(mainQml, /defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,hermes,devin"/, "the compact default includes detected Hermes and Devin")
 assert.match(mainQml, /"hermes": "Hermes"/, "popup names Hermes")
 assert.match(mainQml, /"hermes": "hermes"/, "Hermes uses its own supplied icon")
+assert.match(mainQml, /"devin": "Devin"/, "popup names Devin")
+assert.match(mainQml, /"devin": "devin"/, "Devin uses its own supplied icon")
 assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey\)[\s\S]*hermes[\s\S]*Monthly/, "Hermes monthly remaining uses the Monthly window label")
+assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey\)[\s\S]*devin[\s\S]*Daily/, "Devin remaining uses the Daily window label")
 assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey\)[\s\S]*OpenCode Go/, "OpenCode Go uses its five-hour, weekly, and monthly window labels")
 assert.match(mainQml, /ProviderLogic\.providerId\(entry\.provider\) === "opencodego"/, "OpenCode Go keeps its plan label when upstream omits identity")
 assert.match(mainQml, /function formatUsageSource\(provider, source\)[\s\S]*opencodego[\s\S]*local · estimated/, "OpenCode Go local usage is labeled as estimated")
@@ -1872,6 +1887,16 @@ assert.match(preferencesQml, /Plasmoid\.configuration\.showEmailInWidget = worki
 assert.match(preferencesQml, /Plasmoid\.configuration\.showCostSummary = workingShowCostSummary/, "preferences apply the popup-cost setting")
 assert.match(preferencesQml, /function restoreDefaults\(\) \{[\s\S]*workingCompactQuotaSelection = "primary,weekly"[\s\S]*workingShowProviderInPanel = true[\s\S]*workingShowUsedPercentInPanel = true[\s\S]*workingShowCreditsInPanel = false[\s\S]*workingIncludeStatus = false[\s\S]*workingShowEmailInWidget = false[\s\S]*workingShowCostSummary = true/, "restore defaults resets the seven migrated settings")
 assert.match(preferencesQml, /text: i18n\("Show all returned providers"\)/, "preferences expose the all-providers compact toggle")
+assert.match(
+    preferencesQml,
+    /onToggled: preferences\.workingCompactProviderOrder = checked\s*\n\s*\? "" : appletRoot\.defaultCompactProviderOrder/,
+    "the all-providers toggle restores the current compact default"
+)
+assert.match(
+    preferencesQml,
+    /function restoreDefaults\(\) \{[\s\S]*workingCompactProviderOrder = appletRoot\.defaultCompactProviderOrder/,
+    "restore defaults uses the current compact provider order"
+)
 assert.match(
     preferencesQml,
     /function orderedProviderIds\(\) \{[\s\S]*activeProviderIds[\s\S]*providerIds[\s\S]*return ids/,

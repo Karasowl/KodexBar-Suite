@@ -87,7 +87,7 @@ PlasmoidItem {
     property bool includeStatus: Plasmoid.configuration.includeStatus === undefined ? false : Plasmoid.configuration.includeStatus
     property bool showCostSummary: Plasmoid.configuration.showCostSummary === undefined ? true : Plasmoid.configuration.showCostSummary
     property int costRefreshSeconds: Math.max(1, Plasmoid.configuration.costRefreshSeconds || 900)
-    readonly property string defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,hermes"
+    readonly property string defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,hermes,devin"
     property string compactProviderOrder: Plasmoid.configuration.compactProviderOrder === undefined
         ? defaultCompactProviderOrder
         : Plasmoid.configuration.compactProviderOrder
@@ -1794,6 +1794,11 @@ PlasmoidItem {
         if (ProviderLogic.providerId(provider) === "hermes") {
             if (quotaKey === "secondary" || quotaKey === "weekly") {
                 return i18n("Monthly")
+            }
+        }
+        if (ProviderLogic.providerId(provider) === "devin") {
+            if (quotaKey === "primary") {
+                return i18n("Daily")
             }
         }
         if (quotaKey === "primary") {

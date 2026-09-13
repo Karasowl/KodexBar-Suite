@@ -13,12 +13,12 @@
       }
     ],
     "Category": "System Information",
-    "Description": "KDE Plasma 6 AI quota monitor for Claude Code, OpenAI Codex, Cursor, Grok, OpenCode Go, Hermes, and Antigravity through CodexBar.",
+    "Description": "KDE Plasma 6 AI quota monitor for Claude Code, OpenAI Codex, Cursor, Grok, OpenCode Go, Hermes, Devin, and Antigravity through CodexBar.",
     "Icon": "utilities-terminal",
     "Id": "org.kde.plasma.kodexbar",
     "License": "MIT",
     "Name": "KodexBar Suite",
-    "Version": "0.12.8",
+    "Version": "0.12.9",
     "Website": "https://github.com/Karasowl/KodexBar-Suite"
   },
   "KPackageStructure": "Plasma/Applet",

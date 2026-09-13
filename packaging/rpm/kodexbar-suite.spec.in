@@ -25,7 +25,7 @@ Requires:       python3 >= 3.10
 
 %description
 KodexBar Suite provides native remaining quotas for Claude, Codex,
-Cursor, Grok, OpenCode Go, and Hermes, plus panel and tray integrations,
+Cursor, Grok, OpenCode Go, Hermes, and Devin, plus panel and tray integrations,
 local model monitoring, skill inventory, and an optional Plasma 6 widget.
 
 %prep
