@@ -3,6 +3,10 @@ const copyText = {
     en: { title: "Arch, CachyOS, or Manjaro", body: "AUR package with native Claude, Codex, Cursor, Grok, OpenCode Go, Hermes, and Devin quotas. Then on Plasma: add the KodexBar widget to the panel.", cmd: "paru -S kodexbar-suite" },
     es: { title: "Arch, CachyOS o Manjaro", body: "Paquete AUR con cuotas nativas de Claude, Codex, Cursor, Grok, OpenCode Go, Hermes y Devin. Después, en Plasma: añade el widget KodexBar al panel.", cmd: "paru -S kodexbar-suite" }
   },
+  debian: {
+    en: { title: "Debian or Ubuntu", body: "Native DEB with the same Claude, Codex, Cursor, Grok, OpenCode Go, Hermes, and Devin quotas. Then on Plasma: add the KodexBar widget to the panel.", cmd: "curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.8/kodexbar-suite_0.12.8-1_all.deb && sudo apt install ./kodexbar-suite_0.12.8-1_all.deb" },
+    es: { title: "Debian o Ubuntu", body: "DEB nativo con las mismas cuotas de Claude, Codex, Cursor, Grok, OpenCode Go, Hermes y Devin. Después, en Plasma: añade el widget KodexBar al panel.", cmd: "curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.8/kodexbar-suite_0.12.8-1_all.deb && sudo apt install ./kodexbar-suite_0.12.8-1_all.deb" }
+  },
   plasma: {
     en: { title: "Plasma 6 on another distro", body: "Native DEB and RPM packages are available in GitHub Releases. This portable option installs without sudo. Then add the widget to the panel.", cmd: "git clone https://github.com/Karasowl/KodexBar-Suite.git && cd KodexBar-Suite && ./install.sh" },
     es: { title: "Plasma 6 en otra distro", body: "Hay paquetes DEB y RPM nativos en GitHub Releases. Esta opción portable instala sin sudo. Luego añade el widget al panel.", cmd: "git clone https://github.com/Karasowl/KodexBar-Suite.git && cd KodexBar-Suite && ./install.sh" }
@@ -26,8 +30,8 @@ const copyText = {
 };
 
 const pillLabels = {
-  en: { arch: "Arch / CachyOS", plasma: "Plasma 6", gnome: "GNOME / COSMIC", waybar: "Hyprland / Waybar", xfce: "XFCE", other: "Other" },
-  es: { arch: "Arch / CachyOS", plasma: "Plasma 6", gnome: "GNOME / COSMIC", waybar: "Hyprland / Waybar", xfce: "XFCE", other: "Otro" }
+  en: { arch: "Arch / CachyOS", debian: "Debian / Ubuntu", plasma: "Plasma 6", gnome: "GNOME / COSMIC", waybar: "Hyprland / Waybar", xfce: "XFCE", other: "Other" },
+  es: { arch: "Arch / CachyOS", debian: "Debian / Ubuntu", plasma: "Plasma 6", gnome: "GNOME / COSMIC", waybar: "Hyprland / Waybar", xfce: "XFCE", other: "Otro" }
 };
 
 let lang = "en";
@@ -39,6 +43,7 @@ function guess() {
   const linux = /Linux/i.test(ua) || /Linux/i.test(plat);
   if (!linux) return "other";
   if (/CachyOS|Arch/i.test(ua)) return "arch";
+  if (/Debian|Ubuntu/i.test(ua)) return "debian";
   return "plasma";
 }
 
