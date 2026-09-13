@@ -30,6 +30,7 @@ LABELS = {
     "cursor": "Cr",
     "opencodego": "Og",
     "hermes": "Hm",
+    "devin": "Dv",
 }
 
 
@@ -222,9 +223,10 @@ def block_text(provider: dict[str, Any]) -> str:
             return " ".join(parts)
         session = provider["percentages"]["session"]
         weekly = provider["percentages"]["weekly"]
+        primary_label = "D" if provider["provider"] == "devin" else "S"
         secondary_label = "M" if provider["provider"] in {"cursor", "hermes"} else "W"
         if session is not None:
-            parts.append(f"S {session}%")
+            parts.append(f"{primary_label} {session}%")
         if weekly is not None:
             parts.append(f"{secondary_label} {weekly}%")
     return " ".join(parts)
@@ -264,7 +266,8 @@ def tooltip_lines(providers: list[dict[str, Any]]) -> list[str]:
                 lines.append(f"{title}: no Antigravity quotas reported")
             continue
         weekly_title = "Monthly" if provider["provider"] in {"cursor", "hermes"} else "Weekly"
-        for key, title_key in (("session", "Session"), ("weekly", weekly_title)):
+        session_title = "Daily" if provider["provider"] == "devin" else "Session"
+        for key, title_key in (("session", session_title), ("weekly", weekly_title)):
             percent = provider["percentages"][key]
             reset = provider["resets"][key]
             if percent is None and not reset:

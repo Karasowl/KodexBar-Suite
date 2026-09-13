@@ -1,7 +1,7 @@
 const copyText = {
   arch: {
-    en: { title: "Arch, CachyOS, or Manjaro", body: "AUR package with native Claude, Codex, Cursor, Grok, OpenCode Go, and Hermes quotas. Then on Plasma: add the KodexBar widget to the panel.", cmd: "paru -S kodexbar-suite" },
-    es: { title: "Arch, CachyOS o Manjaro", body: "Paquete AUR con cuotas nativas de Claude, Codex, Cursor, Grok, OpenCode Go y Hermes. Después, en Plasma: añade el widget KodexBar al panel.", cmd: "paru -S kodexbar-suite" }
+    en: { title: "Arch, CachyOS, or Manjaro", body: "AUR package with native Claude, Codex, Cursor, Grok, OpenCode Go, Hermes, and Devin quotas. Then on Plasma: add the KodexBar widget to the panel.", cmd: "paru -S kodexbar-suite" },
+    es: { title: "Arch, CachyOS o Manjaro", body: "Paquete AUR con cuotas nativas de Claude, Codex, Cursor, Grok, OpenCode Go, Hermes y Devin. Después, en Plasma: añade el widget KodexBar al panel.", cmd: "paru -S kodexbar-suite" }
   },
   plasma: {
     en: { title: "Plasma 6 on another distro", body: "Native DEB and RPM packages are available in GitHub Releases. This portable option installs without sudo. Then add the widget to the panel.", cmd: "git clone https://github.com/Karasowl/KodexBar-Suite.git && cd KodexBar-Suite && ./install.sh" },

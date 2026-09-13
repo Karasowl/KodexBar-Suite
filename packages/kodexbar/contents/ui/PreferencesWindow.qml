@@ -143,7 +143,8 @@ QQC2.ApplicationWindow {
             claude: i18n("Claude"),
             grok: i18n("Grok"),
             antigravity: i18n("Antigravity"),
-            hermes: i18n("Hermes")
+            hermes: i18n("Hermes"),
+            devin: i18n("Devin")
         }
         return names[providerId] || providerId.charAt(0).toUpperCase() + providerId.slice(1)
     }
@@ -187,7 +188,7 @@ QQC2.ApplicationWindow {
         workingClaudeRefreshInterval = Math.max(60, Math.min(3600,
             Number(Plasmoid.configuration.claudeRefreshInterval || 300)))
         workingCompactProviderOrder = Plasmoid.configuration.compactProviderOrder === undefined
-            ? "codex,claude,grok,antigravity,opencodego,hermes"
+            ? "codex,claude,grok,antigravity,opencodego,hermes,devin"
             : String(Plasmoid.configuration.compactProviderOrder)
         workingCompactQuotaSelection = Plasmoid.configuration.compactQuotaSelection === undefined
             ? "primary,weekly"

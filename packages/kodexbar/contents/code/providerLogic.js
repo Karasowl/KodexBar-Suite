@@ -555,6 +555,9 @@ function compactQuotaLabel(quotaKey, title, provider) {
     if (providerId(provider) === "hermes" && compactQuotaKey(quotaKey) === "weekly") {
         return "M"
     }
+    if (providerId(provider) === "devin" && compactQuotaKey(quotaKey) === "primary") {
+        return "D"
+    }
     // A monthly/billing title overrides the generic weekly badge: Cursor's
     // billing cycle lives in the secondary slot but is not a weekly window.
     if (/\bmonth|monthly|billing\b/i.test(String(title || ""))) {
@@ -1048,7 +1051,8 @@ function popupProviderPriority(provider) {
         "grok": 2,
         "antigravity": 3,
         "cursor": 4,
-        "hermes": 5
+        "hermes": 5,
+        "devin": 6
     }
     var id = providerId(provider)
     return priorities[id] === undefined ? 100 : priorities[id]
@@ -1294,6 +1298,7 @@ function compactProviderLabel(provider, name) {
         "opencodego": "Og",
         "cursor": "Cr",
         "hermes": "Hm",
+        "devin": "Dv",
         "gemini": "Gm"
     }
     if (labels[id]) {

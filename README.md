@@ -2,13 +2,13 @@
 
 [Leer en español](README.es.md)
 
-> AI quota monitor for coding assistants, including native Hermes remaining credits from Nous Portal: KDE Plasma 6 widget and Linux panel tools, plus a Windows tray app.
+> AI quota monitor for coding assistants, including native Hermes remaining credits and Devin remaining percents: KDE Plasma 6 widget and Linux panel tools, plus a Windows tray app.
 
 [![Latest release](https://img.shields.io/github/v/release/Karasowl/KodexBar-Suite?display_name=tag&sort=semver)](https://github.com/Karasowl/KodexBar-Suite/releases/latest)
 [![KDE Plasma 6](https://img.shields.io/badge/KDE%20Plasma-6-1d99f3?style=flat-square)](https://kde.org/plasma-desktop/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-KodexBar Suite puts AI coding quota and usage tracking in one Linux panel, including native Hermes remaining credits from Nous Portal. The widget shows live usage, reset times, spend, and errors. Compact panel lets you hide a provider that is in ERR.
+KodexBar Suite puts AI coding quota and usage tracking in one Linux panel, including native Hermes remaining credits and Devin remaining percents from the local login. The widget shows live usage, reset times, spend, and errors. Compact panel lets you hide a provider that is in ERR.
 
 ![KodexBar on Plasma 6: panel chips, provider quotas, Claude ERR, then hiding Claude in Compact panel](docs/kodexbar-demo.gif)
 
@@ -39,6 +39,7 @@ The suite has dedicated quota paths for the providers below:
 | Grok | Native usage and billing data from the local account session |
 | OpenCode Go | Native quota detection and provider identity |
 | Hermes | Native Nous Portal remaining credits from the local Hermes login |
+| Devin | Native daily and weekly remaining percents from the local Devin login |
 | Antigravity | Optional companion path through the upstream CodexBar CLI |
 
 The widget can also display other providers returned by CodexBar when they are enabled. The suite does not invent quota values when a provider does not return real data.
@@ -102,7 +103,7 @@ What the package installs under `/usr`:
 
 How quotas work after install:
 
-- **Claude, Codex, Grok, Cursor, and Hermes** quotas are fetched natively by `kodexbar-quotas` (Python stdlib). Claude needs Claude Code OAuth credentials. Codex reads `~/.codex/auth.json`. Grok reads `~/.grok/auth.json`. Hermes reads the Nous Portal access token in `~/.hermes/auth.json` and does not spend the rotating refresh token. Expired or missing credentials show a re-login message (no automatic OAuth refresh).
+- **Claude, Codex, Grok, Cursor, Hermes, and Devin** quotas are fetched natively by `kodexbar-quotas` (Python stdlib). Claude needs Claude Code OAuth credentials. Codex reads `~/.codex/auth.json`. Grok reads `~/.grok/auth.json`. Hermes reads the Nous Portal access token in `~/.hermes/auth.json` and does not spend the rotating refresh token. Devin reads `~/.local/share/devin/credentials.toml` and shows the daily and weekly remaining percents Cognition reports. Expired or missing credentials show a re-login message (no automatic OAuth refresh).
 - **Antigravity** still needs the companion CLI [`codexbar` by steipete](https://github.com/steipete/CodexBar). The same CLI is an optional fallback for Codex and Grok when the native path hits a retryable network or infrastructure failure. On Arch/CachyOS install it as `codexbar-cli-bin` (not the unrelated AUR package also named `codexbar`).
 - An existing CodexBar config is never overwritten. The widget does **not** invent placeholder quota numbers.
 
@@ -160,7 +161,7 @@ GitHub Releases provides the matching source archive, DEB, RPM files, Plasma wid
 Windows runs the suite as a tray application plus the console tools; the quota engine is shared with the Linux build. `KodexBar Tray` shows a status icon in the notification area, opens a "Panel de cuotas" window with per-provider usage, and its menu covers refresh, AI CLI Control, autostart, and quit. `ai`, `kodexbar-quotas`, `kodexbar-skills`, `local-ai`, and `ai recover` ship beside the tray executable.
 
 - Install the per-user setup exe (no administrator rights) or extract the portable zip and run `KodexBarTray.exe`. Both come from [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest).
-- Provider data paths follow each CLI's Windows layout: `~\.claude`, `~\.codex`, `~\.grok`, `~\.hermes`, and the Cursor token database under `%APPDATA%\Cursor`.
+- Provider data paths follow each CLI's Windows layout: `~\.claude`, `~\.codex`, `~\.grok`, `~\.hermes`, `%APPDATA%\devin\credentials.toml`, and the Cursor token database under `%APPDATA%\Cursor`.
 - The Plasma 6 widget, Waybar/XFCE panel output, and the GTK tray stay Linux-only. Scope details and build-from-source steps live in [the Windows packaging notes](packaging/windows/README.md).
 
 ### KDE Store (widget-only channel)

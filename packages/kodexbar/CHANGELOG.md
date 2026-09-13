@@ -4,6 +4,10 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+### Added
+
+- Devin compact label `Dv`, Daily window, and provider icon for Cognition remaining percents.
+
 ## 0.12.8, 2026-09-10
 
 ### Fixed

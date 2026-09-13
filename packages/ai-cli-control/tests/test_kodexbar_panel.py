@@ -92,6 +92,21 @@ class PanelAdapterTests(unittest.TestCase):
         self.assertIn("&amp; &lt;span&gt;oops&lt;/span&gt;", payload["tooltip"])
         self.assertNotIn("<span>oops</span>", payload["tooltip"])
 
+    def test_devin_daily_window_uses_d_not_s(self) -> None:
+        entries = [{
+            "provider": "devin",
+            "usage": {
+                "primary": {"usedPercent": 40.0, "resetsAt": "2026-09-13T09:00:00Z"},
+                "secondary": {"usedPercent": 20.0, "resetsAt": "2026-09-19T09:00:00Z"},
+            },
+        }]
+        model = panel.compact_model(entries, [])
+        self.assertEqual(model["text"], "Dv D 40% W 20%")
+        self.assertEqual(panel.provider_label("devin"), "Dv")
+        tooltip = "\n".join(panel.tooltip_lines(model["providers"]))
+        self.assertIn("Daily 40%", tooltip)
+        self.assertIn("Weekly 20%", tooltip)
+
     def test_hermes_monthly_window_uses_m_not_w(self) -> None:
         entries = [{
             "provider": "hermes",

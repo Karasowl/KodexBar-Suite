@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Native Devin support: read `windsurf_api_key` from `~/.local/share/devin/credentials.toml` and show the daily and weekly remaining percents Cognition reports, plus on-demand extra dollars when that field is present. The engine never invents quota sizes or refreshes tokens.
+
 ## 0.12.8, 2026-09-10
 
 ### Changed

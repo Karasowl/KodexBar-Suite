@@ -31,6 +31,7 @@ TEST_CODEX_TOKEN = "test-codex-access-token-SECRET-do-not-leak"
 TEST_GROK_KEY = "test-grok-key-SECRET-do-not-leak"
 TEST_CURSOR_TOKEN = "test-cursor-token-SECRET-do-not-leak"
 TEST_HERMES_TOKEN = "test-hermes-token-SECRET-do-not-leak"
+TEST_DEVIN_KEY = "test-devin-windsurf-key-SECRET-do-not-leak"
 
 
 def _encode_varint(value: int) -> bytes:
@@ -409,7 +410,8 @@ class QuotasEngineTests(unittest.TestCase):
                 {"id": "claude", "enabled": False},
                 {"id": "grok", "enabled": True},
             ]}), encoding="utf-8")
-            self.assertEqual(quotas.enabled_providers(home), ["codex", "grok"])
+            with patch.dict(os.environ, {"PATH": ""}):
+                self.assertEqual(quotas.enabled_providers(home), ["codex", "grok"])
 
     def test_cli_aggregates_native_auth_and_antigravity_upstream(self) -> None:
         """Claude uses fixture, Codex/Grok missing auth stay native, Antigravity still upstream."""
@@ -1622,6 +1624,7 @@ class QuotasEngineTests(unittest.TestCase):
                 self.assertFalse(quotas.detect_antigravity_installed(home))
                 self.assertFalse(quotas.detect_opencodego_installed(home))
                 self.assertFalse(quotas.detect_hermes_installed(home))
+                self.assertFalse(quotas.detect_devin_installed(home))
 
                 credentials = home / ".claude" / ".credentials.json"
                 credentials.parent.mkdir(parents=True)
@@ -1657,12 +1660,21 @@ class QuotasEngineTests(unittest.TestCase):
                 )
                 self.assertTrue(quotas.detect_hermes_installed(home))
 
+                devin_auth = home / ".local" / "share" / "devin" / "credentials.toml"
+                devin_auth.parent.mkdir(parents=True)
+                devin_auth.write_text(
+                    f'windsurf_api_key = "{TEST_DEVIN_KEY}"\n',
+                    encoding="utf-8",
+                )
+                self.assertTrue(quotas.detect_devin_installed(home))
+
                 # PATH-only signals (no home side effects beyond what we set).
                 self._place_fake_cli(bin_dir, "claude")
                 self._place_fake_cli(bin_dir, "codex")
                 self._place_fake_cli(bin_dir, "grok")
                 self._place_fake_cli(bin_dir, "antigravity")
                 self._place_fake_cli(bin_dir, "hermes")
+                self._place_fake_cli(bin_dir, "devin")
                 empty_home = root / "empty-home"
                 empty_home.mkdir()
                 self.assertTrue(quotas.detect_claude_installed(empty_home))
@@ -1670,8 +1682,9 @@ class QuotasEngineTests(unittest.TestCase):
                 self.assertTrue(quotas.detect_grok_installed(empty_home))
                 self.assertTrue(quotas.detect_antigravity_installed(empty_home))
                 self.assertTrue(quotas.detect_hermes_installed(empty_home))
+                self.assertTrue(quotas.detect_devin_installed(empty_home))
 
-    def test_build_auto_config_includes_version_and_seven_ids(self) -> None:
+    def test_build_auto_config_includes_version_and_eight_ids(self) -> None:
         payload = quotas.build_auto_config({
             "claude": True,
             "codex": False,
@@ -1680,15 +1693,16 @@ class QuotasEngineTests(unittest.TestCase):
             "opencodego": True,
             "cursor": True,
             "hermes": True,
+            "devin": True,
         })
         self.assertEqual(payload["version"], 1)
         self.assertEqual(
             [item["id"] for item in payload["providers"]],
-            ["claude", "codex", "grok", "antigravity", "opencodego", "cursor", "hermes"],
+            ["claude", "codex", "grok", "antigravity", "opencodego", "cursor", "hermes", "devin"],
         )
         self.assertEqual(
             [item["enabled"] for item in payload["providers"]],
-            [True, False, True, False, True, True, True],
+            [True, False, True, False, True, True, True, True],
         )
 
     def test_existing_config_adds_detected_opencodego_without_writing_config(self) -> None:
@@ -1709,7 +1723,8 @@ class QuotasEngineTests(unittest.TestCase):
             )
             original = config.read_text(encoding="utf-8")
 
-            self.assertEqual(quotas.enabled_providers(home), ["claude", "codex", "opencodego"])
+            with patch.dict(os.environ, {"PATH": ""}):
+                self.assertEqual(quotas.enabled_providers(home), ["claude", "codex", "opencodego"])
             self.assertEqual(config.read_text(encoding="utf-8"), original)
 
     def test_explicitly_disabled_opencodego_stays_disabled(self) -> None:
@@ -1728,7 +1743,8 @@ class QuotasEngineTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            self.assertEqual(quotas.enabled_providers(home), ["claude"])
+            with patch.dict(os.environ, {"PATH": ""}):
+                self.assertEqual(quotas.enabled_providers(home), ["claude"])
 
     def test_opencodego_normalizes_subscription_identity_without_changing_limits(self) -> None:
         fixture = json.loads((FIXTURES / "opencodego-widget-entry.json").read_text(encoding="utf-8"))
@@ -1815,7 +1831,7 @@ class QuotasEngineTests(unittest.TestCase):
             by_id = {item["id"]: item["enabled"] for item in payload["providers"]}
             self.assertEqual(
                 by_id,
-                {"claude": True, "codex": True, "grok": True, "antigravity": False, "opencodego": False, "cursor": False, "hermes": False},
+                {"claude": True, "codex": True, "grok": True, "antigravity": False, "opencodego": False, "cursor": False, "hermes": False, "devin": False},
             )
             # Normal path: only detected/enabled providers are queried.
             entries = json.loads(result.stdout)
@@ -1894,7 +1910,7 @@ class QuotasEngineTests(unittest.TestCase):
             self.assertEqual(payload["version"], 1)
             self.assertEqual(
                 {item["id"]: item["enabled"] for item in payload["providers"]},
-                {"claude": False, "codex": True, "grok": False, "antigravity": False, "opencodego": False, "cursor": False, "hermes": False},
+                {"claude": False, "codex": True, "grok": False, "antigravity": False, "opencodego": False, "cursor": False, "hermes": False, "devin": False},
             )
             entries = json.loads(result.stdout)
             self.assertEqual([entry["provider"] for entry in entries], ["codex"])
@@ -2680,12 +2696,13 @@ class QuotasEngineTests(unittest.TestCase):
     def test_hermes_detection_requires_nous_tokens_or_cli(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            self.assertFalse(quotas.detect_hermes_installed(home))
-            (home / ".hermes").mkdir()
-            self.assertFalse(quotas.detect_hermes_installed(home))
-            self._write_hermes_auth(home)
-            self.assertTrue(quotas.detect_hermes_installed(home))
-            self.assertEqual(quotas.hermes_access_credentials(home)[0], TEST_HERMES_TOKEN)
+            with patch.dict(os.environ, {"PATH": ""}):
+                self.assertFalse(quotas.detect_hermes_installed(home))
+                (home / ".hermes").mkdir()
+                self.assertFalse(quotas.detect_hermes_installed(home))
+                self._write_hermes_auth(home)
+                self.assertTrue(quotas.detect_hermes_installed(home))
+                self.assertEqual(quotas.hermes_access_credentials(home)[0], TEST_HERMES_TOKEN)
 
     def test_hermes_legacy_systems_nous_portal_is_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -2836,7 +2853,8 @@ class QuotasEngineTests(unittest.TestCase):
             ]}), encoding="utf-8")
             self._write_hermes_auth(home)
             original = config.read_text(encoding="utf-8")
-            self.assertEqual(quotas.enabled_providers(home), ["claude", "codex", "hermes"])
+            with patch.dict(os.environ, {"PATH": ""}):
+                self.assertEqual(quotas.enabled_providers(home), ["claude", "codex", "hermes"])
             self.assertEqual(config.read_text(encoding="utf-8"), original)
 
     def test_explicitly_disabled_hermes_stays_disabled(self) -> None:
@@ -2849,7 +2867,214 @@ class QuotasEngineTests(unittest.TestCase):
                 {"id": "hermes", "enabled": False},
             ]}), encoding="utf-8")
             self._write_hermes_auth(home)
-            self.assertEqual(quotas.enabled_providers(home), ["claude"])
+            with patch.dict(os.environ, {"PATH": ""}):
+                self.assertEqual(quotas.enabled_providers(home), ["claude"])
+
+    def _write_devin_credentials(
+        self,
+        home: Path,
+        key: str = TEST_DEVIN_KEY,
+        **extra: object,
+    ) -> Path:
+        path = quotas.devin_credentials_path(home)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = [f'windsurf_api_key = "{key}"']
+        for name, value in extra.items():
+            if isinstance(value, bool):
+                lines.append(f"{name} = {'true' if value else 'false'}")
+            elif isinstance(value, str):
+                lines.append(f'{name} = "{value}"')
+            else:
+                lines.append(f"{name} = {value}")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return path
+
+    def test_devin_detection_requires_api_key_or_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            with patch.dict(os.environ, {"PATH": ""}):
+                self.assertFalse(quotas.detect_devin_installed(home))
+                (home / ".local" / "share" / "devin").mkdir(parents=True)
+                self.assertFalse(quotas.detect_devin_installed(home))
+                self._write_devin_credentials(home)
+                self.assertTrue(quotas.detect_devin_installed(home))
+                self.assertEqual(quotas.devin_access_credentials(home)[0], TEST_DEVIN_KEY)
+
+    def test_devin_maps_daily_weekly_remaining_and_extra(self) -> None:
+        mapped = quotas.map_devin_usage({
+            "userStatus": {
+                "planStatus": {
+                    "planInfo": {"planName": "Core", "hideDailyQuota": False},
+                    "dailyQuotaRemainingPercent": 60.0,
+                    "weeklyQuotaRemainingPercent": 80.0,
+                    "dailyQuotaResetAtUnix": 1789290000,
+                    "weeklyQuotaResetAtUnix": 1789808400,
+                    "overageBalanceMicros": 2500000,
+                }
+            }
+        })
+        self.assertEqual(mapped["provider"], "devin")
+        self.assertEqual(mapped["source"], "devin-status")
+        self.assertEqual(mapped["usage"]["identity"], {
+            "providerID": "devin",
+            "loginMethod": "Core",
+        })
+        self.assertEqual(mapped["usage"]["primary"]["usedPercent"], 40.0)
+        self.assertEqual(mapped["usage"]["primary"]["resetsAt"], quotas.unix_seconds_to_iso(1789290000))
+        self.assertEqual(mapped["usage"]["secondary"]["usedPercent"], 20.0)
+        self.assertEqual(mapped["usage"]["secondary"]["resetsAt"], quotas.unix_seconds_to_iso(1789808400))
+        self.assertEqual(mapped["usage"]["extraUsage"], {
+            "enabled": True,
+            "balance": 2.5,
+            "currency": "USD",
+        })
+        self.assertNotIn("credits", mapped)
+
+    def test_devin_hidden_daily_uses_weekly_or_daily_fallback(self) -> None:
+        weekly = quotas.map_devin_usage({
+            "userStatus": {
+                "planStatus": {
+                    "planInfo": {"planName": "Max", "hideDailyQuota": True},
+                    "dailyQuotaRemainingPercent": 55.0,
+                    "weeklyQuotaRemainingPercent": 70.0,
+                }
+            }
+        })
+        self.assertIsNone(weekly["usage"]["primary"])
+        self.assertEqual(weekly["usage"]["secondary"]["usedPercent"], 30.0)
+
+        fallback = quotas.map_devin_usage({
+            "userStatus": {
+                "planStatus": {
+                    "planInfo": {"hideDailyQuota": True},
+                    "dailyQuotaRemainingPercent": 55.0,
+                }
+            }
+        })
+        self.assertIsNone(fallback["usage"]["primary"])
+        self.assertEqual(fallback["usage"]["secondary"]["usedPercent"], 45.0)
+        self.assertEqual(fallback["usage"]["identity"]["loginMethod"], "Devin")
+
+    def test_devin_extra_only_is_real_remaining(self) -> None:
+        mapped = quotas.map_devin_usage({
+            "userStatus": {
+                "planStatus": {
+                    "overageBalanceMicros": 0,
+                }
+            }
+        })
+        self.assertIsNone(mapped["usage"]["primary"])
+        self.assertIsNone(mapped["usage"]["secondary"])
+        self.assertEqual(mapped["usage"]["extraUsage"]["balance"], 0.0)
+
+    def test_devin_rejects_payload_without_remaining(self) -> None:
+        with self.assertRaises(quotas.FetchFallback) as raised:
+            quotas.map_devin_usage({"userStatus": {"planStatus": {"planInfo": {"planName": "Core"}}}})
+        self.assertEqual(raised.exception.category, "invalid_response")
+
+    def test_devin_posts_status_without_refresh(self) -> None:
+        payload = {
+            "userStatus": {
+                "planStatus": {
+                    "planInfo": {"planName": "Teams"},
+                    "weeklyQuotaRemainingPercent": 90.0,
+                }
+            }
+        }
+        urls: list[str] = []
+        methods: list[str] = []
+        bodies: list[bytes] = []
+
+        def fake_http(method, url, headers, body, timeout):
+            urls.append(url)
+            methods.append(method)
+            bodies.append(body)
+            self.assertEqual(headers["Connect-Protocol-Version"], "1")
+            self.assertNotIn("Authorization", headers)
+            return 200, {}, json.dumps(payload).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_devin_credentials(home, api_server_url="https://server.codeium.com")
+            with patch.object(quotas, "http_request", side_effect=fake_http):
+                entry = quotas.fetch_devin(home)
+        self.assertEqual(entry["usage"]["secondary"]["usedPercent"], 10.0)
+        self.assertEqual(urls, [quotas.DEVIN_DEFAULT_API_SERVER + quotas.DEVIN_STATUS_PATH])
+        self.assertEqual(methods, ["POST"])
+        request = json.loads(bodies[0].decode("utf-8"))
+        self.assertEqual(request["metadata"]["apiKey"], TEST_DEVIN_KEY)
+        self.assertNotIn(TEST_DEVIN_KEY, json.dumps(entry))
+
+    def test_devin_401_is_auth_relogin_without_upstream(self) -> None:
+        def fake_http(method, url, headers, body, timeout):
+            return 401, {}, b"{}"
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_devin_credentials(home)
+            with patch.object(quotas, "http_request", side_effect=fake_http), patch.object(
+                quotas, "upstream_path", return_value="/fake/codexbar"
+            ), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("must not delegate on auth")
+            ):
+                entries = quotas.fetch_provider("devin", None, home)
+        self.assertEqual(entries[0]["error"]["category"], "authentication")
+        self.assertEqual(entries[0]["error"]["message"], quotas.DEVIN_AUTH_RELOGIN)
+        self.assertNotIn(TEST_DEVIN_KEY, json.dumps(entries))
+
+    def test_devin_http_api_override_is_ignored(self) -> None:
+        def fake_http(method, url, headers, body, timeout):
+            self.assertEqual(url, quotas.DEVIN_DEFAULT_API_SERVER + quotas.DEVIN_STATUS_PATH)
+            return 200, {}, json.dumps({
+                "userStatus": {
+                    "planStatus": {"weeklyQuotaRemainingPercent": 25.0},
+                }
+            }).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_devin_credentials(home, api_server_url="http://evil.example")
+            with patch.object(quotas, "http_request", side_effect=fake_http):
+                entry = quotas.fetch_devin(home)
+        self.assertEqual(entry["usage"]["secondary"]["usedPercent"], 75.0)
+
+    def test_devin_missing_auth_is_relogin(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            with patch.object(quotas, "upstream_path", return_value="/fake/codexbar"), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("must not delegate on auth")
+            ):
+                entries = quotas.fetch_provider("devin", None, home)
+        self.assertEqual(entries[0]["error"]["category"], "authentication")
+        self.assertEqual(entries[0]["error"]["message"], quotas.DEVIN_AUTH_RELOGIN)
+
+    def test_existing_config_adds_detected_devin_without_writing_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "home"
+            config = home / ".config/codexbar/config.json"
+            config.parent.mkdir(parents=True)
+            config.write_text(json.dumps({"providers": [
+                {"id": "claude", "enabled": True},
+                {"id": "codex", "enabled": True},
+            ]}), encoding="utf-8")
+            self._write_devin_credentials(home)
+            original = config.read_text(encoding="utf-8")
+            with patch.dict(os.environ, {"PATH": ""}):
+                self.assertEqual(quotas.enabled_providers(home), ["claude", "codex", "devin"])
+            self.assertEqual(config.read_text(encoding="utf-8"), original)
+
+    def test_explicitly_disabled_devin_stays_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "home"
+            config = home / ".config/codexbar/config.json"
+            config.parent.mkdir(parents=True)
+            config.write_text(json.dumps({"providers": [
+                {"id": "claude", "enabled": True},
+                {"id": "devin", "enabled": False},
+            ]}), encoding="utf-8")
+            self._write_devin_credentials(home)
+            with patch.dict(os.environ, {"PATH": ""}):
+                self.assertEqual(quotas.enabled_providers(home), ["claude"])
 
     def test_antigravity_still_delegates_to_upstream(self) -> None:
         with patch.object(

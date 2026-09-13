@@ -1,5 +1,5 @@
 pkgbase = kodexbar-suite
-	pkgdesc = KodexBar Suite: Plasma widget, ai CLI, native Claude/Codex/Grok/Hermes quotas (optional codexbar for Antigravity)
+	pkgdesc = KodexBar Suite: Plasma widget, ai CLI, native Claude/Codex/Grok/Hermes/Devin quotas (optional codexbar for Antigravity)
 	pkgver = 0.12.8
 	pkgrel = 1
 	url = https://github.com/Karasowl/KodexBar-Suite

@@ -110,6 +110,22 @@ class WindowsPathTests(unittest.TestCase):
                 POSIX_HOME / ".config" / "Cursor" / "User" / "globalStorage" / "state.vscdb",
             )
 
+    def test_devin_credentials_path_on_windows(self) -> None:
+        with mock.patch.object(engine, "IS_WINDOWS", True), mock.patch.dict(
+            os.environ, {"APPDATA": "C:/WinDev/AppData/Roaming"}
+        ):
+            self.assertEqual(
+                str(engine.devin_credentials_path(WINDOWS_HOME)).replace("\\", "/"),
+                "C:/WinDev/AppData/Roaming/devin/credentials.toml",
+            )
+        with mock.patch.object(engine, "IS_WINDOWS", False), mock.patch.dict(
+            os.environ, {}, clear=False
+        ):
+            self.assertEqual(
+                engine.devin_credentials_path(POSIX_HOME),
+                POSIX_HOME / ".local" / "share" / "devin" / "credentials.toml",
+            )
+
     def test_hermes_auth_path_follows_home_on_windows(self) -> None:
         with mock.patch.object(engine, "IS_WINDOWS", True):
             self.assertEqual(
