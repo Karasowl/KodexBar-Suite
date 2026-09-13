@@ -23,7 +23,7 @@ QQC2.ApplicationWindow {
     property string workingSourceDefault: "detect"
     property int workingRefreshInterval: 60
     property int workingClaudeRefreshInterval: 300
-    property string workingCompactProviderOrder: "codex,claude,grok,antigravity"
+    property string workingCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,hermes,devin"
     property string workingCompactQuotaSelection: "primary,weekly"
     property bool workingShowProviderInPanel: true
     property bool workingShowUsedPercentInPanel: true
@@ -188,7 +188,7 @@ QQC2.ApplicationWindow {
         workingClaudeRefreshInterval = Math.max(60, Math.min(3600,
             Number(Plasmoid.configuration.claudeRefreshInterval || 300)))
         workingCompactProviderOrder = Plasmoid.configuration.compactProviderOrder === undefined
-            ? "codex,claude,grok,antigravity,opencodego,hermes,devin"
+            ? appletRoot.defaultCompactProviderOrder
             : String(Plasmoid.configuration.compactProviderOrder)
         workingCompactQuotaSelection = Plasmoid.configuration.compactQuotaSelection === undefined
             ? "primary,weekly"
@@ -235,7 +235,7 @@ QQC2.ApplicationWindow {
         workingSourceDefault = "detect"
         workingRefreshInterval = 60
         workingClaudeRefreshInterval = 300
-        workingCompactProviderOrder = "codex,claude,grok,antigravity"
+        workingCompactProviderOrder = appletRoot.defaultCompactProviderOrder
         workingCompactQuotaSelection = "primary,weekly"
         workingShowProviderInPanel = true
         workingShowUsedPercentInPanel = true
@@ -908,7 +908,7 @@ QQC2.ApplicationWindow {
                                                     QQC2.Switch {
                                                         checked: preferences.showAllProviders
                                                         onToggled: preferences.workingCompactProviderOrder = checked
-                                                            ? "" : "codex,claude,grok,antigravity"
+                                                            ? "" : appletRoot.defaultCompactProviderOrder
                                                     }
                                                 }
 
@@ -1496,7 +1496,7 @@ QQC2.ApplicationWindow {
                                                 }
 
                                                 QQC2.Label {
-                                                    text: i18n("Version %1", Plasmoid.metaData.version || "0.12.8")
+                                                    text: i18n("Version %1", Plasmoid.metaData.version || "0.12.9")
                                                     color: preferences.th("#8b91a3")
                                                     font.family: appletRoot ? appletRoot.designFont : ""
                                                     font.pixelSize: preferences.fontSizeSecondary

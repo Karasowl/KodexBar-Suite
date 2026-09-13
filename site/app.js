@@ -4,8 +4,16 @@ const copyText = {
     es: { title: "Arch, CachyOS o Manjaro", body: "Paquete AUR con cuotas nativas de Claude, Codex, Cursor, Grok, OpenCode Go, Hermes y Devin. Después, en Plasma: añade el widget KodexBar al panel.", cmd: "paru -S kodexbar-suite" }
   },
   debian: {
-    en: { title: "Debian or Ubuntu", body: "Native DEB with the same Claude, Codex, Cursor, Grok, OpenCode Go, Hermes, and Devin quotas. Then on Plasma: add the KodexBar widget to the panel.", cmd: "curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.8/kodexbar-suite_0.12.8-1_all.deb && sudo apt install ./kodexbar-suite_0.12.8-1_all.deb" },
-    es: { title: "Debian o Ubuntu", body: "DEB nativo con las mismas cuotas de Claude, Codex, Cursor, Grok, OpenCode Go, Hermes y Devin. Después, en Plasma: añade el widget KodexBar al panel.", cmd: "curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.8/kodexbar-suite_0.12.8-1_all.deb && sudo apt install ./kodexbar-suite_0.12.8-1_all.deb" }
+    en: { title: "Debian or Ubuntu", body: "Native DEB with the same Claude, Codex, Cursor, Grok, OpenCode Go, Hermes, and Devin quotas. Then on Plasma: add the KodexBar widget to the panel.", cmd: "curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.9/kodexbar-suite_0.12.9-1_all.deb && sudo apt install ./kodexbar-suite_0.12.9-1_all.deb" },
+    es: { title: "Debian o Ubuntu", body: "DEB nativo con las mismas cuotas de Claude, Codex, Cursor, Grok, OpenCode Go, Hermes y Devin. Después, en Plasma: añade el widget KodexBar al panel.", cmd: "curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.9/kodexbar-suite_0.12.9-1_all.deb && sudo apt install ./kodexbar-suite_0.12.9-1_all.deb" }
+  },
+  fedora: {
+    en: { title: "Fedora or RHEL 10", body: "Native RPM with the same Claude, Codex, Cursor, Grok, OpenCode Go, Hermes, and Devin quotas. RHEL 9, AlmaLinux 9, and Rocky 9 use the .el9 RPM from GitHub Releases.", cmd: "curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.9/kodexbar-suite-0.12.9-1.noarch.rpm && sudo dnf install ./kodexbar-suite-0.12.9-1.noarch.rpm" },
+    es: { title: "Fedora o RHEL 10", body: "RPM nativo con las mismas cuotas de Claude, Codex, Cursor, Grok, OpenCode Go, Hermes y Devin. RHEL 9, AlmaLinux 9 y Rocky 9 usan el RPM .el9 de GitHub Releases.", cmd: "curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.9/kodexbar-suite-0.12.9-1.noarch.rpm && sudo dnf install ./kodexbar-suite-0.12.9-1.noarch.rpm" }
+  },
+  windows: {
+    en: { title: "Windows 10 or 11", body: "Per-user tray installer with the same Claude, Codex, Cursor, Grok, OpenCode Go, Hermes, and Devin quotas. No administrator rights. A portable zip is on the same release page.", cmd: "https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.9/KodexBar-Suite-0.12.9-windows-setup.exe" },
+    es: { title: "Windows 10 u 11", body: "Instalador de bandeja por usuario con las mismas cuotas de Claude, Codex, Cursor, Grok, OpenCode Go, Hermes y Devin. No pide administrador. El zip portable está en la misma página de release.", cmd: "https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.9/KodexBar-Suite-0.12.9-windows-setup.exe" }
   },
   plasma: {
     en: { title: "Plasma 6 on another distro", body: "Native DEB and RPM packages are available in GitHub Releases. This portable option installs without sudo. Then add the widget to the panel.", cmd: "git clone https://github.com/Karasowl/KodexBar-Suite.git && cd KodexBar-Suite && ./install.sh" },
@@ -24,14 +32,14 @@ const copyText = {
     es: { title: "XFCE", body: "Generic Monitor en el panel. Command: kodexbar-panel --format text --pango. Periodo 60s.", cmd: "git clone https://github.com/Karasowl/KodexBar-Suite.git && cd KodexBar-Suite && ./install.sh" }
   },
   other: {
-    en: { title: "This is a Linux app", body: "KodexBar runs on Linux. Source, DEB, RPM, and Plasma downloads live on GitHub.", cmd: "https://github.com/Karasowl/KodexBar-Suite/releases/latest" },
-    es: { title: "Esto es para Linux", body: "KodexBar corre en Linux. El código y las descargas DEB, RPM y Plasma están en GitHub.", cmd: "https://github.com/Karasowl/KodexBar-Suite/releases/latest" }
+    en: { title: "Linux or Windows", body: "KodexBar runs on Linux and Windows. Source, DEB, RPM, Plasma, and Windows downloads live on GitHub.", cmd: "https://github.com/Karasowl/KodexBar-Suite/releases/latest" },
+    es: { title: "Linux o Windows", body: "KodexBar corre en Linux y Windows. El código y las descargas DEB, RPM, Plasma y Windows están en GitHub.", cmd: "https://github.com/Karasowl/KodexBar-Suite/releases/latest" }
   }
 };
 
 const pillLabels = {
-  en: { arch: "Arch / CachyOS", debian: "Debian / Ubuntu", plasma: "Plasma 6", gnome: "GNOME / COSMIC", waybar: "Hyprland / Waybar", xfce: "XFCE", other: "Other" },
-  es: { arch: "Arch / CachyOS", debian: "Debian / Ubuntu", plasma: "Plasma 6", gnome: "GNOME / COSMIC", waybar: "Hyprland / Waybar", xfce: "XFCE", other: "Otro" }
+  en: { arch: "Arch / CachyOS", debian: "Debian / Ubuntu", fedora: "Fedora / RHEL", windows: "Windows", plasma: "Plasma 6", gnome: "GNOME / COSMIC", waybar: "Hyprland / Waybar", xfce: "XFCE", other: "Other" },
+  es: { arch: "Arch / CachyOS", debian: "Debian / Ubuntu", fedora: "Fedora / RHEL", windows: "Windows", plasma: "Plasma 6", gnome: "GNOME / COSMIC", waybar: "Hyprland / Waybar", xfce: "XFCE", other: "Otro" }
 };
 
 let lang = "en";
@@ -40,10 +48,12 @@ let current = "plasma";
 function guess() {
   const ua = navigator.userAgent || "";
   const plat = navigator.platform || "";
+  if (/Windows|Win32|Win64/i.test(ua) || /^Win/i.test(plat)) return "windows";
   const linux = /Linux/i.test(ua) || /Linux/i.test(plat);
   if (!linux) return "other";
   if (/CachyOS|Arch/i.test(ua)) return "arch";
   if (/Debian|Ubuntu/i.test(ua)) return "debian";
+  if (/Fedora|Red Hat|Rocky|AlmaLinux|CentOS/i.test(ua)) return "fedora";
   return "plasma";
 }
 
@@ -76,13 +86,17 @@ function render() {
   const det = document.getElementById("detected");
   const guessed = guess();
   if (lang === "en") {
-    det.textContent = guessed === "other"
-      ? "This does not look like Linux. Pick your desktop if it is."
-      : "Linux detected. Switch desktop if this is wrong.";
+    det.textContent = guessed === "windows"
+      ? "Windows detected. The tray installer is below."
+      : guessed === "other"
+        ? "This does not look like Linux or Windows. Pick your system if it is."
+        : "Linux detected. Switch desktop if this is wrong.";
   } else {
-    det.textContent = guessed === "other"
-      ? "Parece que no estás en Linux. Elige tu escritorio si sí lo estás."
-      : "Linux detectado. Elige el escritorio si este no es.";
+    det.textContent = guessed === "windows"
+      ? "Windows detectado. El instalador de la bandeja está abajo."
+      : guessed === "other"
+        ? "Parece que no estás en Linux ni Windows. Elige tu sistema si sí lo estás."
+        : "Linux detectado. Elige el escritorio si este no es.";
   }
 }
 

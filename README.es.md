@@ -112,8 +112,8 @@ Cómo funcionan las cuotas después de instalar:
 Descarga e instala el paquete oficial de la release con:
 
 ```bash
-curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.8/kodexbar-suite_0.12.8-1_all.deb
-sudo apt install ./kodexbar-suite_0.12.8-1_all.deb
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.9/kodexbar-suite_0.12.9-1_all.deb
+sudo apt install ./kodexbar-suite_0.12.9-1_all.deb
 ```
 
 Para construir el mismo paquete desde un checkout del repositorio:
@@ -131,15 +131,15 @@ El paquete instala la suite bajo `/usr` y después se puede actualizar o quitar 
 En Fedora o un sistema compatible con RHEL 10, descarga e instala el RPM general:
 
 ```bash
-curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.8/kodexbar-suite-0.12.8-1.noarch.rpm
-sudo dnf install ./kodexbar-suite-0.12.8-1.noarch.rpm
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.9/kodexbar-suite-0.12.9-1.noarch.rpm
+sudo dnf install ./kodexbar-suite-0.12.9-1.noarch.rpm
 ```
 
 En un sistema compatible con RHEL 9, como AlmaLinux 9 o Rocky Linux 9, usa el paquete dedicado que depende del Python 3.11 paralelo:
 
 ```bash
-curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.8/kodexbar-suite-0.12.8-1.el9.noarch.rpm
-sudo dnf install ./kodexbar-suite-0.12.8-1.el9.noarch.rpm
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.9/kodexbar-suite-0.12.9-1.el9.noarch.rpm
+sudo dnf install ./kodexbar-suite-0.12.9-1.el9.noarch.rpm
 ```
 
 Para construir el mismo paquete desde un checkout del repositorio:

@@ -1,5 +1,5 @@
 ; Inno Setup script for the KodexBar Suite Windows installer.
-; Build with:  iscc /DAppVersion=0.12.8 kodexbar-suite.iss
+; Build with:  iscc /DAppVersion=0.12.9 kodexbar-suite.iss
 ; Prerequisite: run build.ps1 first so build\stage\KodexBar-Suite is populated.
 
 #define AppName "KodexBar Suite"

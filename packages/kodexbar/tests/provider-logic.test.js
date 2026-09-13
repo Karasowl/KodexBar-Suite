@@ -1266,7 +1266,12 @@ assert.match(
     /<entry name="compactQuotaSelection" type="String">\s*<default>primary,weekly<\/default>/,
     "the compact quota default excludes extras"
 )
-assert.equal(metadata.KPlugin.Version, "0.12.8", "package metadata uses version 0.12.8")
+assert.match(
+    configXml,
+    /<entry name="compactProviderOrder" type="String">\s*<default>codex,claude,grok,antigravity,opencodego,hermes,devin<\/default>/,
+    "the compact default includes OpenCode Go, Hermes, and Devin"
+)
+assert.equal(metadata.KPlugin.Version, "0.12.9", "package metadata uses version 0.12.9")
 assert.equal(metadata.KPlugin.Website, "https://github.com/Karasowl/KodexBar-Suite", "package metadata links to the maintained suite repository")
 assert.match(mainQml, /var antigravityWindows = antigravity && Array\.isArray\(usage\.antigravityRateWindows\)/, "popup consumes the engine's Antigravity model windows")
 assert.match(mainQml, /compactLabel: antigravityKey === "gemini-weekly" \? "W"/, "compact Antigravity weekly uses W like other providers")
@@ -1882,6 +1887,16 @@ assert.match(preferencesQml, /Plasmoid\.configuration\.showEmailInWidget = worki
 assert.match(preferencesQml, /Plasmoid\.configuration\.showCostSummary = workingShowCostSummary/, "preferences apply the popup-cost setting")
 assert.match(preferencesQml, /function restoreDefaults\(\) \{[\s\S]*workingCompactQuotaSelection = "primary,weekly"[\s\S]*workingShowProviderInPanel = true[\s\S]*workingShowUsedPercentInPanel = true[\s\S]*workingShowCreditsInPanel = false[\s\S]*workingIncludeStatus = false[\s\S]*workingShowEmailInWidget = false[\s\S]*workingShowCostSummary = true/, "restore defaults resets the seven migrated settings")
 assert.match(preferencesQml, /text: i18n\("Show all returned providers"\)/, "preferences expose the all-providers compact toggle")
+assert.match(
+    preferencesQml,
+    /onToggled: preferences\.workingCompactProviderOrder = checked\s*\n\s*\? "" : appletRoot\.defaultCompactProviderOrder/,
+    "the all-providers toggle restores the current compact default"
+)
+assert.match(
+    preferencesQml,
+    /function restoreDefaults\(\) \{[\s\S]*workingCompactProviderOrder = appletRoot\.defaultCompactProviderOrder/,
+    "restore defaults uses the current compact provider order"
+)
 assert.match(
     preferencesQml,
     /function orderedProviderIds\(\) \{[\s\S]*activeProviderIds[\s\S]*providerIds[\s\S]*return ids/,
