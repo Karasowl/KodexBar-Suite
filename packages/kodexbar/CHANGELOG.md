@@ -4,6 +4,8 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+## 0.12.10, 2026-09-13
+
 ### Fixed
 
 - Provider marks use a themed mask so they follow Plasma light and dark panels instead of a baked black or white fill.

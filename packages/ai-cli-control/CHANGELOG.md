@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.12.10, 2026-09-13
+
 ### Changed
 
 - The Windows quota panel follows the Windows app light or dark theme.
