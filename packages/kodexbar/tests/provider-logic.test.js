@@ -32,6 +32,12 @@ vm.runInContext(source, context, { filename: logicPath })
 
 const fixture = JSON.parse(fs.readFileSync(fixturePath, "utf8"))
 const plain = value => JSON.parse(JSON.stringify(value))
+const theme = {}
+vm.createContext(theme)
+vm.runInContext(fs.readFileSync(path.join(root, "contents/code/themePalette.js"), "utf8"), theme)
+assert.equal(theme.themed("#e9ebf2", true), "#e9ebf2", "dark mode keeps authored text")
+assert.equal(theme.themed("#e9ebf2", false), "#1b1e29", "light mode swaps authored text to a dark ink")
+assert.equal(theme.themed("#14161d", false), "#ffffff", "light mode swaps authored cards to white")
 
 assert.deepEqual(
     Array.from(context.normalizeProviderOrder(fixture.configuredOrder)),
@@ -1864,6 +1870,14 @@ assert.match(mainQml, /"hermes": "Hermes"/, "popup names Hermes")
 assert.match(mainQml, /"hermes": "hermes"/, "Hermes uses its own supplied icon")
 assert.match(mainQml, /"devin": "Devin"/, "popup names Devin")
 assert.match(mainQml, /"devin": "devin"/, "Devin uses its own supplied icon")
+assert.match(
+    fs.readFileSync(path.join(root, "contents/ui/ThemedMark.qml"), "utf8"),
+    /isMask:\s*true/,
+    "provider marks are painted as a theme-colored mask"
+)
+assert.match(mainQml, /ThemedMark \{[\s\S]{0,220}root\.providerIconSource/, "compact and popup provider logos use the themed mark")
+assert.doesNotMatch(mainQml, /Image \{[\s\S]{0,240}providerIconSource/, "provider logos are not raw Images that ignore the Plasma theme")
+assert.doesNotMatch(preferencesQml, /Image \{[\s\S]{0,240}providerIcon/, "preferences provider logos follow the same themed mark")
 assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey\)[\s\S]*hermes[\s\S]*Monthly/, "Hermes monthly remaining uses the Monthly window label")
 assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey\)[\s\S]*devin[\s\S]*Daily/, "Devin remaining uses the Daily window label")
 assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey\)[\s\S]*OpenCode Go/, "OpenCode Go uses its five-hour, weekly, and monthly window labels")
