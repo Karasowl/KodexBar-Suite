@@ -1496,7 +1496,7 @@ QQC2.ApplicationWindow {
                                                 }
 
                                                 QQC2.Label {
-                                                    text: i18n("Version %1", Plasmoid.metaData.version || "0.12.9")
+                                                    text: i18n("Version %1", Plasmoid.metaData.version || "0.12.10")
                                                     color: preferences.th("#8b91a3")
                                                     font.family: appletRoot ? appletRoot.designFont : ""
                                                     font.pixelSize: preferences.fontSizeSecondary
