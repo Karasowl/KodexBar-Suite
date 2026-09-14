@@ -2431,13 +2431,12 @@ PlasmoidItem {
                     Layout.preferredHeight: 44
                     spacing: 10
 
-                    Image {
+                    ThemedMark {
                         id: signalProviderLogo
                         Layout.preferredWidth: 28
                         Layout.preferredHeight: 28
                         source: root.providerIconSource(root.activeEntry.provider)
-                        fillMode: Image.PreserveAspectFit
-                        smooth: true
+                        color: root.textColor
                         Accessible.name: i18n("%1 logo", root.activeEntry.displayName || i18n("Provider"))
                     }
 
@@ -2959,14 +2958,13 @@ PlasmoidItem {
                                         && modelData.worstUsedPercent !== undefined)
                         }
 
-                        Image {
+                        ThemedMark {
                             visible: root.showProviderInPanel
                             width: visible ? 15 : 0
                             height: 15
                             anchors.verticalCenter: parent.verticalCenter
                             source: root.providerIconSource(modelData.provider)
-                            fillMode: Image.PreserveAspectFit
-                            smooth: true
+                            color: root.textColor
                         }
 
                         PlasmaComponents.Label {
@@ -3150,14 +3148,13 @@ PlasmoidItem {
                     y: 15
                     color: "transparent"
 
-                    Image {
+                    ThemedMark {
                         visible: root.selectedPopupTab === "provider"
                         anchors.centerIn: parent
                         width: 26
                         height: 26
                         source: root.providerIconSource(root.activeEntry.provider)
-                        fillMode: Image.PreserveAspectFit
-                        smooth: true
+                        color: root.textColor
                     }
 
                     Kirigami.Icon {
@@ -3447,12 +3444,12 @@ PlasmoidItem {
                                     }
                                 }
                                 contentItem: Item {
-                                    Image {
+                                    ThemedMark {
                                         visible: modelData.kind === "provider"
                                         anchors.centerIn: parent
                                         width: 16; height: 16
                                         source: root.providerIconSource(modelData.provider)
-                                        fillMode: Image.PreserveAspectFit
+                                        color: root.textColor
                                         opacity: parent.parent.parent.selected ? 1 : 0.4
                                     }
                                     Kirigami.Icon {
@@ -3548,14 +3545,13 @@ PlasmoidItem {
                                     Layout.fillWidth: true
                                 }
 
-                                Image {
+                                ThemedMark {
                                     visible: modelData.kind === "provider"
                                     Layout.preferredWidth: 16
                                     Layout.preferredHeight: visible ? 16 : 0
                                     source: root.providerIconSource(modelData.provider)
-                                    fillMode: Image.PreserveAspectFit
+                                    color: root.textColor
                                     opacity: parent.parent.selected ? 1 : 0.55
-                                    smooth: true
                                 }
 
                                 Kirigami.Icon {
@@ -3618,13 +3614,12 @@ PlasmoidItem {
                         Layout.preferredHeight: 0
                         spacing: 10
 
-                        Image {
+                        ThemedMark {
                             visible: root.popupState.hasEntry
                             Layout.preferredWidth: visible ? 20 : 0
                             Layout.preferredHeight: 20
                             source: root.providerIconSource(root.activeEntry.provider)
-                            fillMode: Image.PreserveAspectFit
-                            smooth: true
+                            color: root.textColor
                         }
 
                         PlasmaComponents.Label {
@@ -4948,12 +4943,12 @@ PlasmoidItem {
                                                 color: modelData.id === "opencode"
                                                     ? root.th("#e7e9ef") : "transparent"
 
-                                                Image {
+                                                ThemedMark {
                                                     anchors.centerIn: parent
                                                     width: 18
                                                     height: 18
                                                     source: root.skillProviderIconSource(modelData.id)
-                                                    fillMode: Image.PreserveAspectFit
+                                                    color: root.textColor
                                                 }
                                             }
 

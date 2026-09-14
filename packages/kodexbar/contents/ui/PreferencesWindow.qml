@@ -668,13 +668,13 @@ QQC2.ApplicationWindow {
                                                                                 && modelData.worstUsedPercent !== undefined)
                                                                 }
 
-                                                                Image {
+                                                                ThemedMark {
                                                                     visible: preferences.workingShowProviderInPanel
                                                                     width: visible ? 15 : 0
                                                                     height: 15
                                                                     anchors.verticalCenter: parent.verticalCenter
                                                                     source: preferences.providerIcon(modelData.provider)
-                                                                    fillMode: Image.PreserveAspectFit
+                                                                    color: preferences.th("#e9ebf2")
                                                                 }
 
                                                                 QQC2.Label {
@@ -972,12 +972,12 @@ QQC2.ApplicationWindow {
                                                                     anchors.centerIn: parent
                                                                     spacing: 6
 
-                                                                    Image {
+                                                                    ThemedMark {
                                                                         width: 15
                                                                         height: 15
                                                                         anchors.verticalCenter: parent.verticalCenter
                                                                         source: preferences.providerIcon(providerChip.modelData)
-                                                                        fillMode: Image.PreserveAspectFit
+                                                                        color: preferences.th("#e9ebf2")
                                                                     }
 
                                                                     QQC2.Label {
@@ -1165,12 +1165,12 @@ QQC2.ApplicationWindow {
                                                                     anchors.centerIn: parent
                                                                     spacing: 8
 
-                                                                    Image {
+                                                                    ThemedMark {
                                                                         width: 16
                                                                         height: 16
                                                                         anchors.verticalCenter: parent.verticalCenter
                                                                         source: preferences.providerIcon(modelData.id)
-                                                                        fillMode: Image.PreserveAspectFit
+                                                                        color: preferences.th("#e9ebf2")
                                                                     }
 
                                                                     QQC2.Label {
@@ -1357,11 +1357,11 @@ QQC2.ApplicationWindow {
                                                                 Layout.fillWidth: true
                                                                 spacing: 12
 
-                                                                Image {
+                                                                ThemedMark {
                                                                     Layout.preferredWidth: 28
                                                                     Layout.preferredHeight: 28
                                                                     source: preferences.providerIcon(modelData.provider)
-                                                                    fillMode: Image.PreserveAspectFit
+                                                                    color: preferences.th("#e9ebf2")
                                                                 }
 
                                                                 ColumnLayout {

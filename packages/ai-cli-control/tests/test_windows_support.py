@@ -182,6 +182,18 @@ class TrayWinSharedTests(unittest.TestCase):
         self.assertEqual(tray_win.status_class({"class": "unexpected"}), "critical")
         self.assertEqual(tray_win.status_class({}), "critical")
 
+    def test_panel_palette_follows_explicit_theme(self) -> None:
+        dark = tray_win.panel_palette(False)
+        light = tray_win.panel_palette(True)
+        self.assertEqual(dark["bg"], "#1b1b22")
+        self.assertEqual(light["bg"], "#edeff6")
+        self.assertNotEqual(dark["fg"], light["fg"])
+        self.assertEqual(light["error"], "#d33f3f")
+
+    def test_missing_windows_theme_key_stays_dark(self) -> None:
+        with mock.patch.object(tray_win, "windows_apps_use_light_theme", return_value=False):
+            self.assertEqual(tray_win.panel_palette()["bg"], "#1b1b22")
+
     def test_missing_dependencies_message_mentions_install_command(self) -> None:
         self.assertIn("pystray", tray_win.MISSING_DEPENDENCIES_MESSAGE)
         self.assertIn("pillow", tray_win.MISSING_DEPENDENCIES_MESSAGE)

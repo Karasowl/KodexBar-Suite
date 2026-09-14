@@ -30,11 +30,58 @@ RUN_VALUE_NAME = "KodexBarTray"
 ICON_CLASSES = ("ok", "warning", "critical")
 STATUS_COLORS = {"ok": "#35d07f", "warning": "#f5a623", "critical": "#ff5c5c"}
 BADGE_COLOR = (0x5A, 0x45, 0xF0)
+DARK_PANEL = {
+    "bg": "#1b1b22",
+    "fg": "#ffffff",
+    "muted": "#8a8a96",
+    "row": "#e8e8f0",
+    "error": "#ff5c5c",
+    "button": "#2a2a33",
+    "button_fg": "#c9c9d4",
+    "button_active": "#3a3a46",
+    "accent": "#5a45f0",
+    "accent_active": "#8f7bff",
+    "accent_fg": "#ffffff",
+}
+LIGHT_PANEL = {
+    "bg": "#edeff6",
+    "fg": "#1b1e29",
+    "muted": "#5a6175",
+    "row": "#12141d",
+    "error": "#d33f3f",
+    "button": "#dde1ea",
+    "button_fg": "#484f63",
+    "button_active": "#cdd2de",
+    "accent": "#5b46e0",
+    "accent_active": "#7a58ee",
+    "accent_fg": "#ffffff",
+}
 MISSING_DEPENDENCIES_MESSAGE = (
     "Faltan dependencias del area de notificacion de KodexBar Tray.\n"
     "Instalalas con:  py -m pip install --user pystray pillow\n"
     "y vuelve a iniciar KodexBar Tray."
 )
+
+
+def windows_apps_use_light_theme() -> bool:
+    """Read the Windows app theme. Missing keys stay on the dark palette."""
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+        return int(value) == 1
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def panel_palette(light: bool | None = None) -> dict[str, str]:
+    if light is None:
+        light = windows_apps_use_light_theme()
+    return dict(LIGHT_PANEL if light else DARK_PANEL)
 
 
 def load_shared_tray() -> Any | None:
@@ -174,54 +221,69 @@ class PanelWindow:
         self.window.withdraw()
         self.window.protocol("WM_DELETE_WINDOW", self.window.withdraw)
         self.window.attributes("-topmost", True)
-        self.window.configure(bg="#1b1b22")
-        header = tk_module.Frame(self.window, bg="#1b1b22")
-        header.pack(fill="x", padx=14, pady=(12, 4))
-        tk_module.Label(
-            header,
+        self.palette = panel_palette()
+        self.header = tk_module.Frame(self.window)
+        self.header.pack(fill="x", padx=14, pady=(12, 4))
+        self.title = tk_module.Label(
+            self.header,
             text="KodexBar Suite",
-            bg="#1b1b22",
-            fg="#ffffff",
             font=("Segoe UI", 12, "bold"),
-        ).pack(side="left")
+        )
+        self.title.pack(side="left")
         self.updated = tk_module.Label(
-            header,
+            self.header,
             text="",
-            bg="#1b1b22",
-            fg="#8a8a96",
             font=("Segoe UI", 8),
         )
         self.updated.pack(side="right")
-        self.rows = tk_module.Frame(self.window, bg="#1b1b22")
+        self.rows = tk_module.Frame(self.window)
         self.rows.pack(fill="both", expand=True, padx=14, pady=4)
-        actions = tk_module.Frame(self.window, bg="#1b1b22")
-        actions.pack(fill="x", padx=14, pady=(4, 12))
-        tk_module.Button(
-            actions,
+        self.actions = tk_module.Frame(self.window)
+        self.actions.pack(fill="x", padx=14, pady=(4, 12))
+        self.refresh_button = tk_module.Button(
+            self.actions,
             text="Actualizar",
             command=application.request_refresh,
-            bg="#5a45f0",
-            fg="#ffffff",
-            activebackground="#8f7bff",
-            activeforeground="#ffffff",
             relief="flat",
             padx=12,
-        ).pack(side="left")
-        tk_module.Button(
-            actions,
+        )
+        self.refresh_button.pack(side="left")
+        self.close_button = tk_module.Button(
+            self.actions,
             text="Cerrar",
             command=self.window.withdraw,
-            bg="#2a2a33",
-            fg="#c9c9d4",
-            activebackground="#3a3a46",
-            activeforeground="#ffffff",
             relief="flat",
             padx=12,
-        ).pack(side="right")
+        )
+        self.close_button.pack(side="right")
+        self.apply_chrome()
+
+    def apply_chrome(self) -> None:
+        palette = self.palette
+        self.window.configure(bg=palette["bg"])
+        self.header.configure(bg=palette["bg"])
+        self.title.configure(bg=palette["bg"], fg=palette["fg"])
+        self.updated.configure(bg=palette["bg"], fg=palette["muted"])
+        self.rows.configure(bg=palette["bg"])
+        self.actions.configure(bg=palette["bg"])
+        self.refresh_button.configure(
+            bg=palette["accent"],
+            fg=palette["accent_fg"],
+            activebackground=palette["accent_active"],
+            activeforeground=palette["accent_fg"],
+        )
+        self.close_button.configure(
+            bg=palette["button"],
+            fg=palette["button_fg"],
+            activebackground=palette["button_active"],
+            activeforeground=palette["fg"],
+        )
 
     def refresh_rows(self) -> None:
         application = self.application
         status = application.status
+        self.palette = panel_palette()
+        self.apply_chrome()
         for child in self.rows.winfo_children():
             child.destroy()
         labels: list[tuple[str, str]] = []
@@ -229,16 +291,16 @@ class PanelWindow:
             label = application.shared.provider_menu_label(provider)
             if label:
                 error = bool(provider.get("error")) if isinstance(provider, dict) else False
-                labels.append((label, "#ff5c5c" if error else "#e8e8f0"))
+                labels.append((label, self.palette["error"] if error else self.palette["row"]))
         if status.get("error"):
-            labels.append((str(status["error"]), "#ff5c5c"))
+            labels.append((str(status["error"]), self.palette["error"]))
         if not labels:
-            labels.append((str(status.get("tooltip") or "Sin datos de cuotas"), "#8a8a96"))
+            labels.append((str(status.get("tooltip") or "Sin datos de cuotas"), self.palette["muted"]))
         for label, color in labels:
             self.tk.Label(
                 self.rows,
                 text=label,
-                bg="#1b1b22",
+                bg=self.palette["bg"],
                 fg=color,
                 font=("Segoe UI", 9),
                 anchor="w",
