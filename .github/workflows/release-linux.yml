@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach the assets to (for example v0.12.11)"
+        required: true
+        default: "v0.12.11"
 
 permissions:
   contents: write
@@ -64,6 +69,15 @@ jobs:
     needs: [deb, rpm, rpm-el9]
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve release tag
+        id: release_tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -78,6 +92,7 @@ jobs:
       - name: Publish Linux assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.release_tag.outputs.tag }}
           files: |
             dist/kodexbar-suite_*_all.deb
             dist/kodexbar-suite-*.noarch.rpm
