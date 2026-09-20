@@ -1,0 +1,85 @@
+name: Release Linux
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build DEB package
+        run: ./packaging/deb/build-deb.sh
+
+      - name: Upload DEB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: packaging/deb/dist/*.deb
+
+  rpm:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: dnf install -y git python3 rpm-build sed tar gzip findutils bash
+
+      - name: Build RPM package
+        run: ./packaging/rpm/build-rpm.sh
+
+      - name: Upload RPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: packaging/rpm/dist/*.rpm
+
+  rpm-el9:
+    runs-on: ubuntu-latest
+    container: almalinux:9
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: dnf install -y git python3 rpm-build sed tar gzip findutils bash
+
+      - name: Build EL9 RPM package
+        run: ./packaging/rpm/build-rpm.sh
+
+      - name: Upload EL9 RPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-el9
+          path: packaging/rpm/dist/*.rpm
+
+  publish:
+    needs: [deb, rpm, rpm-el9]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Write checksums
+        run: |
+          cd dist
+          sha256sum kodexbar-suite_*.deb kodexbar-suite-*.rpm > SHA256SUMS
+
+      - name: Publish Linux assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/kodexbar-suite_*_all.deb
+            dist/kodexbar-suite-*.noarch.rpm
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
