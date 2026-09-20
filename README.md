@@ -21,7 +21,7 @@ The public installation paths are the [AUR](https://aur.archlinux.org/packages/k
 The repository contains two installable packages and their shared tooling:
 
 - `packages/kodexbar` is a KDE Plasma 6 widget for ordered CodexBar quota and usage summaries.
-- `packages/ai-cli-control` is the local `ai` selector for launching and updating provider CLIs, including read-only conversation recovery with `ai recover`.
+- `packages/ai-cli-control` is the local `ai` selector for launching and updating Codex, Claude, Grok, Antigravity, OpenCode, Cursor, Hermes, Devin, Copilot, and Qwen, including read-only conversation recovery with `ai recover`.
 - `local-ai`, installed with `ai-cli-control`, is an optional JSON monitor for local model runtimes. It does not install runtimes or download weights.
 - `kodexbar-skills`, installed with `ai-cli-control`, inventories and synchronizes skills across six providers with confirmation, preflight, and identical-copy backups.
 
@@ -76,9 +76,9 @@ The shared Plasma ID is intentional. This package replaces an existing upstream 
 
 After installation, add **KodexBar Suite** to a Plasma panel if it is not already present. Open the widget popup to view quotas. Use the AI button or the Plasma context menu to open `ai-cli-control` and update provider CLIs.
 
-The Signal Console popup uses labeled Providers, Local, and Skills destinations. Local reads its inventory through `local-ai`, which supports explicit model roots and common localhost runtimes. It displays only real runtime metrics, preserves unmounted installed models in a dimmed state, and exposes only actions a runtime can perform safely. See [the local model monitor documentation](packages/ai-cli-control/README.md#local-model-monitor) and its portable templates under `packages/ai-cli-control/examples/`.
+The Signal Console popup uses labeled Providers and Skills destinations. Local models are parked under `packages/ai-cli-control/attic/local/` and are not part of the program. See [the parked monitor notes](packages/ai-cli-control/README.md#local-model-monitor-parked).
 
-The **Skills** tab uses `kodexbar-skills` to compare Codex, Claude, Grok, Gemini CLI, OpenCode, and Hermes. A matrix stages changes per skill and provider, selects every safe target or one complete provider column, and previews the batch before applying it. Refresh is read-only. Identical copies are backed up, shared links can be disabled without deleting their source, and divergent content stays locked. See [the skill engine contract](packages/ai-cli-control/README.md#skill-inventory-and-synchronization).
+The **Skills** tab shows a read-only `kodexbar-skills` inventory for Codex, Claude, Grok, Gemini CLI, OpenCode, and Hermes. Sync is parked in the UI. See [the skill inventory notes](packages/ai-cli-control/README.md#skill-inventory-read-only-in-the-widget).
 
 ## Installation channels
 
@@ -158,9 +158,15 @@ GitHub Releases provides the matching source archive, DEB, RPM files, Plasma wid
 
 ### Windows 10 and 11
 
-Windows runs the suite as a tray application plus the console tools; the quota engine is shared with the Linux build. `KodexBar Tray` shows a status icon in the notification area, opens a "Panel de cuotas" window with per-provider usage, and its menu covers refresh, AI CLI Control, autostart, and quit. `ai`, `kodexbar-quotas`, `kodexbar-skills`, `local-ai`, and `ai recover` ship beside the tray executable.
+Windows runs the suite as a tray application plus the console tools; the quota engine is shared with the Linux build. `KodexBar Tray` shows a status icon in the notification area, opens a "Panel de cuotas" window with per-provider usage, and its menu covers refresh, AI CLI Control, autostart, and quit. `ai`, `kodexbar-quotas`, `kodexbar-skills`, and `ai recover` ship beside the tray executable.
 
-- Install the per-user setup exe (no administrator rights) or extract the portable zip and run `KodexBarTray.exe`. Both come from [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest).
+- One-line install in PowerShell (no administrator rights):
+
+```powershell
+irm https://raw.githubusercontent.com/Karasowl/KodexBar-Suite/main/packaging/windows/Install.ps1 | iex
+```
+
+The command resolves the latest release, verifies the checksum, and runs the per-user installer silently. Alternatively download the setup exe or extract the portable zip and run `KodexBarTray.exe`. All three come from [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest).
 - Provider data paths follow each CLI's Windows layout: `~\.claude`, `~\.codex`, `~\.grok`, `~\.hermes`, `%APPDATA%\devin\credentials.toml`, and the Cursor token database under `%APPDATA%\Cursor`.
 - The Plasma 6 widget, Waybar/XFCE panel output, and the GTK tray stay Linux-only. Scope details and build-from-source steps live in [the Windows packaging notes](packaging/windows/README.md).
 

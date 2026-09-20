@@ -3,7 +3,6 @@
 test:
 	$(MAKE) -C packages/ai-cli-control test
 	node packages/kodexbar/tests/provider-logic.test.js
-	node packages/kodexbar/tests/local-models-static.test.js
 	node packages/kodexbar/tests/skills-static.test.js
 	python3 tests/test_root_install.py
 	python3 tests/test_system_packaging.py

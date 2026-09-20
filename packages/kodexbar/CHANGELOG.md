@@ -4,6 +4,12 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+## 0.12.11, 2026-09-20
+
+### Changed
+
+- The popup drops the parked Local models tab and shows Skills as a read-only inventory with plain-language states and per-skill provider details.
+
 ## 0.12.10, 2026-09-13
 
 ### Fixed

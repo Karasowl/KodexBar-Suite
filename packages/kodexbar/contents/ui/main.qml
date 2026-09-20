@@ -129,7 +129,8 @@ PlasmoidItem {
             tabs.push({ kind: "provider", entry: popupEntries[i], id: popupEntries[i].selectionKey,
                 tabLabel: popupEntries[i].tabLabel, provider: popupEntries[i].provider })
         }
-        tabs.push({ kind: "local", id: "local", tabLabel: i18n("Local models"), icon: "cpu" })
+        // Local models are parked under packages/ai-cli-control/attic/local.
+        // The tab stays out of the program until that system is restored.
         tabs.push({ kind: "skills", id: "skills", tabLabel: i18n("Skills"), icon: "applications-development" })
         return tabs
     }
@@ -800,11 +801,34 @@ PlasmoidItem {
 
     function skillCompactStatusText(item) {
         if (!item) return i18n("Unknown")
-        if (item.status === "synced") return i18n("Synced")
-        if (item.status === "matching") return i18n("Matching")
-        if (item.status === "conflict") return i18n("Conflict")
+        if (item.status === "synced") return i18n("Same everywhere")
+        if (item.status === "matching") return i18n("Same copies")
+        if (item.status === "conflict") return i18n("Needs attention")
+        var total = root.skillsSummary.connectedProviders || 0
         var missing = item.missingProviders instanceof Array ? item.missingProviders.length : 0
-        return i18np("%1 missing", "%1 missing", missing)
+        return i18n("In %1 of %2", Math.max(0, total - missing), total)
+    }
+
+    function skillPresenceText(item) {
+        if (!item) return ""
+        var present = item.providers instanceof Array ? item.providers : []
+        var missing = item.missingProviders instanceof Array ? item.missingProviders : []
+        var presentLabels = []
+        for (var i = 0; i < present.length; i++) {
+            presentLabels.push(root.skillProviderLabel(present[i]))
+        }
+        var missingLabels = []
+        for (var j = 0; j < missing.length; j++) {
+            missingLabels.push(root.skillProviderLabel(missing[j]))
+        }
+        if (item.status === "conflict") {
+            return i18n("Same name with different content. Nothing is linked. Fix it by hand in each provider folder.")
+        }
+        if (missingLabels.length === 0) {
+            return i18n("Installed in: %1.", presentLabels.join(", "))
+        }
+        return i18n("Installed in: %1. Missing in: %2. Missing only means not installed there, nothing was deleted.",
+            presentLabels.join(", "), missingLabels.join(", "))
     }
 
     function skillStatusColor(item) {
@@ -847,41 +871,15 @@ PlasmoidItem {
     }
 
     function refreshLocalModels() {
-        if (localModelsLoading) {
-            return
-        }
-        localModelsLoading = true
-        localModelsError = ""
-        localAiExecutable.connectedSources = []
-        localAiExecutable.connectSource(localAiCommandLine(["status"]))
+        // Parked: the local-ai engine lives under attic/local and is not
+        // part of the program. Keep a clear message instead of calling it.
+        localModelsLoading = false
+        localModelsError = i18n("Local models are parked for now. See packages/ai-cli-control/attic/local/README.md to restore them.")
     }
 
     function localModelAction(action, runtime, model, confirmed) {
-        if (localModelsLoading) {
-            return
-        }
-        // The executable data engine accepts one shell command. Never pass
-        // arbitrary runtime values through it: these identifiers are produced
-        // by local-ai and validated again by local-ai before an action runs.
-        if (["mount", "unmount", "release", "stop"].indexOf(action) === -1
-                || !/^[a-z][a-z0-9_]*$/.test(runtime)
-                || ((action === "mount" || action === "unmount")
-                    && !/^[a-z0-9_]+:[a-f0-9]{12}$/.test(model))) {
-            localModelsError = i18n("Invalid local runtime action.")
-            return
-        }
-        var argv = [action, runtime]
-        if (model && model.length > 0) {
-            argv.push(model)
-        }
-        if (confirmed === true) {
-            argv.push("--confirm")
-        }
-        localModelsLoading = true
-        localModelsError = ""
-        localAiExecutable.connectedSources = []
-        localAiExecutable.connectSource(localAiCommandLine(argv))
-        localModelsWatchdog.restart()
+        localModelsLoading = false
+        localModelsError = i18n("Local models are parked for now. See packages/ai-cli-control/attic/local/README.md to restore them.")
     }
 
     function localMetricText(item) {
@@ -2075,11 +2073,6 @@ PlasmoidItem {
                         id: "provider",
                         label: i18n("Providers"),
                         icon: "packages"
-                    },
-                    {
-                        id: "local",
-                        label: i18n("Local"),
-                        icon: "box"
                     },
                     {
                         id: "skills",
@@ -3299,7 +3292,7 @@ PlasmoidItem {
                     text: i18n("AI CLI Control")
                     display: QQC2.AbstractButton.IconOnly
                     Accessible.name: text
-                    onClicked: { root.refreshLocalModels(); aiControlPopup.open() }
+                    onClicked: aiControlPopup.open()
 
                     QQC2.ToolTip.visible: hovered
                     QQC2.ToolTip.text: text
@@ -4386,335 +4379,24 @@ PlasmoidItem {
                     anchors.leftMargin: 18
                     anchors.rightMargin: 18
                     anchors.topMargin: 14
-                    anchors.bottomMargin: 0
-                    spacing: 0
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 104
-                        spacing: 12
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 4
-
-                            PlasmaComponents.Label {
-                                text: i18n("Local models")
-                                color: root.textColor
-                                font.family: root.designFont
-                                font.pixelSize: 25
-                                font.weight: Font.ExtraBold
-                                Layout.fillWidth: true
-                                elide: Text.ElideRight
-                            }
-
-                            PlasmaComponents.Label {
-                                text: i18n("Inspect memory, activity, and installed model storage.")
-                                color: root.mutedColor
-                                font.family: root.designFont
-                                font.pixelSize: 13
-                            }
-                        }
-
-                        Rectangle {
-                            Layout.preferredWidth: 126
-                            Layout.preferredHeight: 54
-                            radius: 10
-                            color: root.th("#171a23")
-                            border.width: 1
-                            border.color: root.lineColor
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 8
-                                spacing: 1
-
-                                PlasmaComponents.Label {
-                                    Layout.fillWidth: true
-                                    text: i18n("%1 loaded", root.localModels.filter(function(item) {
-                                        return item.state === "active" || item.state === "loaded"
-                                    }).length)
-                                    color: root.textColor
-                                    font.family: root.designFont
-                                    font.pixelSize: 13
-                                    font.weight: Font.Bold
-                                    horizontalAlignment: Text.AlignHCenter
-                                }
-
-                                PlasmaComponents.Label {
-                                    Layout.fillWidth: true
-                                    text: i18n("%1 installed", root.localModels.length)
-                                    color: root.quietColor
-                                    font.family: root.designFont
-                                    font.pixelSize: 11
-                                    horizontalAlignment: Text.AlignHCenter
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 1
-                        color: root.lineColor
-                    }
+                    spacing: 8
 
                     PlasmaComponents.Label {
-                        visible: root.localModelsError.length > 0
-                        Layout.fillWidth: true
-                        text: root.localModelsError
-                        color: root.errorColor
+                        text: i18n("Local models are parked")
+                        color: root.textColor
                         font.family: root.designFont
-                        font.pixelSize: 12
-                        wrapMode: Text.WordWrap
-                    }
-
-                    QQC2.ScrollView {
-                        id: localModelsScroll
+                        font.pixelSize: 25
+                        font.weight: Font.ExtraBold
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        Layout.topMargin: 10
-                        Layout.bottomMargin: 10
-                        clip: true
-                        QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
-                        background: Rectangle {
-                            radius: 10
-                            color: root.surfaceColor
-                            border.width: 1
-                            border.color: root.lineColor
-                        }
-
-                        ListView {
-                            id: localModelsList
-                            width: Math.max(0, localModelsScroll.availableWidth - 2)
-                            contentWidth: width
-                            model: root.localModels
-                            spacing: 0
-                            clip: true
-                            flickableDirection: Flickable.VerticalFlick
-                            boundsBehavior: Flickable.StopAtBounds
-
-                            delegate: Rectangle {
-                                required property var modelData
-                                required property int index
-                                readonly property bool resident: root.localModelIsResident(modelData)
-                                readonly property bool groupStart: index === 0
-                                    || resident !== root.localModelIsResident(root.localModels[index - 1])
-                                    || (!resident && root.localModels[index - 1].kind !== modelData.kind)
-                                width: localModelsList.width
-                                height: groupStart ? 78 : 58
-                                radius: 0
-                                color: modelData.state === "active"
-                                    ? root.th("#111b19")
-                                    : (index % 2 === 0 ? root.th("#12151c") : root.surfaceColor)
-                                border.width: 0
-                                opacity: modelData.state === "installed" ? 0.58 : 1
-
-                                RowLayout {
-                                    visible: parent.groupStart
-                                    anchors.top: parent.top
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.topMargin: 5
-                                    anchors.leftMargin: 10
-                                    anchors.rightMargin: 10
-                                    spacing: 7
-                                    Rectangle {
-                                        Layout.preferredWidth: 24
-                                        Layout.preferredHeight: 24
-                                        radius: 6
-                                        color: (parent.parent.resident ? root.accentColor : root.localKindColor(modelData.kind)) + "1f"
-
-                                        Kirigami.Icon {
-                                            anchors.centerIn: parent
-                                            width: 15
-                                            height: 15
-                                            source: parent.parent.parent.resident
-                                                ? root.signalIconSource("cpu")
-                                                : root.signalIconSource("package")
-                                            color: parent.parent.parent.resident ? root.accentColor : root.localKindColor(modelData.kind)
-                                        }
-                                    }
-                                    PlasmaComponents.Label {
-                                        text: parent.parent.resident
-                                            ? i18n("In memory") : root.localKindText(modelData.kind)
-                                        color: root.mutedColor
-                                        font.family: root.designFont
-                                        font.pixelSize: 11
-                                        font.weight: Font.Bold
-                                    }
-                                    Rectangle {
-                                        Layout.fillWidth: true
-                                        Layout.preferredHeight: 1
-                                        color: root.th("#20232d")
-                                    }
-                                    PlasmaComponents.Label {
-                                        text: parent.parent.resident ? i18n("%1 resident", root.localResidentCount()) : root.localKindCount(modelData.kind)
-                                        color: root.quietColor
-                                        font.family: root.designFont
-                                        font.pixelSize: 11
-                                    }
-                                }
-
-                                RowLayout {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 10
-                                    anchors.rightMargin: 8
-                                    anchors.topMargin: parent.groupStart ? 20 : 0
-                                    spacing: 8
-
-                                    Rectangle {
-                                        Layout.preferredWidth: 7
-                                        Layout.preferredHeight: 7
-                                        radius: 4
-                                        color: modelData.state === "active" ? root.goodColor
-                                            : modelData.state === "loaded" ? root.mutedColor
-                                            : modelData.state === "installed" ? root.quietColor : root.warningColor
-                                    }
-
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 1
-                                        PlasmaComponents.Label {
-                                            text: modelData.name
-                                            color: root.textColor
-                                            font.family: "monospace"
-                                            font.pixelSize: 12
-                                            font.weight: Font.DemiBold
-                                            elide: Text.ElideRight
-                                            Layout.fillWidth: true
-                                        }
-                                        PlasmaComponents.Label {
-                                        text: root.localModelMeta(modelData)
-                                            color: root.quietColor
-                                            font.family: root.designFont
-                                            font.pixelSize: 11
-                                            elide: Text.ElideRight
-                                            Layout.fillWidth: true
-                                        }
-                                    }
-
-                                    Item {
-                                        Layout.preferredWidth: 72
-                                        Layout.preferredHeight: 22
-                                        visible: modelData.state === "active" || modelData.state === "loaded"
-                                        Canvas {
-                                            id: localSparkCanvas
-                                            anchors.fill: parent
-                                            onPaint: {
-                                                var context = getContext("2d")
-                                                context.clearRect(0, 0, width, height)
-                                                context.strokeStyle = modelData.state === "active" ? root.goodColor : root.th("#2f333d")
-                                                context.lineWidth = 1.4
-                                                context.beginPath()
-                                                var values = root.localModelHistory[modelData.id] || []
-                                                if (modelData.state === "loaded" || values.length < 2) {
-                                                    context.setLineDash([2, 3])
-                                                    context.moveTo(0, height / 2)
-                                                    context.lineTo(width, height / 2)
-                                                } else {
-                                                    var maximum = Math.max.apply(Math, values.concat([1]))
-                                                    for (var sample = 0; sample < values.length; sample++) {
-                                                        var x = width * sample / Math.max(1, values.length - 1)
-                                                        var y = height - 2 - ((height - 4) * values[sample] / maximum)
-                                                        if (sample === 0) context.moveTo(x, y)
-                                                        else context.lineTo(x, y)
-                                                    }
-                                                }
-                                                context.stroke()
-                                                context.setLineDash([])
-                                            }
-                                            Connections { target: root; function onLocalModelHistoryChanged() { localSparkCanvas.requestPaint() } function onDarkModeChanged() { localSparkCanvas.requestPaint() } }
-                                        }
-                                    }
-
-                                    PlasmaComponents.Label {
-                                        Layout.preferredWidth: !root.localModelActivityKnown(modelData) ? 128
-                                            : modelData.state === "installed" ? 130 : 58
-                                        text: root.localModelActivityText(modelData)
-                                        color: modelData.state === "active" ? root.textColor : root.quietColor
-                                        font.family: root.designFont
-                                        font.pixelSize: 11
-                                        horizontalAlignment: Text.AlignRight
-                                        elide: Text.ElideRight
-                                    }
-
-                                    QQC2.ToolButton {
-                                        width: 44
-                                        height: 44
-                                        visible: !!(modelData.capabilities && (modelData.capabilities.unmount || modelData.capabilities.mount))
-                                        enabled: !!(!root.localModelsLoading && modelData.state !== "active"
-                                            && ((modelData.state === "installed" && modelData.capabilities.mount)
-                                                || (modelData.state !== "installed" && root.localModelCanUnmount(modelData))))
-                                        text: modelData.state === "installed" && modelData.capabilities.mount ? i18n("Mount") : i18n("Unmount")
-                                        display: QQC2.AbstractButton.IconOnly
-                                        Accessible.name: text
-                                        onClicked: root.localModelAction(modelData.state === "installed" ? "mount" : "unmount",
-                                            modelData.runtime, modelData.id, false)
-                                        QQC2.ToolTip.visible: hovered
-                                        QQC2.ToolTip.text: modelData.state === "active" ? i18n("Unavailable while active")
-                                            : !root.localModelActivityKnown(modelData) ? i18n("Unavailable until activity is known") : text
-                                        contentItem: Kirigami.Icon {
-                                            source: modelData.state === "installed" && modelData.capabilities.mount
-                                                ? root.signalIconSource("box")
-                                                : root.signalIconSource("package")
-                                            color: parent.enabled ? root.mutedColor : root.quietColor
-                                        }
-                                    }
-                                }
-                            }
-
-                            footer: Column {
-                                width: localModelsList.width
-                                spacing: 6
-                                Item { width: 1; height: 8 }
-                                Repeater {
-                                    model: root.localRuntimes
-                                    delegate: RowLayout {
-                                        required property var modelData
-                                        width: localModelsList.width
-                                        visible: !!(modelData.capabilities && (modelData.capabilities.releaseRuntime
-                                            || modelData.capabilities.stopRuntime))
-                                        PlasmaComponents.Label {
-                                            text: modelData.stopImpact || modelData.releaseWarning
-                                                || (modelData.id + " · " + i18n("runtime-wide control"))
-                                            color: root.quietColor
-                                            font.family: root.designFont
-                                            font.pixelSize: 11
-                                            Layout.fillWidth: true
-                                        }
-                                        QQC2.Button {
-                                            visible: !!(modelData.capabilities && modelData.capabilities.releaseRuntime)
-                                            Layout.preferredHeight: 44
-                                            text: i18n("Release runtime")
-                                            enabled: !root.localModelsLoading
-                                            onClicked: { localReleaseDialog.runtime = modelData.id; localReleaseDialog.warning = modelData.releaseWarning || ""; localReleaseDialog.open() }
-                                        }
-                                        QQC2.Button {
-                                            visible: !!(modelData.capabilities && modelData.capabilities.stopRuntime)
-                                            Layout.preferredHeight: 44
-                                            text: i18n("Stop runtime")
-                                            enabled: !root.localModelsLoading
-                                            onClicked: {
-                                                localStopDialog.runtime = modelData.id
-                                                localStopDialog.impact = modelData.stopImpact || modelData.releaseWarning || ""
-                                                localStopDialog.open()
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
                     }
 
                     PlasmaComponents.Label {
-                        visible: !root.localModelsLoading && root.localModels.length === 0 && root.localModelsError.length === 0
                         Layout.fillWidth: true
-                        text: i18n("No installed local models in configured roots.")
+                        text: i18n("The local-ai monitor is parked under packages/ai-cli-control/attic/local and is not part of the program. Restore it there to bring this tab back.")
                         color: root.mutedColor
                         font.family: root.designFont
-                        font.pixelSize: 12
-                        horizontalAlignment: Text.AlignHCenter
+                        font.pixelSize: 13
+                        wrapMode: Text.WordWrap
                     }
                 }
             }
@@ -4730,151 +4412,58 @@ PlasmoidItem {
                     anchors.leftMargin: 18
                     anchors.rightMargin: 18
                     anchors.topMargin: 14
-                    anchors.bottomMargin: 0
-                    spacing: 0
+                    anchors.bottomMargin: 12
+                    spacing: 8
 
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 118
-                        color: "transparent"
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            spacing: 5
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 12
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 3
-
-                                    PlasmaComponents.Label {
-                                        text: i18n("Skills")
-                                        color: root.textColor
-                                        font.family: root.designFont
-                                        font.pixelSize: 25
-                                        font.weight: Font.ExtraBold
-                                    }
-
-                                    PlasmaComponents.Label {
-                                        text: i18n("Synchronize reusable AI skills across providers.")
-                                        color: root.mutedColor
-                                        font.family: root.designFont
-                                        font.pixelSize: 13
-                                    }
-                                }
-
-                                Rectangle {
-                                    Layout.preferredWidth: 168
-                                    Layout.preferredHeight: 44
-                                    radius: 9
-                                    color: allSkillsCheck.down ? root.th("#29233e")
-                                        : allSkillsCheck.hovered ? root.th("#211d31") : "transparent"
-                                    border.width: 1
-                                    border.color: root.th("#8064d8")
-
-                                    QQC2.CheckBox {
-                                        id: allSkillsCheck
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 10
-                                        anchors.rightMargin: 10
-                                        text: i18n("Sync all providers")
-                                        tristate: true
-                                        checkState: root.bulkSkillCheckState("")
-                                        enabled: !root.skillsLoading
-                                            && root.bulkSkillEligibleCount("") > 0
-                                        Accessible.name: text
-                                        Accessible.description: i18n("Select every missing or matching provider cell. Conflicts are excluded.")
-                                        onClicked: root.setBulkSkillDesired(
-                                            "",
-                                            checkState === Qt.Checked
-                                        )
-
-                                        contentItem: PlasmaComponents.Label {
-                                            text: parent.text
-                                            color: parent.enabled ? root.textColor : root.quietColor
-                                            font.family: root.designFont
-                                            font.pixelSize: 12
-                                            font.weight: Font.DemiBold
-                                            leftPadding: parent.indicator.width + parent.spacing
-                                            verticalAlignment: Text.AlignVCenter
-                                            elide: Text.ElideRight
-                                        }
-                                    }
-                                }
-                            }
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 8
-
-                                Rectangle {
-                                    Layout.preferredWidth: 8
-                                    Layout.preferredHeight: 8
-                                    radius: 4
-                                    color: root.goodColor
-                                }
-                                PlasmaComponents.Label {
-                                    text: i18n("%1 synced", root.skillsSummary.synced || 0)
-                                    color: root.mutedColor
-                                    font.family: root.designFont
-                                    font.pixelSize: 12
-                                }
-                                PlasmaComponents.Label {
-                                    text: "•"
-                                    color: root.quietColor
-                                    font.pixelSize: 12
-                                }
-                                Rectangle {
-                                    Layout.preferredWidth: 8
-                                    Layout.preferredHeight: 8
-                                    radius: 4
-                                    color: root.warningColor
-                                }
-                                PlasmaComponents.Label {
-                                    text: i18n("%1 partial", root.skillsSummary.partial || 0)
-                                    color: root.mutedColor
-                                    font.family: root.designFont
-                                    font.pixelSize: 12
-                                }
-                                PlasmaComponents.Label {
-                                    text: "•"
-                                    color: root.quietColor
-                                    font.pixelSize: 12
-                                }
-                                Rectangle {
-                                    Layout.preferredWidth: 8
-                                    Layout.preferredHeight: 8
-                                    radius: 4
-                                    color: root.errorColor
-                                }
-                                PlasmaComponents.Label {
-                                    id: conflictSummaryLabel
-                                    text: i18np("%1 conflict", "%1 conflicts",
-                                        root.skillsSummary.conflicts || 0)
-                                    color: root.mutedColor
-                                    font.family: root.designFont
-                                    font.pixelSize: 12
-                                }
-                                Item { Layout.fillWidth: true }
-                                PlasmaComponents.Label {
-                                    text: i18n("%1 skills, %2 providers",
-                                        root.skillsSummary.uniqueSkills || 0,
-                                        root.skillsSummary.connectedProviders || 0)
-                                    color: root.quietColor
-                                    font.family: root.designFont
-                                    font.pixelSize: 12
-                                }
-                            }
-                        }
+                    PlasmaComponents.Label {
+                        text: i18n("Skills")
+                        color: root.textColor
+                        font.family: root.designFont
+                        font.pixelSize: 25
+                        font.weight: Font.ExtraBold
                     }
 
-                    Rectangle {
+                    PlasmaComponents.Label {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 1
-                        color: root.lineColor
+                        text: i18n("Read-only inventory of reusable AI skills across providers. Sync is parked for now.")
+                        color: root.mutedColor
+                        font.family: root.designFont
+                        font.pixelSize: 13
+                        wrapMode: Text.WordWrap
+                    }
+
+                    PlasmaComponents.Label {
+                        Layout.fillWidth: true
+                        text: i18n("Same everywhere means identical in all providers. In X of Y means it lives only in some, nothing was lost. Needs attention means the same name holds different content and must be fixed by hand.")
+                        color: root.quietColor
+                        font.family: root.designFont
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        PlasmaComponents.Label {
+                            text: i18n("%1 skills, %2 providers",
+                                root.skillsSummary.uniqueSkills || 0,
+                                root.skillsSummary.connectedProviders || 0)
+                            color: root.quietColor
+                            font.family: root.designFont
+                            font.pixelSize: 12
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        PlasmaComponents.Label {
+                            text: root.skillsGeneratedAt.length > 0
+                                ? i18n("Last scan %1", root.formatUpdatedTime(root.skillsGeneratedAt))
+                                : i18n("No scan yet")
+                            color: root.quietColor
+                            font.family: root.designFont
+                            font.pixelSize: 11
+                        }
                     }
 
                     PlasmaComponents.Label {
@@ -4885,12 +4474,9 @@ PlasmoidItem {
                         font.family: root.designFont
                         font.pixelSize: 12
                         wrapMode: Text.WordWrap
-                        Layout.topMargin: 8
-                        Layout.bottomMargin: 8
                     }
 
                     Rectangle {
-                        id: skillsMatrix
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         radius: 10
@@ -4899,380 +4485,85 @@ PlasmoidItem {
                         border.width: 1
                         clip: true
 
-                        ColumnLayout {
+                        ListView {
+                            id: skillsList
                             anchors.fill: parent
-                            spacing: 0
+                            anchors.margins: 8
+                            model: root.skillsInventory
+                            clip: true
+                            spacing: 8
+                            boundsBehavior: Flickable.StopAtBounds
 
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 58
-                                color: root.th("#1a1d26")
+                            delegate: Rectangle {
+                                required property var modelData
+                                required property int index
+                                width: skillsList.width
+                                height: 52
+                                radius: 8
+                                color: modelData.status === "conflict"
+                                    ? root.th("#1d171c") : root.th("#12151c")
+                                QQC2.ToolTip.visible: skillRowHover.containsMouse
+                                QQC2.ToolTip.text: root.skillPresenceText(modelData)
+
+                                MouseArea {
+                                    id: skillRowHover
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    acceptedButtons: Qt.NoButton
+                                }
 
                                 RowLayout {
                                     anchors.fill: parent
                                     anchors.leftMargin: 10
-                                    anchors.rightMargin: 8
-                                    spacing: 0
+                                    anchors.rightMargin: 10
+                                    spacing: 8
 
-                                    PlasmaComponents.Label {
-                                        Layout.preferredWidth: 142
-                                        text: i18n("Skill")
-                                        color: root.mutedColor
-                                        font.family: root.designFont
-                                        font.pixelSize: 12
-                                        font.weight: Font.Bold
-                                    }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
 
-                                    Repeater {
-                                        model: root.skillProviders.filter(function(provider) {
-                                            return provider.available
-                                        })
-
-                                        delegate: ColumnLayout {
-                                            required property var modelData
+                                        PlasmaComponents.Label {
                                             Layout.fillWidth: true
-                                            Layout.minimumWidth: 32
-                                            Layout.maximumWidth: 52
-                                            spacing: 1
+                                            text: modelData.name
+                                            color: root.textColor
+                                            font.family: "monospace"
+                                            font.pixelSize: 12
+                                            font.weight: Font.DemiBold
+                                            elide: Text.ElideRight
+                                        }
 
-                                            Rectangle {
-                                                Layout.alignment: Qt.AlignHCenter
-                                                Layout.preferredWidth: 22
-                                                Layout.preferredHeight: 20
-                                                radius: 5
-                                                color: modelData.id === "opencode"
-                                                    ? root.th("#e7e9ef") : "transparent"
-
-                                                ThemedMark {
-                                                    anchors.centerIn: parent
-                                                    width: 18
-                                                    height: 18
-                                                    source: root.skillProviderIconSource(modelData.id)
-                                                    color: root.textColor
-                                                }
-                                            }
-
-                                            QQC2.CheckBox {
-                                                Layout.alignment: Qt.AlignHCenter
-                                                Layout.preferredWidth: 24
-                                                Layout.preferredHeight: 24
-                                                tristate: true
-                                                checkState: root.bulkSkillCheckState(modelData.id)
-                                                enabled: !root.skillsLoading
-                                                    && root.bulkSkillEligibleCount(modelData.id) > 0
-                                                Accessible.name: i18n("Sync all safe skills to %1", modelData.label)
-                                                onClicked: root.setBulkSkillDesired(
-                                                    modelData.id,
-                                                    checkState === Qt.Checked
-                                                )
-                                                QQC2.ToolTip.visible: hovered
-                                                QQC2.ToolTip.text: i18n("Select every safe skill for %1", modelData.label)
-                                            }
+                                        PlasmaComponents.Label {
+                                            Layout.fillWidth: true
+                                            text: modelData.description || i18n("Reusable AI instruction")
+                                            color: root.quietColor
+                                            font.family: root.designFont
+                                            font.pixelSize: 11
+                                            elide: Text.ElideRight
                                         }
                                     }
 
                                     PlasmaComponents.Label {
-                                        Layout.preferredWidth: 96
-                                        text: i18n("Status")
-                                        color: root.mutedColor
+                                        text: root.skillCompactStatusText(modelData)
+                                        color: root.skillStatusColor(modelData)
                                         font.family: root.designFont
-                                        font.pixelSize: 12
-                                        font.weight: Font.Bold
-                                        horizontalAlignment: Text.AlignRight
+                                        font.pixelSize: 11
+                                        font.weight: Font.DemiBold
                                     }
-
-                                }
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 1
-                                color: root.lineColor
-                            }
-
-                            ListView {
-                                id: skillsList
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                model: root.skillsInventory
-                                clip: true
-                                spacing: 0
-                                boundsBehavior: Flickable.StopAtBounds
-
-                                delegate: Rectangle {
-                                    id: skillRow
-                                    required property var modelData
-                                    required property int index
-                                    property var skillItem: modelData
-                                    width: skillsList.width
-                                    height: 60
-                                    color: modelData.status === "conflict"
-                                        ? root.th("#1d171c")
-                                        : (index % 2 === 0 ? root.th("#12151c") : root.surfaceColor)
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 10
-                                        anchors.rightMargin: 8
-                                        spacing: 0
-
-                                        ColumnLayout {
-                                            Layout.preferredWidth: 142
-                                            spacing: 3
-
-                                            PlasmaComponents.Label {
-                                                Layout.fillWidth: true
-                                                text: skillRow.skillItem.name
-                                                color: root.textColor
-                                                font.family: "monospace"
-                                                font.pixelSize: 12
-                                                font.weight: Font.DemiBold
-                                                elide: Text.ElideRight
-                                            }
-
-                                            PlasmaComponents.Label {
-                                                Layout.fillWidth: true
-                                                text: skillRow.skillItem.description
-                                                    || i18n("Reusable AI instruction")
-                                                color: root.quietColor
-                                                font.family: root.designFont
-                                                font.pixelSize: 11
-                                                elide: Text.ElideRight
-                                            }
-                                        }
-
-                                        Repeater {
-                                            model: root.skillProviders.filter(function(provider) {
-                                                return provider.available
-                                            })
-
-                                            delegate: Item {
-                                                required property var modelData
-                                                property var cellData: root.skillCell(
-                                                    skillRow.skillItem,
-                                                    modelData.id
-                                                )
-                                                Layout.fillWidth: true
-                                                Layout.minimumWidth: 32
-                                                Layout.maximumWidth: 52
-                                                Layout.fillHeight: true
-
-                                                QQC2.CheckBox {
-                                                    id: providerSkillCheck
-                                                    anchors.centerIn: parent
-                                                    width: 44
-                                                    height: 44
-                                                    tristate: true
-                                                    checkState: root.skillCellCheckState(
-                                                        skillRow.skillItem,
-                                                        modelData.id
-                                                    )
-                                                    enabled: !root.skillsLoading
-                                                        && parent.cellData
-                                                        && parent.cellData.toggleable
-                                                    opacity: enabled ? 1 : 0.55
-                                                    Accessible.name: i18n("%1 in %2",
-                                                        skillRow.skillItem.name,
-                                                        modelData.label)
-                                                    Accessible.description: root.skillCellHelp(
-                                                        skillRow.skillItem,
-                                                        modelData.id
-                                                    )
-                                                    onClicked: root.setSkillCellDesired(
-                                                        skillRow.skillItem,
-                                                        modelData.id,
-                                                        checkState === Qt.Checked
-                                                    )
-                                                    QQC2.ToolTip.visible: hovered
-                                                    QQC2.ToolTip.text: root.skillCellHelp(
-                                                        skillRow.skillItem,
-                                                        modelData.id
-                                                    )
-                                                }
-
-                                            }
-                                        }
-
-                                        RowLayout {
-                                            Layout.preferredWidth: 96
-                                            spacing: 6
-
-                                            Rectangle {
-                                                Layout.preferredWidth: 7
-                                                Layout.preferredHeight: 7
-                                                radius: 4
-                                                color: root.skillStatusColor(skillRow.skillItem)
-                                            }
-
-                                            PlasmaComponents.Label {
-                                                Layout.fillWidth: true
-                                                text: root.skillCompactStatusText(skillRow.skillItem)
-                                                color: root.skillStatusColor(skillRow.skillItem)
-                                                font.family: root.designFont
-                                                font.pixelSize: 11
-                                                font.weight: Font.DemiBold
-                                                horizontalAlignment: Text.AlignRight
-                                                elide: Text.ElideRight
-                                            }
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.bottom: parent.bottom
-                                        height: 1
-                                        color: root.th("#1c2029")
-                                    }
-                                }
-                            }
-
-                            PlasmaComponents.Label {
-                                visible: !root.skillsLoading
-                                    && root.skillsInventory.length === 0
-                                    && root.skillsError.length === 0
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                text: i18n("No user skills were detected.")
-                                color: root.mutedColor
-                                font.family: root.designFont
-                                font.pixelSize: 12
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        id: skillsActionBar
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 64
-                        color: root.th("#11141b")
-
-                        RowLayout {
-                            anchors.fill: parent
-                            spacing: 8
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
-
-                                PlasmaComponents.Label {
-                                    text: root.skillsLoading
-                                        ? i18n("Preparing changes…")
-                                        : root.skillChangeCount() > 0
-                                            ? i18np("%1 pending change", "%1 pending changes",
-                                                root.skillChangeCount())
-                                            : i18n("Conflicts are locked")
-                                    color: root.skillsLoading ? root.accentColor
-                                        : root.skillChangeCount() > 0
-                                            ? root.textColor : root.mutedColor
-                                    font.family: root.designFont
-                                    font.pixelSize: 12
-                                    font.weight: Font.DemiBold
-                                }
-
-                                PlasmaComponents.Label {
-                                    text: root.skillsPreview
-                                        ? i18n("Preview ready")
-                                        : root.skillsGeneratedAt.length > 0
-                                            ? i18n("Last scan %1",
-                                                root.formatUpdatedTime(root.skillsGeneratedAt))
-                                            : i18n("No scan yet")
-                                    color: root.skillsPreview ? root.goodColor : root.quietColor
-                                    font.family: root.designFont
-                                    font.pixelSize: 11
-                                }
-                            }
-
-                            QQC2.Button {
-                                id: previewSkillChangesButton
-                                Layout.preferredWidth: 112
-                                Layout.preferredHeight: 44
-                                text: i18n("Preview changes")
-                                enabled: !root.skillsLoading && root.skillChangeCount() > 0
-                                onClicked: root.previewSkillChanges()
-
-                                contentItem: PlasmaComponents.Label {
-                                    text: parent.text
-                                    color: parent.enabled ? root.th("#cbbfff") : root.quietColor
-                                    font.family: root.designFont
-                                    font.pixelSize: 12
-                                    font.weight: Font.DemiBold
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-
-                                background: Rectangle {
-                                    radius: 8
-                                    color: parent.down ? root.th("#242035")
-                                        : parent.hovered ? root.th("#1c1929") : "transparent"
-                                    border.width: 1
-                                    border.color: parent.enabled ? root.th("#8064d8") : root.th("#30333e")
-                                }
-                            }
-
-                            QQC2.Button {
-                                id: applySkillChangesButton
-                                Layout.preferredWidth: 108
-                                Layout.preferredHeight: 44
-                                text: i18n("Apply changes")
-                                enabled: !root.skillsLoading
-                                    && root.skillsPreview !== null
-                                    && root.skillsPendingChanges.length > 0
-                                onClicked: skillBatchDialog.open()
-
-                                contentItem: PlasmaComponents.Label {
-                                    text: parent.text
-                                    color: parent.enabled ? "#ffffff" : root.quietColor
-                                    font.family: root.designFont
-                                    font.pixelSize: 12
-                                    font.weight: Font.DemiBold
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-
-                                background: Rectangle {
-                                    radius: 8
-                                    color: parent.enabled
-                                        ? (parent.down ? root.th("#5543d8")
-                                            : parent.hovered ? root.th("#7a67ff") : root.accentColor)
-                                        : root.th("#292c36")
                                 }
                             }
                         }
                     }
-                }
-            }
-
-            QQC2.Dialog {
-                id: skillBatchDialog
-                modal: true
-                title: i18n("Apply skill changes?")
-                standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
-                onAccepted: root.applySkillChanges()
-                contentItem: Item {
-                    implicitWidth: 360
-                    implicitHeight: skillBatchMessage.implicitHeight
 
                     PlasmaComponents.Label {
-                        id: skillBatchMessage
-                        width: parent.width
-                        text: {
-                            if (!root.skillsPreview) {
-                                return ""
-                            }
-                            var added = root.skillChangeCountFor(true)
-                            var removed = root.skillChangeCountFor(false)
-                            return i18np(
-                                "%1 provider link will change.",
-                                "%1 provider links will change.",
-                                root.skillsPreview.plannedChanges || 0
-                            ) + " " + i18n("%1 added, %2 removed. Matching copies are backed up first. If any target changed after this preview, the whole batch is cancelled.",
-                                added, removed)
-                        }
-                        wrapMode: Text.WordWrap
+                        visible: !root.skillsLoading
+                            && root.skillsInventory.length === 0
+                            && root.skillsError.length === 0
+                        Layout.fillWidth: true
+                        text: i18n("No user skills were detected.")
                         color: root.mutedColor
+                        font.family: root.designFont
+                        font.pixelSize: 12
+                        horizontalAlignment: Text.AlignHCenter
                     }
                 }
             }
@@ -5441,7 +4732,6 @@ PlasmoidItem {
             modal: false
             focus: true
             closePolicy: QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside
-            onOpened: root.refreshLocalModels()
 
             background: Rectangle {
                 radius: 14
@@ -5461,19 +4751,13 @@ PlasmoidItem {
                     Layout.bottomMargin: 9
                     spacing: 8
                     PlasmaComponents.Label {
-                        text: i18n("Local models")
+                        text: i18n("AI CLI Control")
                         color: root.textColor
                         font.family: root.designFont
                         font.pixelSize: 13
                         font.weight: Font.Bold
                     }
                     Item { Layout.fillWidth: true }
-                    PlasmaComponents.Label {
-                        text: i18n("%1 in memory", root.localModels.filter(function(item) { return item.state === "active" || item.state === "loaded" }).length)
-                        color: root.quietColor
-                        font.family: root.designFont
-                        font.pixelSize: 10
-                    }
                     QQC2.ToolButton {
                         width: 26; height: 26
                         text: i18n("AI CLI actions")
@@ -5487,131 +4771,35 @@ PlasmoidItem {
 
                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.th("#20232b") }
 
-                QQC2.ScrollView {
+                ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.leftMargin: 10
-                    Layout.rightMargin: 6
-                    QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
+                    Layout.leftMargin: 13
+                    Layout.rightMargin: 10
+                    Layout.topMargin: 10
+                    spacing: 8
 
-                    ListView {
-                        id: aiControlModelsList
-                        width: parent.width
-                        contentWidth: width
-                        model: root.localModels
-                        clip: true
-                        flickableDirection: Flickable.VerticalFlick
-                        boundsBehavior: Flickable.StopAtBounds
-                        delegate: Item {
-                            required property var modelData
-                            required property int index
-                            readonly property bool resident: root.localModelIsResident(modelData)
-                            readonly property bool groupStart: index === 0
-                                || resident !== root.localModelIsResident(root.localModels[index - 1])
-                                || (!resident && root.localModels[index - 1].kind !== modelData.kind)
-                            width: aiControlModelsList.width
-                            height: groupStart ? 70 : 50
-
-                            RowLayout {
-                                visible: parent.groupStart
-                                anchors.top: parent.top
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.leftMargin: 3
-                                anchors.rightMargin: 4
-                                anchors.topMargin: 8
-                                spacing: 6
-                                Rectangle {
-                                    Layout.preferredWidth: 18; Layout.preferredHeight: 18; radius: 5
-                                    color: (parent.parent.resident ? root.accentColor : root.localKindColor(modelData.kind)) + "1f"
-                                    PlasmaComponents.Label { anchors.centerIn: parent; text: parent.parent.parent.resident ? "●" : root.localKindGlyph(modelData.kind); color: parent.parent.parent.resident ? root.accentColor : root.localKindColor(modelData.kind); font.family: "monospace"; font.pixelSize: 9 }
-                                }
-                                PlasmaComponents.Label { text: parent.parent.resident ? i18n("IN MEMORY") : root.localKindText(modelData.kind).toUpperCase(); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; font.weight: Font.Bold }
-                                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.th("#20232d") }
-                                PlasmaComponents.Label { text: parent.parent.resident ? i18n("%1 resident", root.localResidentCount()) : root.localKindCount(modelData.kind); color: root.th("#565b68"); font.family: root.designFont; font.pixelSize: 9 }
-                            }
-
-                            RowLayout {
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                anchors.leftMargin: 5
-                                anchors.rightMargin: 3
-                                anchors.bottomMargin: 6
-                                spacing: 7
-                                Rectangle { Layout.preferredWidth: 7; Layout.preferredHeight: 7; radius: 4; color: modelData.state === "active" ? root.goodColor : (modelData.state === "loaded" ? root.mutedColor : "transparent"); border.width: modelData.state === "installed" ? 1 : 0; border.color: root.th("#33384d") }
-                                ColumnLayout {
-                                    Layout.fillWidth: true; spacing: 1
-                                    PlasmaComponents.Label { text: modelData.name; color: modelData.state === "installed" ? root.th("#565b68") : root.textColor; font.family: "monospace"; font.pixelSize: 10; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
-                                    PlasmaComponents.Label { text: root.localModelMeta(modelData); color: root.quietColor; font.family: root.designFont; font.pixelSize: 8; elide: Text.ElideRight; Layout.fillWidth: true }
-                                }
-                                Item {
-                                    Layout.preferredWidth: 72; Layout.preferredHeight: 20
-                                    visible: modelData.state === "active" || modelData.state === "loaded"
-                                    Canvas {
-                                        id: aiControlSparkCanvas
-                                        anchors.fill: parent
-                                        onPaint: {
-                                            var context = getContext("2d")
-                                            context.clearRect(0, 0, width, height)
-                                            context.strokeStyle = modelData.state === "active" ? root.goodColor : root.th("#2f333d")
-                                            context.lineWidth = 1.3
-                                            context.beginPath()
-                                            var values = root.localModelHistory[modelData.id] || []
-                                            if (modelData.state === "loaded" || values.length < 2) {
-                                                context.setLineDash([2, 3])
-                                                context.moveTo(0, height / 2)
-                                                context.lineTo(width, height / 2)
-                                            } else {
-                                                var maximum = Math.max.apply(Math, values.concat([1]))
-                                                for (var sample = 0; sample < values.length; sample++) {
-                                                    var x = width * sample / Math.max(1, values.length - 1)
-                                                    var y = height - 2 - ((height - 4) * values[sample] / maximum)
-                                                    if (sample === 0) context.moveTo(x, y)
-                                                    else context.lineTo(x, y)
-                                                }
-                                            }
-                                            context.stroke()
-                                            context.setLineDash([])
-                                        }
-                                        Connections { target: root; function onLocalModelHistoryChanged() { aiControlSparkCanvas.requestPaint() } function onDarkModeChanged() { aiControlSparkCanvas.requestPaint() } }
-                                    }
-                                }
-                                Row {
-                                    Layout.preferredWidth: 58
-                                    Layout.preferredHeight: 20
-                                    visible: modelData.state === "active"
-                                    spacing: 2
-                                    layoutDirection: Qt.RightToLeft
-                                    PlasmaComponents.Label { text: modelData.metric && modelData.metric.unit ? modelData.metric.unit : ""; color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
-                                    PlasmaComponents.Label { text: modelData.metric && typeof modelData.metric.value === "number" ? root.formatNumber(modelData.metric.value) : "—"; color: root.textColor; font.family: root.designFont; font.pixelSize: 11; font.weight: Font.Bold; anchors.verticalCenter: parent.verticalCenter }
-                                }
-                                PlasmaComponents.Label { Layout.preferredWidth: !root.localModelActivityKnown(modelData) ? 128 : modelData.state === "installed" ? 78 : 58; visible: modelData.state !== "active"; text: root.localModelActivityText(modelData); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
-                                QQC2.ToolButton {
-                                    width: 26; height: 26
-                                    visible: !!(modelData.capabilities && (modelData.capabilities.unmount || modelData.capabilities.mount))
-                                    enabled: !!(!root.localModelsLoading && modelData.state !== "active" && ((modelData.state === "installed" && modelData.capabilities.mount) || (modelData.state !== "installed" && root.localModelCanUnmount(modelData))))
-                                    text: modelData.state === "installed" ? i18n("Mount") : i18n("Unmount")
-                                    display: QQC2.AbstractButton.IconOnly
-                                    Accessible.name: text
-                                    onClicked: root.localModelAction(modelData.state === "installed" ? "mount" : "unmount", modelData.runtime, modelData.id, false)
-                                    contentItem: Kirigami.Icon { source: modelData.state === "installed" ? "go-up" : "media-eject"; color: parent.enabled ? root.mutedColor : root.quietColor }
-                                    background: Rectangle { radius: 8; color: parent.hovered ? root.th("#20232d") : "transparent" }
-                                }
-                            }
-                        }
+                    PlasmaComponents.Label {
+                        Layout.fillWidth: true
+                        text: i18n("Local models are parked for now.")
+                        color: root.textColor
+                        font.family: root.designFont
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                        wrapMode: Text.WordWrap
                     }
-                }
 
-                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.th("#20232b") }
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.leftMargin: 12; Layout.rightMargin: 10
-                    Layout.topMargin: 7; Layout.bottomMargin: 7
-                    Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: root.goodColor }
-                    PlasmaComponents.Label { text: root.localModelsLoading ? i18n("Checking…") : i18n("Checked just now"); color: root.quietColor; font.family: root.designFont; font.pixelSize: 9 }
-                    Item { Layout.fillWidth: true }
-                    QQC2.Button { text: i18n("Check now"); enabled: !root.localModelsLoading; onClicked: root.refreshLocalModels() }
+                    QQC2.Button {
+                        Layout.fillWidth: true
+                        text: i18n("Open AI CLI Control")
+                        onClicked: { aiControlPopup.close(); root.launchAiControl([]) }
+                    }
+
+                    QQC2.Button {
+                        Layout.fillWidth: true
+                        text: i18n("Update all AI CLIs")
+                        onClicked: { aiControlPopup.close(); root.launchAiControl(["--update", "all"], true) }
+                    }
                 }
             }
         }

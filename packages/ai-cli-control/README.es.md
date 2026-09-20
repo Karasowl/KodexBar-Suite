@@ -2,7 +2,7 @@
 
 Documentación en español. La documentación completa en inglés está en [README.md](README.md).
 
-`ai-cli-control` es un selector local para iniciar Codex, Claude, Grok o Antigravity desde el directorio actual de la terminal. Conserva el directorio de trabajo y el entorno de la CLI elegida. Es trabajo original y no es un fork de KodexBar.
+`ai-cli-control` es un selector local para iniciar Codex, Claude, Grok, Antigravity, OpenCode, Cursor, Hermes, Devin, Copilot o Qwen desde el directorio actual de la terminal. Conserva el directorio de trabajo y el entorno de la CLI elegida. Es trabajo original y no es un fork de KodexBar.
 
 Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../README.es.md). Desde la raíz de ese repositorio, usa `./install.sh` para instalarlo junto con el widget de Plasma. El `install.sh` del paquete sigue disponible para uso independiente.
 
@@ -17,8 +17,7 @@ Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../REA
 - Usa inglés de forma predeterminada. Los entornos en español reciben texto en español. `--language en` y `--language es` sustituyen la detección de locale.
 - Conserva cada comando de inicio y actualización como arreglo de argumentos sin evaluación de shell.
 - Incluye `kodexbar-quotas`, un motor local de cuotas para el widget KodexBar Suite, `kodexbar-panel`, un adaptador compacto para barras no KDE, y `kodexbar-tray`, un indicador StatusNotifierItem.
-- Incluye `local-ai`, un inventario JSON y una superficie segura de control para runtimes de modelos locales. Es opcional y no instala ni descarga modelos.
-- Incluye `kodexbar-skills`, un inventario local y sincronizador explícito de skills para Codex, Claude, Grok, Gemini CLI, OpenCode y Hermes.
+- Incluye `kodexbar-skills`, un inventario local de skills para Codex, Claude, Grok, Gemini CLI, OpenCode y Hermes. El widget lo muestra en modo de solo lectura.
 
 ## Requisitos
 
@@ -125,7 +124,7 @@ ai --version
 
 El ejecutable instalado queda en `~/.local/share/ai-cli-control/ai` y `~/.local/bin/ai` es su enlace simbólico. El motor independiente `recover.py`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray`, sus iconos y una copia de `uninstall.sh` quedan junto al ejecutable para eliminarlos después de borrar el clon. No usa `sudo`. La instalación no sustituye un comando local existente que no pertenezca al proyecto. Solo instala adaptadores si existe el directorio de su CLI y nunca reemplaza un skill `recover-chat` ajeno. La eliminación verifica los marcadores de propiedad y borra solo archivos del proyecto. Ambos scripts son idempotentes.
 
-## Monitor de modelos locales
+## Monitor de modelos locales (estacionado)
 
 `local-ai` es la única interfaz que usa el widget de Plasma para los modelos locales. Devuelve JSON normalizado, así que el widget no interpreta procesos ni salidas específicas de cada runtime. Descubre solo raíces configuradas y directorios convencionales que existan. No recorre todo el home ni el disco.
 

@@ -76,9 +76,9 @@ El ID compartido de Plasma es intencional. Este paquete reemplaza en el mismo lu
 
 Después de instalar, agrega **KodexBar Suite** a un panel de Plasma si todavía no aparece. Abre el popup del widget para consultar las cuotas. Usa el botón AI o el menú contextual de Plasma para abrir `ai-cli-control` y actualizar las CLI de proveedores.
 
-El popup Signal Console usa los destinos con etiqueta Proveedores, Local y Skills. Local lee su inventario mediante `local-ai`, que admite raíces explícitas y runtimes comunes en localhost. Muestra solo métricas reales del runtime, conserva atenuados los modelos instalados sin montar y expone solo acciones que el runtime puede realizar de forma segura. Consulta [la documentación del monitor local](packages/ai-cli-control/README.es.md#monitor-de-modelos-locales) y las plantillas portables en `packages/ai-cli-control/examples/`.
+El popup Signal Console usa los destinos Proveedores y Skills. Los modelos locales están estacionados en `packages/ai-cli-control/attic/local/` y no forman parte del programa.
 
-El tab **Skills** usa `kodexbar-skills` para comparar Codex, Claude, Grok, Gemini CLI, OpenCode y Hermes. Una matriz permite preparar cambios por skill y proveedor, seleccionar todos los destinos seguros o una columna completa y revisar el lote antes de aplicarlo. Refrescar solo lee. Las copias idénticas se respaldan, los enlaces compartidos pueden desactivarse sin borrar la fuente y el contenido divergente queda bloqueado. Consulta [el contrato del motor de skills](packages/ai-cli-control/README.es.md#inventario-y-sincronización-de-skills).
+El tab **Skills** muestra un inventario `kodexbar-skills` de solo lectura para Codex, Claude, Grok, Gemini CLI, OpenCode y Hermes. La sincronización está estacionada en la interfaz.
 
 ## Canales de instalación
 
@@ -158,9 +158,15 @@ GitHub Releases proporciona el archivo fuente, DEB, archivos RPM, widget de Plas
 
 ### Windows 10 y 11
 
-En Windows la suite funciona como una aplicación de bandeja más las herramientas de consola; el motor de cuotas es el mismo del build de Linux. `KodexBar Tray` muestra un icono de estado en el área de notificación, abre una ventana de "Panel de cuotas" con el uso por proveedor, y su menú cubre refresco, AI CLI Control, inicio automático y salir. `ai`, `kodexbar-quotas`, `kodexbar-skills`, `local-ai` y `ai recover` se instalan junto al ejecutable de la bandeja.
+En Windows la suite funciona como una aplicación de bandeja más las herramientas de consola; el motor de cuotas es el mismo del build de Linux. `KodexBar Tray` muestra un icono de estado en el área de notificación, abre una ventana de "Panel de cuotas" con el uso por proveedor, y su menú cubre refresco, AI CLI Control, inicio automático y salir. `ai`, `kodexbar-quotas`, `kodexbar-skills` y `ai recover` se instalan junto al ejecutable de la bandeja.
 
-- Instala el exe por usuario (sin permisos de administrador) o extrae el zip portátil y ejecuta `KodexBarTray.exe`. Ambos salen de [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest).
+- Instalación de una línea en PowerShell (sin permisos de administrador):
+
+```powershell
+irm https://raw.githubusercontent.com/Karasowl/KodexBar-Suite/main/packaging/windows/Install.ps1 | iex
+```
+
+El comando resuelve el último release, verifica el checksum y corre el instalador por usuario en silencio. O descarga el exe o extrae el zip portátil y ejecuta `KodexBarTray.exe`. Todo sale de [GitHub Releases](https://github.com/Karasowl/KodexBar-Suite/releases/latest).
 - Las rutas de datos de proveedores siguen la disposición de cada CLI en Windows: `~\.claude`, `~\.codex`, `~\.grok`, `~\.hermes`, `%APPDATA%\devin\credentials.toml`, y la base de datos de tokens de Cursor en `%APPDATA%\Cursor`.
 - El widget de Plasma 6, la salida para Waybar/XFCE y la bandeja GTK siguen siendo exclusivos de Linux. Los detalles del alcance y la compilación desde fuente están en [las notas de empaquetado para Windows](packaging/windows/README.md).
 

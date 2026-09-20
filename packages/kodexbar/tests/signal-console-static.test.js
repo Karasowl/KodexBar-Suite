@@ -25,7 +25,7 @@ const providerView = qml.slice(providerStart, compactStart)
 
 assert.match(topBar, /source: Qt\.resolvedUrl\("\.\.\/icons\/kodexbar\.svg"\)/, "the product bar restores the packaged K mark")
 assert.match(topBar, /label: i18n\("Providers"\)/, "provider navigation has a visible label")
-assert.match(topBar, /label: i18n\("Local"\)/, "local navigation has a visible label")
+assert.doesNotMatch(topBar, /label: i18n\("Local"\)/, "local navigation is parked")
 assert.match(topBar, /label: i18n\("Skills"\)/, "skills navigation has a visible label")
 assert.match(topBar, /root\.signalIconSource\(signalDestination\.modelData\.icon\)/, "destinations share one packaged icon family")
 assert.match(topBar, /height: 3[\s\S]{0,120}signalDestination\.selected/, "selected destination has a persistent underline")

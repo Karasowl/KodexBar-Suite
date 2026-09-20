@@ -1236,7 +1236,7 @@ assert.match(
 assert.match(mainQml, /component SignalTopBar: Item/, "Signal Console owns one global navigation bar")
 assert.match(mainQml, /component SignalProviderView: Item/, "Signal Console owns the selected provider surface")
 assert.match(mainQml, /source: Qt\.resolvedUrl\("\.\.\/icons\/kodexbar\.svg"\)/, "the packaged K mark appears in the global bar")
-assert.match(mainQml, /label: i18n\("Providers"\)[\s\S]{0,260}label: i18n\("Local"\)[\s\S]{0,260}label: i18n\("Skills"\)/, "global navigation exposes all three product destinations")
+assert.match(mainQml, /label: i18n\("Providers"\)[\s\S]{0,260}label: i18n\("Skills"\)/, "global navigation exposes providers and skills while local is parked")
 assert.doesNotMatch(mainQml, /text: i18n\("Switch provider"\)/, "the compact strip is the single provider switcher")
 assert.match(
     mainQml,
@@ -1277,7 +1277,7 @@ assert.match(
     /<entry name="compactProviderOrder" type="String">\s*<default>codex,claude,grok,antigravity,opencodego,hermes,devin<\/default>/,
     "the compact default includes OpenCode Go, Hermes, and Devin"
 )
-assert.equal(metadata.KPlugin.Version, "0.12.10", "package metadata uses version 0.12.10")
+assert.equal(metadata.KPlugin.Version, "0.12.11", "package metadata uses version 0.12.11")
 assert.equal(metadata.KPlugin.Website, "https://github.com/Karasowl/KodexBar-Suite", "package metadata links to the maintained suite repository")
 assert.match(mainQml, /var antigravityWindows = antigravity && Array\.isArray\(usage\.antigravityRateWindows\)/, "popup consumes the engine's Antigravity model windows")
 assert.match(mainQml, /compactLabel: antigravityKey === "gemini-weekly" \? "W"/, "compact Antigravity weekly uses W like other providers")

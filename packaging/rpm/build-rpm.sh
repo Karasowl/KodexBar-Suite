@@ -44,7 +44,6 @@ install -m 0644 -- \
     "${root_dir}/INSTALL.es.md" \
     "$source_tree/"
 install -d -- \
-    "${source_tree}/packages/ai-cli-control/local_ai_drivers" \
     "${source_tree}/packages/ai-cli-control/icons" \
     "${source_tree}/packages/kodexbar" \
     "${source_tree}/packaging/aur" \
@@ -54,19 +53,12 @@ install -m 0755 -- \
     "${root_dir}/packages/ai-cli-control/kodexbar-quotas" \
     "${root_dir}/packages/ai-cli-control/kodexbar-panel" \
     "${root_dir}/packages/ai-cli-control/kodexbar-tray" \
-    "${root_dir}/packages/ai-cli-control/local-ai" \
     "${root_dir}/packages/ai-cli-control/kodexbar-skills" \
     "${root_dir}/packages/ai-cli-control/recover.py" \
     "${source_tree}/packages/ai-cli-control/"
 install -m 0644 -- \
     "${root_dir}/packages/ai-cli-control/LICENSE" \
     "${source_tree}/packages/ai-cli-control/"
-install -m 0644 -- \
-    "${root_dir}/packages/ai-cli-control/local_ai_drivers/__init__.py" \
-    "${root_dir}/packages/ai-cli-control/local_ai_drivers/builtin.py" \
-    "${root_dir}/packages/ai-cli-control/local_ai_drivers/descriptors.py" \
-    "${root_dir}/packages/ai-cli-control/local_ai_drivers/CONTRACT.md" \
-    "${source_tree}/packages/ai-cli-control/local_ai_drivers/"
 install -m 0644 -- \
     "${root_dir}/packages/ai-cli-control/icons/kodexbar-tray-ok.svg" \
     "${root_dir}/packages/ai-cli-control/icons/kodexbar-tray-warning.svg" \

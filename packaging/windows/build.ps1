@@ -53,7 +53,6 @@ Copy-Entrypoint "kodexbar-quotas" "kodexbar-quotas.py"
 Copy-Entrypoint "kodexbar-panel" "kodexbar-panel.py"
 Copy-Entrypoint "ai" "ai.py"
 Copy-Entrypoint "kodexbar-skills" "kodexbar-skills.py"
-Copy-Entrypoint "local-ai" "local-ai.py"
 Copy-Entrypoint "recover.py" "ai-recover.py"
 
 # 2. Build the tray app (onedir, no console) and the console tools (onefile).
@@ -69,12 +68,11 @@ Invoke-PyInstaller "kodexbar-quotas.py" "kodexbar-quotas"
 Invoke-PyInstaller "kodexbar-panel.py" "kodexbar-panel"
 Invoke-PyInstaller "ai.py" "ai"
 Invoke-PyInstaller "kodexbar-skills.py" "kodexbar-skills"
-Invoke-PyInstaller "local-ai.py" "local-ai"
 Invoke-PyInstaller "ai-recover.py" "ai-recover"
 
 # 3. Stage one flat folder: tray app plus sibling tools it can find.
 Copy-Item (Join-Path $distRoot "KodexBarTray\*") $stage -Recurse -Force
-foreach ($tool in @("kodexbar-quotas", "kodexbar-panel", "ai", "kodexbar-skills", "local-ai", "ai-recover")) {
+foreach ($tool in @("kodexbar-quotas", "kodexbar-panel", "ai", "kodexbar-skills", "ai-recover")) {
     Copy-Item (Join-Path $distRoot "$tool.exe") $stage -Force
 }
 

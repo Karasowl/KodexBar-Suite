@@ -17,7 +17,6 @@ from io import StringIO
 ROOT = Path(__file__).resolve().parents[1]
 AI = ROOT / "ai"
 RECOVER = ROOT / "recover.py"
-LOCAL_AI = ROOT / "local-ai"
 INSTALL = ROOT / "install.sh"
 UNINSTALL = ROOT / "uninstall.sh"
 
@@ -129,6 +128,13 @@ class AiSelectorTests(unittest.TestCase):
         )
 
     def make_update_cli(self, provider: str) -> Path:
+        if provider == "opencode":
+            update_args = ["upgrade"]
+        elif provider == "cursor":
+            update_args = ["--update-extensions"]
+        else:
+            update_args = ["update"]
+        update_literal = repr(update_args)
         executable = self.temp / f"{provider}-test"
         executable.write_text(
             textwrap.dedent(
@@ -143,7 +149,7 @@ class AiSelectorTests(unittest.TestCase):
                     count = int(state.read_text() if state.exists() else "0")
                     state.write_text(str(count + 1))
                     print("{provider} antes" if count == 0 else "{provider} despues")
-                elif sys.argv[1:] == ["update"]:
+                elif sys.argv[1:] == {update_literal}:
                     Path(os.environ["AI_TEST_UPDATE_LOG"]).open("a").write("{provider}\\n")
                     print("{provider} update stdout")
                     print("{provider} update stderr", file=sys.stderr)
@@ -158,10 +164,22 @@ class AiSelectorTests(unittest.TestCase):
         return executable
 
     def enable_update_executables(self) -> None:
+        self.opencode = self.make_update_cli("opencode")
+        self.cursor = self.make_update_cli("cursor")
+        self.hermes = self.make_update_cli("hermes")
+        self.devin = self.make_update_cli("devin")
+        self.copilot = self.make_update_cli("copilot")
+        self.qwen = self.make_update_cli("qwen")
         self.env.update(
             {
                 "AI_CODEX_EXECUTABLE": str(self.codex),
                 "AI_CLAUDE_EXECUTABLE": str(self.claude),
+                "AI_OPENCODE_EXECUTABLE": str(self.opencode),
+                "AI_CURSOR_EXECUTABLE": str(self.cursor),
+                "AI_HERMES_EXECUTABLE": str(self.hermes),
+                "AI_DEVIN_EXECUTABLE": str(self.devin),
+                "AI_COPILOT_EXECUTABLE": str(self.copilot),
+                "AI_QWEN_EXECUTABLE": str(self.qwen),
             }
         )
 
@@ -216,6 +234,29 @@ class AiSelectorTests(unittest.TestCase):
             result.stdout.strip(),
             f"{self.grok} --model grok-fast --reasoning-effort medium --permission-mode default",
         )
+
+    def test_copilot_command_uses_verified_reasoning_and_approval_flags(self) -> None:
+        result = self.run_ai(
+            "--dry-run", "--provider", "copilot",
+            "--effort", "medium", "--permissions", "auto",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            "copilot --reasoning-effort medium --allow-all-tools",
+        )
+
+    def test_qwen_command_uses_verified_sandbox_flag(self) -> None:
+        result = self.run_ai(
+            "--dry-run", "--provider", "qwen", "--permissions", "sandbox",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "qwen --sandbox")
+
+    def test_cursor_command_opens_the_current_directory(self) -> None:
+        result = self.run_ai("--dry-run", "--provider", "cursor")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "cursor .")
 
     def test_antigravity_uses_dynamic_model_with_spaces_and_no_effort_flag(self) -> None:
         result = self.run_ai(
@@ -424,7 +465,7 @@ class AiSelectorTests(unittest.TestCase):
 
     def test_text_update_selection_accepts_multiple_numbers(self) -> None:
         self.enable_update_executables()
-        result = self.run_ai("--text", "--dry-run", input_text="5\n1,3\n")
+        result = self.run_ai("--text", "--dry-run", input_text="11\n1,3\n")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.splitlines(),
@@ -525,6 +566,12 @@ class AiSelectorTests(unittest.TestCase):
                 f"{self.claude} update",
                 f"{self.grok} update",
                 f"{self.antigravity} update",
+                f"{self.opencode} upgrade",
+                f"{self.cursor} --update-extensions",
+                f"{self.hermes} update",
+                f"{self.devin} update",
+                f"{self.copilot} update",
+                f"{self.qwen} update",
             ],
         )
         self.assertEqual(result.stderr, "")
@@ -574,8 +621,8 @@ class AiSelectorTests(unittest.TestCase):
 
     def test_update_cancel_or_empty_selection_runs_nothing(self) -> None:
         self.enable_update_executables()
-        cancelled = self.run_ai("--text", input_text="5\n0\n")
-        empty = self.run_ai("--text", input_text="5\n\n")
+        cancelled = self.run_ai("--text", input_text="11\n0\n")
+        empty = self.run_ai("--text", input_text="11\n\n")
         self.assertEqual(cancelled.returncode, 0, cancelled.stderr)
         self.assertEqual(empty.returncode, 0, empty.stderr)
         self.assertEqual(cancelled.stdout, "")
@@ -600,7 +647,7 @@ class AiSelectorTests(unittest.TestCase):
         version = self.run_ai("--version")
         help_result = self.run_ai("--language", "en", "--help")
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.12.10")
+        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.12.11")
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("Choose and launch Codex", help_result.stdout)
         self.assertIn("--language LANGUAGE", help_result.stdout)
@@ -653,19 +700,31 @@ class AiSelectorTests(unittest.TestCase):
         home.mkdir()
         (home / ".claude").mkdir()
         (home / ".grok").mkdir()
+        # Legacy leftovers from before local-ai was parked must be cleaned.
+        legacy_dir = home / ".local/share/ai-cli-control"
+        legacy_dir.mkdir(parents=True)
+        (legacy_dir / "local-ai").write_text("old", encoding="utf-8")
+        (legacy_dir / "local_ai_drivers").mkdir()
+        legacy_link = home / ".local/bin/local-ai"
+        legacy_link.parent.mkdir(parents=True)
+        try:
+            legacy_link.symlink_to(legacy_dir / "local-ai")
+        except FileExistsError:
+            pass
         first = self.run_script(INSTALL, home)
         second = self.run_script(INSTALL, home)
         installed = home / ".local/share/ai-cli-control/ai"
         installed_quotas = home / ".local/share/ai-cli-control/kodexbar-quotas"
         installed_panel = home / ".local/share/ai-cli-control/kodexbar-panel"
         installed_tray = home / ".local/share/ai-cli-control/kodexbar-tray"
-        installed_local_ai = home / ".local/share/ai-cli-control/local-ai"
+        installed_skills = home / ".local/share/ai-cli-control/kodexbar-skills"
         installed_recover = home / ".local/share/ai-cli-control/recover.py"
         installed_uninstall = home / ".local/share/ai-cli-control/uninstall.sh"
         target = home / ".local/bin/ai"
         quotas_target = home / ".local/bin/kodexbar-quotas"
         panel_target = home / ".local/bin/kodexbar-panel"
         tray_target = home / ".local/bin/kodexbar-tray"
+        skills_target = home / ".local/bin/kodexbar-skills"
         local_ai_target = home / ".local/bin/local-ai"
         icon_directory = home / ".local/share/icons/hicolor/scalable/apps"
         self.assertEqual(first.returncode, 0, first.stderr)
@@ -674,24 +733,22 @@ class AiSelectorTests(unittest.TestCase):
         self.assertTrue(installed_quotas.is_file())
         self.assertTrue(installed_panel.is_file())
         self.assertTrue(installed_tray.is_file())
-        self.assertTrue(installed_local_ai.is_file())
+        self.assertTrue(installed_skills.is_file())
         self.assertTrue(installed_recover.is_file())
         self.assertTrue(installed_uninstall.is_file())
         self.assertTrue(target.is_symlink())
         self.assertTrue(quotas_target.is_symlink())
         self.assertTrue(panel_target.is_symlink())
         self.assertTrue(tray_target.is_symlink())
-        self.assertTrue(local_ai_target.is_symlink())
-        self.assertEqual(target.readlink(), installed)
-        self.assertEqual(quotas_target.readlink(), installed_quotas)
-        self.assertEqual(panel_target.readlink(), installed_panel)
-        self.assertEqual(tray_target.readlink(), installed_tray)
-        self.assertEqual(local_ai_target.readlink(), installed_local_ai)
+        self.assertTrue(skills_target.is_symlink())
+        # Parked: fresh installs no longer ship local-ai.
+        self.assertFalse(local_ai_target.exists() or local_ai_target.is_symlink())
+        self.assertFalse((legacy_dir / "local-ai").exists())
+        self.assertFalse((legacy_dir / "local_ai_drivers").exists())
         for icon in ("kodexbar-tray-ok.svg", "kodexbar-tray-warning.svg", "kodexbar-tray-critical.svg"):
             self.assertTrue((icon_directory / icon).is_file())
         self.assertEqual(installed.read_text(encoding="utf-8"), AI.read_text(encoding="utf-8"))
         self.assertEqual(installed_recover.read_text(encoding="utf-8"), RECOVER.read_text(encoding="utf-8"))
-        self.assertEqual(installed_local_ai.read_text(encoding="utf-8"), LOCAL_AI.read_text(encoding="utf-8"))
         for cli in ("claude", "grok"):
             adapter = home / f".{cli}/skills/recover-chat"
             self.assertTrue((adapter / "SKILL.md").is_file())
@@ -703,12 +760,13 @@ class AiSelectorTests(unittest.TestCase):
         self.assertFalse(quotas_target.exists())
         self.assertFalse(panel_target.exists())
         self.assertFalse(tray_target.exists())
+        self.assertFalse(skills_target.exists())
         self.assertFalse(local_ai_target.exists())
         self.assertFalse(installed.exists())
         self.assertFalse(installed_quotas.exists())
         self.assertFalse(installed_panel.exists())
         self.assertFalse(installed_tray.exists())
-        self.assertFalse(installed_local_ai.exists())
+        self.assertFalse(installed_skills.exists())
         for icon in ("kodexbar-tray-ok.svg", "kodexbar-tray-warning.svg", "kodexbar-tray-critical.svg"):
             self.assertFalse((icon_directory / icon).exists())
         self.assertFalse(installed_recover.exists())

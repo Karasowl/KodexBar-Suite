@@ -2,10 +2,30 @@
 
 Builds the Windows side of KodexBar Suite: a system-tray app (KodexBar Tray)
 plus console tools (`ai`, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-skills`,
-`local-ai`, `ai-recover`), a portable zip, and an optional per-user installer.
+`ai-recover`), a portable zip, and an optional per-user installer.
 
 The KDE Plasma 6 widget stays Linux-only. On Windows the tray icon and its
 "Panel de cuotas" window take that role, backed by the same quota engine.
+
+## Install (one line, no admin)
+
+In PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/Karasowl/KodexBar-Suite/main/packaging/windows/Install.ps1 | iex
+```
+
+`Install.ps1` resolves the latest GitHub release, downloads the per-user setup
+exe plus `SHA256SUMS-windows`, verifies the checksum, and runs the installer
+silently with autostart and user PATH enabled:
+
+```powershell
+setup.exe /VERYSILENT /TASKS="autostart,addpath"
+```
+
+Pass `-Version 0.12.10` to pin a release or `-Tasks ""` to skip both tasks.
+The local-ai monitor is parked under `packages/ai-cli-control/attic/local/`
+and is not part of the Windows bundle.
 
 ## Layout
 
@@ -61,6 +81,5 @@ plasmoid assets stay on the existing manual release path.
   `%APPDATA%\Cursor\User\globalStorage\state.vscdb`.
 - Profiles and account sidecars live under `%APPDATA%\kodexbar-suite`; the
   cost cache under `%LOCALAPPDATA%\kodexbar-suite\cache`.
-- `local-ai` monitors localhost runtimes, but systemd-based service controls
-  stay unavailable; `kodexbar-tray` (GTK/AppIndicator) and the Waybar/XFCE
-  panel output remain Linux features.
+- Systemd-based service controls stay unavailable; `kodexbar-tray`
+  (GTK/AppIndicator) and the Waybar/XFCE panel output remain Linux features.

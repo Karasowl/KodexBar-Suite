@@ -21,7 +21,6 @@ COMMANDS = (
     "kodexbar-quotas",
     "kodexbar-panel",
     "kodexbar-tray",
-    "local-ai",
     "kodexbar-skills",
 )
 
@@ -59,10 +58,7 @@ class SystemPackagingTests(unittest.TestCase):
             )
 
         drivers = payload / "local_ai_drivers"
-        self.assertEqual(
-            {path.name for path in drivers.iterdir()},
-            {"__init__.py", "builtin.py", "descriptors.py"},
-        )
+        self.assertFalse(drivers.exists(), "parked local drivers leaked into payload")
 
         plasmoid = self.destination / "usr/share/plasma/plasmoids/org.kde.plasma.kodexbar"
         installed_metadata = json.loads((plasmoid / "metadata.json").read_text(encoding="utf-8"))
@@ -92,7 +88,6 @@ class SystemPackagingTests(unittest.TestCase):
         expected = {
             "ai": f"ai-cli-control {version}",
             "kodexbar-quotas": f"kodexbar-quotas {version}",
-            "local-ai": version,
             "kodexbar-skills": version,
         }
         for command, wanted in expected.items():
