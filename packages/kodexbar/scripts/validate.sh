@@ -14,7 +14,6 @@ python3 -c 'import xml.etree.ElementTree as ET; ET.parse("contents/config/main.x
 bash -n scripts/validate.sh
 ruby -e 'require "yaml"; YAML.load_file("../../.github/workflows/ci.yml")'
 node tests/provider-logic.test.js
-node tests/local-models-static.test.js
 node tests/skills-static.test.js
 node tests/signal-console-static.test.js
 

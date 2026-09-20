@@ -12,8 +12,8 @@ const copyText = {
     es: { title: "Fedora o RHEL 10", body: "RPM nativo con las mismas cuotas de Claude, Codex, Cursor, Grok, OpenCode Go, Hermes y Devin. RHEL 9, AlmaLinux 9 y Rocky 9 usan el RPM .el9 de GitHub Releases.", cmd: "curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.10/kodexbar-suite-0.12.10-1.noarch.rpm && sudo dnf install ./kodexbar-suite-0.12.10-1.noarch.rpm" }
   },
   windows: {
-    en: { title: "Windows 10 or 11", body: "Per-user tray installer with the same Claude, Codex, Cursor, Grok, OpenCode Go, Hermes, and Devin quotas. No administrator rights. A portable zip is on the same release page.", cmd: "https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.10/KodexBar-Suite-0.12.10-windows-setup.exe" },
-    es: { title: "Windows 10 u 11", body: "Instalador de bandeja por usuario con las mismas cuotas de Claude, Codex, Cursor, Grok, OpenCode Go, Hermes y Devin. No pide administrador. El zip portable está en la misma página de release.", cmd: "https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.10/KodexBar-Suite-0.12.10-windows-setup.exe" }
+    en: { title: "Windows 10 or 11", body: "One-line install in PowerShell with the same Claude, Codex, Cursor, Grok, OpenCode Go, Hermes, and Devin quotas. No administrator rights. A portable zip is on the same release page.", cmd: "irm https://raw.githubusercontent.com/Karasowl/KodexBar-Suite/main/packaging/windows/Install.ps1 | iex" },
+    es: { title: "Windows 10 u 11", body: "Instalación de una línea en PowerShell con las mismas cuotas de Claude, Codex, Cursor, Grok, OpenCode Go, Hermes y Devin. No pide administrador. El zip portable está en la misma página de release.", cmd: "irm https://raw.githubusercontent.com/Karasowl/KodexBar-Suite/main/packaging/windows/Install.ps1 | iex" }
   },
   plasma: {
     en: { title: "Plasma 6 on another distro", body: "Native DEB and RPM packages are available in GitHub Releases. This portable option installs without sudo. Then add the widget to the panel.", cmd: "git clone https://github.com/Karasowl/KodexBar-Suite.git && cd KodexBar-Suite && ./install.sh" },

@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover - Python < 3.11
     tomllib = None  # type: ignore[assignment]
 
 
-VERSION = "0.12.10"
+VERSION = "0.12.11"
 IS_WINDOWS = os.name == "nt"
 TIMEOUT_SECONDS = 15
 COST_CACHE_TTL_SECONDS = 15 * 60

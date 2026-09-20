@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import NoReturn, Sequence
 
 
-VERSION = "0.12.10"
+VERSION = "0.12.11"
 EXIT_INVALID = 2
 CODEX_CACHE = Path(
     os.environ.get("AI_CODEX_MODELS_CACHE", "~/.codex/models_cache.json")
@@ -44,6 +44,12 @@ TRANSLATIONS = {
         "claude_description": "Model access depends on the account",
         "grok_description": "Models are queried when the selector starts",
         "antigravity_description": "Models are queried with agy models",
+        "opencode_description": "Models are queried with opencode models",
+        "cursor_description": "Opens the current folder in the editor",
+        "hermes_description": "Uses the configured default model",
+        "devin_description": "Interactive session without model selection",
+        "copilot_description": "Model and reasoning effort per run",
+        "qwen_description": "Uses the configured default model",
         "codex_catalog": "Local Codex catalog",
         "grok_catalog": "Catalog returned by grok models",
         "antigravity_catalog": "Catalog returned by agy models",
@@ -72,6 +78,7 @@ TRANSLATIONS = {
         "default_mode_description": "Normal confirmations",
         "sandbox": "Sandbox",
         "sandbox_description": "Run inside the Antigravity sandbox",
+        "sandbox_generic_description": "Run inside the CLI sandbox",
         "manual_antigravity_description": "No additional permission automation",
         "plan_antigravity_description": "Read-only mode",
         "invalid_field": "invalid {field} '{value}'. Valid values: {valid}",
@@ -83,7 +90,14 @@ TRANSLATIONS = {
         "antigravity_query_error": "could not query 'agy models': {error}",
         "antigravity_failed": "'agy models' failed: {detail}",
         "antigravity_empty": "'agy models' returned no usable models",
+        "opencode_catalog": "Catalog returned by opencode models",
+        "opencode_query_error": "could not query 'opencode models': {error}",
+        "opencode_failed": "'opencode models' failed: {detail}",
+        "opencode_empty": "'opencode models' returned no usable models",
         "codex_efforts_empty": "Codex model '{model}' declares no supported reasoning efforts",
+        "fixed_model_provider": "{provider} uses its configured default model, so --model is not accepted",
+        "editor_no_options": "Cursor opens the editor directly and takes no model, effort, or permission options",
+        "no_effort_provider": "{provider} has no reasoning-effort flag, so --effort is not accepted",
         "antigravity_effort": "invalid effort '{value}'. The level is already part of the Antigravity model name",
         "update_list_invalid": "invalid update list '{value}'. Valid values: {valid}, all",
         "not_available": "not available ({detail})",
@@ -98,13 +112,13 @@ TRANSLATIONS = {
         "update_summary": "Update summary:",
         "executable_missing_path": "could not find '{executable}' in PATH",
         "executable_missing_file": "the executable does not exist or is not executable: {executable}",
-        "help_description": "Choose and launch Codex, Claude, Grok, or Antigravity in the current directory.",
+        "help_description": "Choose and launch Codex, Claude, Grok, Antigravity, OpenCode, Cursor, Hermes, Devin, Copilot, or Qwen in the current directory.",
         "help_dry_run": "print the command without running it",
         "help_help": "show this help message and exit",
         "help_version": "show the program version and exit",
         "help_text": "use menus in the terminal",
         "help_language": "use English or Spanish interface text",
-        "help_update": "update codex, claude, grok, and antigravity, or a comma-separated list",
+        "help_update": "update codex, claude, grok, antigravity, opencode, cursor, hermes, devin, copilot, and qwen, or a comma-separated list",
         "help_accounts": "manage extra Codex or Claude accounts for KodexBar quotas",
         "help_recover": "use 'ai recover' to recover local conversations from provider CLIs",
         "accounts_label": "Accounts",
@@ -156,6 +170,12 @@ TRANSLATIONS = {
         "claude_description": "El acceso a cada modelo depende de la cuenta",
         "grok_description": "Modelos consultados al iniciar el selector",
         "antigravity_description": "Modelos consultados con agy models",
+        "opencode_description": "Modelos consultados con opencode models",
+        "cursor_description": "Abre la carpeta actual en el editor",
+        "hermes_description": "Usa el modelo predeterminado configurado",
+        "devin_description": "Sesión interactiva sin selección de modelo",
+        "copilot_description": "Modelo y esfuerzo por ejecución",
+        "qwen_description": "Usa el modelo predeterminado configurado",
         "codex_catalog": "Catálogo local de Codex",
         "grok_catalog": "Catálogo devuelto por grok models",
         "antigravity_catalog": "Catálogo devuelto por agy models",
@@ -184,6 +204,7 @@ TRANSLATIONS = {
         "default_mode_description": "Confirmaciones normales",
         "sandbox": "Sandbox",
         "sandbox_description": "Ejecuta dentro del sandbox de Antigravity",
+        "sandbox_generic_description": "Ejecuta dentro del sandbox de la CLI",
         "manual_antigravity_description": "Sin automatización adicional de permisos",
         "plan_antigravity_description": "Modo de solo lectura",
         "invalid_field": "{field} inválido '{value}'. Valores válidos: {valid}",
@@ -195,7 +216,14 @@ TRANSLATIONS = {
         "antigravity_query_error": "no se pudo consultar 'agy models': {error}",
         "antigravity_failed": "'agy models' falló: {detail}",
         "antigravity_empty": "'agy models' no devolvió modelos utilizables",
+        "opencode_catalog": "Catálogo devuelto por opencode models",
+        "opencode_query_error": "no se pudo consultar 'opencode models': {error}",
+        "opencode_failed": "'opencode models' falló: {detail}",
+        "opencode_empty": "'opencode models' no devolvió modelos utilizables",
         "codex_efforts_empty": "el modelo Codex '{model}' no declara esfuerzos compatibles",
+        "fixed_model_provider": "{provider} usa su modelo predeterminado configurado, así que --model no se acepta",
+        "editor_no_options": "Cursor abre el editor directamente y no acepta opciones de modelo, esfuerzo o permisos",
+        "no_effort_provider": "{provider} no tiene flag de reasoning-effort, así que --effort no se acepta",
         "antigravity_effort": "esfuerzo inválido '{value}'. El nivel ya forma parte del modelo de Antigravity",
         "update_list_invalid": "lista de actualización inválida '{value}'. Valores válidos: {valid}, all",
         "not_available": "no disponible ({detail})",
@@ -210,13 +238,13 @@ TRANSLATIONS = {
         "update_summary": "Resumen de actualizaciones:",
         "executable_missing_path": "no se encontró '{executable}' en PATH",
         "executable_missing_file": "el ejecutable no existe o no tiene permiso de ejecución: {executable}",
-        "help_description": "Selecciona e inicia Codex, Claude, Grok o Antigravity en el directorio actual.",
+        "help_description": "Selecciona e inicia Codex, Claude, Grok, Antigravity, OpenCode, Cursor, Hermes, Devin, Copilot o Qwen en el directorio actual.",
         "help_dry_run": "imprime el comando sin ejecutarlo",
         "help_help": "muestra esta ayuda y termina",
         "help_version": "muestra la versión del programa y termina",
         "help_text": "usa menús dentro de la terminal",
         "help_language": "usa texto de interfaz en inglés o español",
-        "help_update": "actualiza codex, claude, grok y antigravity, o una lista separada por comas",
+        "help_update": "actualiza codex, claude, grok, antigravity, opencode, cursor, hermes, devin, copilot y qwen, o una lista separada por comas",
         "help_accounts": "gestiona cuentas extra de Codex o Claude para las cuotas de KodexBar",
         "help_recover": "usa 'ai recover' para recuperar conversaciones locales de las CLI de proveedores",
         "accounts_label": "Cuentas",
@@ -448,6 +476,12 @@ def providers(language: str) -> list[Option]:
         Option("claude", "Claude", message(language, "claude_description")),
         Option("grok", "Grok", message(language, "grok_description")),
         Option("antigravity", "Antigravity", message(language, "antigravity_description")),
+        Option("opencode", "OpenCode", message(language, "opencode_description")),
+        Option("cursor", "Cursor", message(language, "cursor_description")),
+        Option("hermes", "Hermes", message(language, "hermes_description")),
+        Option("devin", "Devin", message(language, "devin_description")),
+        Option("copilot", "Copilot", message(language, "copilot_description")),
+        Option("qwen", "Qwen", message(language, "qwen_description")),
     ]
 
 
@@ -464,7 +498,6 @@ def claude_models(language: str) -> list[Option]:
         Option("fable", "Fable", message(language, "claude_fable")),
         Option("opus", "Opus", message(language, "account_access")),
         Option("sonnet", "Sonnet", message(language, "account_access")),
-        Option("haiku", "Haiku", message(language, "account_access")),
     ]
 
 
@@ -498,6 +531,30 @@ def permissions(language: str) -> dict[str, list[Option]]:
             Option("accept-edits", message(language, "accept_edits"), message(language, "accept_edits_description")),
             Option("sandbox", message(language, "sandbox"), message(language, "sandbox_description")),
             Option("full", message(language, "full_access"), message(language, "full_access_description")),
+        ],
+        "opencode": [
+            Option("manual", message(language, "manual"), message(language, "manual_antigravity_description")),
+            Option("auto", message(language, "automatic"), message(language, "automatic_description")),
+        ],
+        "hermes": [
+            Option("manual", message(language, "manual"), message(language, "manual_description")),
+            Option("auto", message(language, "automatic"), message(language, "automatic_description")),
+            Option("full", message(language, "full_access"), message(language, "full_access_description")),
+        ],
+        "devin": [
+            Option("auto", message(language, "automatic"), message(language, "automatic_description")),
+            Option("accept-edits", message(language, "accept_edits"), message(language, "accept_edits_description")),
+            Option("smart", message(language, "automatic"), message(language, "automatic_description")),
+            Option("dangerous", message(language, "full_access"), message(language, "full_access_description")),
+        ],
+        "copilot": [
+            Option("manual", message(language, "manual"), message(language, "manual_description")),
+            Option("auto", message(language, "automatic"), message(language, "automatic_description")),
+            Option("full", message(language, "full_access"), message(language, "full_access_description")),
+        ],
+        "qwen": [
+            Option("manual", message(language, "manual"), message(language, "manual_description")),
+            Option("sandbox", message(language, "sandbox"), message(language, "sandbox_generic_description")),
         ],
     }
 
@@ -561,9 +618,39 @@ def load_antigravity_models(language: str) -> list[Option]:
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or f"code {result.returncode}"
         die(language, "antigravity_failed", detail=detail)
-    models = [Option(line, line, message(language, "antigravity_catalog")) for line in result.stdout.splitlines() if line.strip()]
+    models: list[Option] = []
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        # Current `agy models` prints "<id>\t<label>"; older builds printed
+        # the display name alone. Keep both working: the id launches, the
+        # label is shown in the selector.
+        if "\t" in line:
+            value, _, label = line.partition("\t")
+            value = value.strip()
+            label = label.strip() or value
+        else:
+            value = line.strip()
+            label = value
+        if value:
+            models.append(Option(value, label, message(language, "antigravity_catalog")))
     if not models:
         die(language, "antigravity_empty")
+    return models
+
+
+def load_opencode_models(language: str) -> list[Option]:
+    executable = resolve_executable_name(command_name("opencode"))
+    try:
+        result = subprocess.run([executable, "models"], text=True, capture_output=True, check=False, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        die(language, "opencode_query_error", error=error)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip() or f"code {result.returncode}"
+        die(language, "opencode_failed", detail=detail)
+    models = [Option(line.strip(), line.strip(), message(language, "opencode_catalog")) for line in result.stdout.splitlines() if line.strip()]
+    if not models:
+        die(language, "opencode_empty")
     return models
 
 
@@ -587,9 +674,26 @@ def permission_arguments(provider: str, permission: str) -> list[str]:
             "automatic": ["--sandbox", "workspace-write", "--ask-for-approval", "never"],
             "full": ["--dangerously-bypass-approvals-and-sandbox"],
         }[permission]
-    if provider in {"claude", "grok"}:
-        mapping = {"plan": "plan", "manual": "manual", "default": "default", "accept-edits": "acceptEdits", "auto": "auto", "dont-ask": "dontAsk", "bypass": "bypassPermissions"}
+    if provider == "claude":
+        mapping = {"plan": "plan", "manual": "manual", "accept-edits": "acceptEdits", "auto": "auto", "dont-ask": "dontAsk", "bypass": "bypassPermissions"}
         return ["--permission-mode", mapping[permission]]
+    if provider == "grok":
+        mapping = {"plan": "plan", "default": "default", "accept-edits": "acceptEdits", "auto": "auto", "dont-ask": "dontAsk", "bypass": "bypassPermissions"}
+        return ["--permission-mode", mapping[permission]]
+    if provider == "opencode":
+        return {"manual": [], "auto": ["--auto"]}[permission]
+    if provider == "hermes":
+        return {"manual": [], "auto": ["--accept-hooks"], "full": ["--yolo"]}[permission]
+    if provider == "devin":
+        return ["--permission-mode", permission]
+    if provider == "copilot":
+        return {
+            "manual": [],
+            "auto": ["--allow-all-tools"],
+            "full": ["--allow-all-tools", "--allow-all-paths"],
+        }[permission]
+    if provider == "qwen":
+        return {"manual": [], "sandbox": ["--sandbox"]}[permission]
     return {
         "manual": [], "plan": ["--mode", "plan"], "accept-edits": ["--mode", "accept-edits"],
         "sandbox": ["--sandbox"], "full": ["--dangerously-skip-permissions"],
@@ -597,6 +701,38 @@ def permission_arguments(provider: str, permission: str) -> list[str]:
 
 
 def build_command(provider: str, model: str, effort: str, permission: str) -> list[str]:
+    if provider == "cursor":
+        # Cursor is a graphical editor without model or permission flags.
+        # Opening the current directory keeps the ai working-directory deal.
+        return [command_name(provider), "."]
+    if provider == "devin":
+        # Devin starts an interactive session in the current directory.
+        # Model selection lives in the account, not in CLI flags.
+        return [command_name(provider), *permission_arguments(provider, permission)]
+    if provider == "copilot":
+        # Copilot keeps its model in configuration. Reasoning effort and
+        # tool approval are passed per run with verified flags.
+        command = [command_name(provider), "--reasoning-effort", effort]
+        command.extend(permission_arguments(provider, permission))
+        return command
+    if provider == "qwen":
+        # Qwen uses its configured default model. Only the sandbox flag
+        # is passed per run.
+        command = [command_name(provider)]
+        command.extend(permission_arguments(provider, permission))
+        return command
+    if provider == "hermes":
+        # Hermes uses the configured default model. Only reasoning effort
+        # and approval flags are passed per run.
+        command = [command_name(provider), "chat", "--reasoning", effort]
+        command.extend(permission_arguments(provider, permission))
+        return command
+    if provider == "opencode":
+        command = [command_name(provider)]
+        if model:
+            command.extend(["--model", model])
+        command.extend(permission_arguments(provider, permission))
+        return command
     command = [command_name(provider), "--model", model]
     if provider == "codex":
         command.extend(["--config", f'model_reasoning_effort="{effort}"'])
@@ -629,6 +765,12 @@ def version_of(executable: str, language: str) -> str:
 
 
 def build_update_command(provider: str) -> list[str]:
+    if provider == "opencode":
+        return [command_name(provider), "upgrade"]
+    if provider == "cursor":
+        # The Cursor app updates itself through its built-in updater.
+        # The CLI only offers extension updates, so that is what runs here.
+        return [command_name(provider), "--update-extensions"]
     return [command_name(provider), "update"]
 
 
@@ -917,9 +1059,21 @@ def main() -> int:
             models = claude_models(language)
         elif provider == "grok":
             models = load_grok_models(language)
+        elif provider == "opencode":
+            models = load_opencode_models(language)
+        elif provider in {"hermes", "devin", "cursor", "qwen", "copilot"}:
+            models = []
         else:
             models = load_antigravity_models(language)
-        model = choose_or_validate(ui, args.model, "ai", message(language, "model_prompt"), models, "field_model", language)
+        if provider in {"hermes", "devin", "cursor", "qwen", "copilot"}:
+            # These CLIs use the configured account default. No model step.
+            model = ""
+            if args.model:
+                if provider == "cursor":
+                    die(language, "editor_no_options")
+                die(language, "fixed_model_provider", provider=provider)
+        else:
+            model = choose_or_validate(ui, args.model, "ai", message(language, "model_prompt"), models, "field_model", language)
         if provider == "codex":
             efforts = codex_efforts.get(model)
             if not efforts:
@@ -928,13 +1082,29 @@ def main() -> int:
             efforts = [Option(value, value) for value in ("low", "medium", "high", "xhigh", "max")]
         elif provider == "grok":
             efforts = [Option(value, value) for value in ("low", "medium", "high")]
-        else:
+        elif provider == "hermes":
+            efforts = [Option(value, value) for value in ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")]
+        elif provider == "copilot":
+            efforts = [Option(value, value) for value in ("none", "minimal", "low", "medium", "high", "xhigh", "max")]
+        elif provider in {"antigravity", "opencode", "devin", "qwen"}:
             if args.effort not in {None, "included"}:
+                if provider == "qwen":
+                    die(language, "no_effort_provider", provider=provider)
                 die(language, "antigravity_effort", value=args.effort)
             effort = "included"
-        if provider != "antigravity":
+        elif provider == "cursor":
+            if args.effort not in {None, "included"}:
+                die(language, "editor_no_options")
+            effort = "included"
+        if provider not in {"antigravity", "opencode", "devin", "cursor", "qwen"}:
             effort = choose_or_validate(ui, args.effort, "ai", message(language, "effort_prompt"), efforts, "field_effort", language)
-        permission = choose_or_validate(ui, args.permissions, "ai", message(language, "permission_prompt"), permissions(language)[provider], "field_permission", language)
+        if provider == "cursor":
+            # No permission modes exist for the editor. Launch directly.
+            if args.permissions is not None:
+                die(language, "editor_no_options")
+            permission = "manual"
+        else:
+            permission = choose_or_validate(ui, args.permissions, "ai", message(language, "permission_prompt"), permissions(language)[provider], "field_permission", language)
     except Cancelled:
         return 0
     command = build_command(provider, model, effort, permission)

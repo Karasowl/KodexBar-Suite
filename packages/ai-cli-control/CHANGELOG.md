@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.12.11, 2026-09-20
+
+### Added
+
+- `ai` launches and updates OpenCode, Cursor, Hermes, Devin, Copilot, and Qwen alongside Codex, Claude, Grok, and Antigravity. Cursor opens the current folder and updates its extensions. Copilot uses verified `--reasoning-effort` and approval flags. Qwen launches with its configured model and updates itself.
+- PowerShell one-line Windows installer in `packaging/windows/Install.ps1` with checksum verification and silent setup.
+
+### Changed
+
+- The local-ai monitor is parked under `attic/local/` and no longer installs. The widget Skills tab is a read-only inventory.
+
 ## 0.12.10, 2026-09-13
 
 ### Changed

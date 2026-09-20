@@ -107,7 +107,6 @@ class RootInstallerTests(unittest.TestCase):
             "panel": bindir / "kodexbar-panel",
             "tray": bindir / "kodexbar-tray",
             "skills": bindir / "kodexbar-skills",
-            "local_ai": bindir / "local-ai",
             "data_ai": data / "ai",
         }
 

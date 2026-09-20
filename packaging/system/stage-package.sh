@@ -26,7 +26,6 @@ required_files=(
     "${ai_dir}/kodexbar-quotas"
     "${ai_dir}/kodexbar-panel"
     "${ai_dir}/kodexbar-tray"
-    "${ai_dir}/local-ai"
     "${ai_dir}/kodexbar-skills"
     "${ai_dir}/recover.py"
     "${kodexbar_dir}/metadata.json"
@@ -46,20 +45,12 @@ install -m 0755 -- \
     "${ai_dir}/kodexbar-quotas" \
     "${ai_dir}/kodexbar-panel" \
     "${ai_dir}/kodexbar-tray" \
-    "${ai_dir}/local-ai" \
     "${ai_dir}/kodexbar-skills" \
     "${ai_dir}/recover.py" \
     "$payload/"
 
-install -d -- "${payload}/local_ai_drivers"
-install -m 0644 -- \
-    "${ai_dir}/local_ai_drivers/__init__.py" \
-    "${ai_dir}/local_ai_drivers/builtin.py" \
-    "${ai_dir}/local_ai_drivers/descriptors.py" \
-    "${payload}/local_ai_drivers/"
-
 install -d -- "${destination}/usr/bin"
-for executable in ai kodexbar-quotas kodexbar-panel kodexbar-tray local-ai kodexbar-skills; do
+for executable in ai kodexbar-quotas kodexbar-panel kodexbar-tray kodexbar-skills; do
     ln -sfn -- "../lib/kodexbar-suite/ai-cli-control/${executable}" \
         "${destination}/usr/bin/${executable}"
 done
@@ -88,13 +79,10 @@ install -m 0644 -- "${ai_dir}/LICENSE" "${license_dir}/LICENSE.ai-cli-control"
 install -m 0644 -- "${kodexbar_dir}/LICENSE" "${license_dir}/LICENSE.kodexbar"
 
 doc_dir="${destination}/usr/share/doc/kodexbar-suite"
-install -d -- "${doc_dir}/local_ai_drivers"
+install -d -- "$doc_dir"
 install -m 0644 -- \
     "${root_dir}/README.md" \
     "${root_dir}/README.es.md" \
     "${root_dir}/INSTALL.md" \
     "${root_dir}/INSTALL.es.md" \
     "$doc_dir/"
-install -m 0644 -- \
-    "${ai_dir}/local_ai_drivers/CONTRACT.md" \
-    "${doc_dir}/local_ai_drivers/"

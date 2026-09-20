@@ -2,7 +2,7 @@
 
 English documentation. Complete Spanish documentation is available in [README.es.md](README.es.md).
 
-`ai-cli-control` is a local selector for launching Codex, Claude, Grok, or Antigravity from the current terminal directory. It keeps the selected CLI's working directory and environment. It is original work and is not a KodexBar fork.
+`ai-cli-control` is a local selector for launching Codex, Claude, Grok, Antigravity, OpenCode, Cursor, Hermes, Devin, Copilot, or Qwen from the current terminal directory. It keeps the selected CLI's working directory and environment. It is original work and is not a KodexBar fork.
 
 This package is also maintained inside the [KodexBar Suite monorepo](../../README.md). From that repository root, use `./install.sh` to install it together with the Plasma widget. The package-level `install.sh` remains available for standalone use.
 
@@ -17,8 +17,7 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 - Use English by default. Spanish locales receive Spanish interface text. `--language en` and `--language es` override locale detection.
 - Keep every launched and updated command as an argument array without shell evaluation.
 - Provide `kodexbar-quotas`, a local quota engine for the KodexBar Suite widget, `kodexbar-panel`, a compact adapter for non-KDE bars, and `kodexbar-tray`, a StatusNotifierItem indicator.
-- Provide `local-ai`, a JSON inventory and safe control surface for local model runtimes. It is optional and does not install or download models.
-- Provide `kodexbar-skills`, a local inventory and explicit skill synchronizer for Codex, Claude, Grok, Gemini CLI, OpenCode, and Hermes.
+- Provide `kodexbar-skills`, a local skill inventory for Codex, Claude, Grok, Gemini CLI, OpenCode, and Hermes. The widget shows it read-only. Sync stays available in the CLI engine but is parked in the UI.
 
 ## Requirements
 
@@ -107,7 +106,7 @@ Choose **Update CLIs** in the main selector, or use a non-interactive list:
 ./ai --update all --dry-run
 ```
 
-Valid identifiers are `codex`, `claude`, `grok`, and `antigravity`. Updates always run in that order, even when the input order differs. The exact update arrays are `codex update`, `claude update`, `grok update`, and `agy update`.
+Valid identifiers are `codex`, `claude`, `grok`, `antigravity`, `opencode`, `cursor`, `hermes`, `devin`, `copilot`, and `qwen`. Updates always run in that order, even when the input order differs. The exact update arrays are `codex update`, `claude update`, `grok update`, `agy update`, `opencode upgrade`, `cursor --update-extensions`, `hermes update`, `devin update`, `copilot update`, and `qwen update`. Cursor updates only its extensions through the CLI. The Cursor app itself updates through its built-in updater. Copilot needs its CLI installed once from https://gh.io/copilot-install before `ai` can launch it.
 
 Before and after each real update, the selector attempts `<cli> --version`. Standard output and error from each update stay attached to the terminal. A failed or missing CLI is reported and the remaining selected CLIs continue. The final status is `0` only when all selected updates succeed. `--dry-run` prints the update arrays without checking versions or executing updates.
 
@@ -125,27 +124,11 @@ ai --version
 
 The installed executable is `~/.local/share/ai-cli-control/ai`, with `~/.local/bin/ai` as its symlink. Its standalone `recover.py` engine, `kodexbar-quotas`, `kodexbar-panel`, `kodexbar-tray`, tray icons, and a copy of `uninstall.sh` are stored beside it for removal after a checkout has been deleted. No `sudo` is used. Installation refuses to replace an existing user-local command that is not owned by this project. It installs adapters only when their CLI home directory exists and never replaces an unowned `recover-chat` skill. Uninstallation checks ownership markers and removes only project-owned files. Both scripts are idempotent.
 
-## Local model monitor
+## Local model monitor (parked)
 
-`local-ai` is the only interface the Plasma widget uses for local models. It returns normalized JSON, so the widget does not parse processes or runtime-specific output. It discovers only configured roots plus conventional runtime directories that exist. It does not crawl the home directory or disk.
+The `local-ai` monitor is parked under `attic/local/` and is not installed or shown in the widget. The code, drivers, examples, and tests stay there so the system can be restored later. Fresh installs remove owned `local-ai` leftovers automatically. See `attic/local/README.md` for the restore steps.
 
-```bash
-local-ai status
-local-ai unmount llama_cpp MODEL_ID
-local-ai release comfyui
-```
-
-The status schema reports model type, classification confidence, evidence, installed or mounted state, activity, attributed throughput, memory when a runtime reports it, and safe capabilities. `tok/s` appears only when the runtime reports real tokens. Other runtimes may report no rate, a media-specific rate, or only activity and memory. The optional GPU observer uses `nvidia-smi` and `/proc` as read-only evidence. It reports an unrecognised GPU process as `unknown_process`, with no rate and no control capability. Missing permissions or NVIDIA tools simply omit that observation.
-
-Individual unload is available only when a runtime offers it. ComfyUI exposes **Release runtime**, which calls its runtime memory-release API and identifies that the action affects the engine instead of claiming a per-model unload. Actions reject active requests. A stop action requires `--confirm`, rechecks runtime-specific activity including the ComfyUI queue, and only addresses a loaded configured user `systemd` service. Unknown processes are never terminated.
-
-Built-in adapters are installed with the package. Additional adapters are declarative JSON descriptors only. The descriptor contract is documented in [`local_ai_drivers/CONTRACT.md`](local_ai_drivers/CONTRACT.md). Python adapters are never loaded from a user configuration directory.
-
-Use `examples/local-ai.json` as the portable configuration template. `examples/` also contains optional llama.cpp router and OpenCode templates. They are not installed, and no OpenCode package or model is downloaded by this release.
-
-Run `local-ai opencode-catalog` to print the current llama.cpp catalog as an OpenCode `@ai-sdk/openai-compatible` provider block. Review and merge that output manually. The command never writes or replaces an existing OpenCode configuration.
-
-## Skill inventory and synchronization
+## Skill inventory (read-only in the widget)
 
 `kodexbar-skills status` inspects the conventional skill directories for six providers and returns a JSON inventory. It does not crawl the home directory. Status distinguishes links to one shared source, identical independent copies, providers missing a skill, and divergent content. Conflicts appear first. Each skill is bounded to 4096 files or 128 MiB while fingerprinting so refresh work remains contained.
 

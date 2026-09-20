@@ -23,9 +23,7 @@ source_file="${script_dir}/ai"
 quotas_source="${script_dir}/kodexbar-quotas"
 panel_source="${script_dir}/kodexbar-panel"
 tray_source="${script_dir}/kodexbar-tray"
-local_ai_source="${script_dir}/local-ai"
 skills_source="${script_dir}/kodexbar-skills"
-local_ai_drivers_source="${script_dir}/local_ai_drivers"
 recover_source="${script_dir}/recover.py"
 uninstall_source="${script_dir}/uninstall.sh"
 adapters_dir="${script_dir}/skills-adapters"
@@ -35,9 +33,7 @@ installed_ai="${data_dir}/ai"
 installed_quotas="${data_dir}/kodexbar-quotas"
 installed_panel="${data_dir}/kodexbar-panel"
 installed_tray="${data_dir}/kodexbar-tray"
-installed_local_ai="${data_dir}/local-ai"
 installed_skills="${data_dir}/kodexbar-skills"
-installed_local_ai_drivers="${data_dir}/local_ai_drivers"
 installed_recover="${data_dir}/recover.py"
 installed_uninstall="${data_dir}/uninstall.sh"
 marker="${data_dir}/.ai-cli-control-owner"
@@ -46,11 +42,10 @@ target="${bin_dir}/ai"
 quotas_target="${bin_dir}/kodexbar-quotas"
 panel_target="${bin_dir}/kodexbar-panel"
 tray_target="${bin_dir}/kodexbar-tray"
-local_ai_target="${bin_dir}/local-ai"
 skills_target="${bin_dir}/kodexbar-skills"
 icon_target_dir="${HOME}/.local/share/icons/hicolor/scalable/apps"
 
-if [[ ! -f "$source_file" || ! -f "$quotas_source" || ! -f "$panel_source" || ! -f "$tray_source" || ! -f "$local_ai_source" || ! -f "$skills_source" || ! -d "$local_ai_drivers_source" || ! -f "$recover_source" || ! -f "$uninstall_source" ]]; then
+if [[ ! -f "$source_file" || ! -f "$quotas_source" || ! -f "$panel_source" || ! -f "$tray_source" || ! -f "$skills_source" || ! -f "$recover_source" || ! -f "$uninstall_source" ]]; then
     say "No se encontraron los archivos fuente de instalación." "Installation source files were not found." >&2
     exit 1
 fi
@@ -90,7 +85,6 @@ check_owned_link "$target" "$installed_ai"
 check_owned_link "$quotas_target" "$installed_quotas"
 check_owned_link "$panel_target" "$installed_panel"
 check_owned_link "$tray_target" "$installed_tray"
-check_owned_link "$local_ai_target" "$installed_local_ai"
 check_owned_link "$skills_target" "$installed_skills"
 
 mkdir -p -- "$data_dir" "$bin_dir"
@@ -99,10 +93,7 @@ install -m 0755 -- "$source_file" "$installed_ai"
 install -m 0755 -- "$quotas_source" "$installed_quotas"
 install -m 0755 -- "$panel_source" "$installed_panel"
 install -m 0755 -- "$tray_source" "$installed_tray"
-install -m 0755 -- "$local_ai_source" "$installed_local_ai"
 install -m 0755 -- "$skills_source" "$installed_skills"
-mkdir -p -- "$installed_local_ai_drivers"
-cp -a -- "${local_ai_drivers_source}/." "$installed_local_ai_drivers/"
 install -m 0755 -- "$recover_source" "$installed_recover"
 install -m 0755 -- "$uninstall_source" "$installed_uninstall"
 if [[ ! -L "$target" ]]; then
@@ -117,11 +108,21 @@ fi
 if [[ ! -L "$tray_target" ]]; then
     ln -s -- "$installed_tray" "$tray_target"
 fi
-if [[ ! -L "$local_ai_target" ]]; then
-    ln -s -- "$installed_local_ai" "$local_ai_target"
-fi
 if [[ ! -L "$skills_target" ]]; then
     ln -s -- "$installed_skills" "$skills_target"
+fi
+# Legacy cleanup: the local-ai monitor is parked under attic/local and is no
+# longer part of the program. Remove owned leftovers from older installs.
+legacy_local_ai="${data_dir}/local-ai"
+legacy_local_ai_link="${bin_dir}/local-ai"
+if [[ -L "$legacy_local_ai_link" && "$(readlink -- "$legacy_local_ai_link")" == "$legacy_local_ai" ]]; then
+    rm -- "$legacy_local_ai_link"
+fi
+if [[ -f "$legacy_local_ai" ]]; then
+    rm -- "$legacy_local_ai"
+fi
+if [[ -d "${data_dir}/local_ai_drivers" ]]; then
+    rm -rf -- "${data_dir}/local_ai_drivers"
 fi
 mkdir -p -- "$icon_target_dir"
 for icon in kodexbar-tray-ok.svg kodexbar-tray-warning.svg kodexbar-tray-critical.svg; do
@@ -133,5 +134,4 @@ say "ai se instaló en ${target}" "ai installed at ${target}"
 say "kodexbar-quotas se instaló en ${quotas_target}" "kodexbar-quotas installed at ${quotas_target}"
 say "kodexbar-panel se instaló en ${panel_target}" "kodexbar-panel installed at ${panel_target}"
 say "kodexbar-tray se instaló en ${tray_target}" "kodexbar-tray installed at ${tray_target}"
-say "local-ai se instaló en ${local_ai_target}" "local-ai installed at ${local_ai_target}"
 say "kodexbar-skills se instaló en ${skills_target}" "kodexbar-skills installed at ${skills_target}"
