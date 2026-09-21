@@ -166,7 +166,7 @@ Las raíces admitidas son `~/.codex/skills`, `~/.claude/skills`, `~/.grok/skills
 
 `kodexbar-quotas` es el comando local predeterminado del widget. Lee los proveedores habilitados desde `~/.config/codexbar/config.json`. Claude, Codex, Grok, Cursor, Hermes y Devin se consultan de forma nativa con HTTP de la biblioteca estándar:
 
-- Claude: JSON OAuth en `https://api.anthropic.com/api/oauth/usage` (límite de 15 segundos).
+- Claude: JSON OAuth en `https://api.anthropic.com/api/oauth/usage` (límite de 15 segundos). Cuando el access token guardado falta, está por vencer o Anthropic lo rechaza con HTTP 401, el motor intercambia el refresh token en el endpoint del vendor y guarda el resultado en `~/.claude/.credentials.json`. Solo un refresh token muerto pide correr `claude` para iniciar sesión.
 - Codex: uso OAuth del backend de ChatGPT (`/wham/usage` o `/api/codex/usage`) con `~/.codex/auth.json`. Sin renovación automática del token. Si falla la autenticación, se pide ejecutar `codex` para iniciar sesión.
 - Grok: facturación gRPC-web sin cookies en el endpoint de créditos de Grok con `~/.grok/auth.json`. Si falla la autenticación, se pide ejecutar `grok login`.
 - Hermes: créditos restantes de Nous Portal en `/api/oauth/account` con el access token de `~/.hermes/auth.json`. No gasta el refresh token. Si falla la autenticación, se pide ejecutar `hermes model`.
