@@ -72,6 +72,13 @@ install -m 0644 -- \
     "${ai_dir}/icons/kodexbar-tray-critical.svg" \
     "$icon_dir/"
 
+applications_dir="${destination}/usr/share/applications"
+install -d -- "$applications_dir"
+install -m 0644 -- \
+    "${ai_dir}/applications/kodexbar-tray.desktop" \
+    "${ai_dir}/applications/ai-cli-control.desktop" \
+    "$applications_dir/"
+
 license_dir="${destination}/usr/share/licenses/kodexbar-suite"
 install -d -- "$license_dir"
 install -m 0644 -- "${root_dir}/LICENSE" "${root_dir}/NOTICE.md" "$license_dir/"

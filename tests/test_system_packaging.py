@@ -77,6 +77,11 @@ class SystemPackagingTests(unittest.TestCase):
                 "kodexbar-tray-critical.svg",
             },
         )
+        applications = self.destination / "usr/share/applications"
+        self.assertEqual(
+            {path.name for path in applications.iterdir()},
+            {"kodexbar-tray.desktop", "ai-cli-control.desktop"},
+        )
         self.assertTrue((self.destination / "usr/share/licenses/kodexbar-suite/LICENSE").is_file())
         self.assertTrue((self.destination / "usr/share/doc/kodexbar-suite/README.es.md").is_file())
 

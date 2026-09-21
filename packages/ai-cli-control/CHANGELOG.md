@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.12.12, 2026-09-21
+
+### Fixed
+
+- Windows app icon packs 16, 32, 48, and 256px so the Start menu shows it.
+- Linux app menus gain KodexBar Tray and AI CLI Control launchers.
+
 ## 0.12.11, 2026-09-20
 
 ### Added

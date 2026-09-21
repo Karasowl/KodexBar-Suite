@@ -647,7 +647,7 @@ class AiSelectorTests(unittest.TestCase):
         version = self.run_ai("--version")
         help_result = self.run_ai("--language", "en", "--help")
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.12.11")
+        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.12.12")
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("Choose and launch Codex", help_result.stdout)
         self.assertIn("--language LANGUAGE", help_result.stdout)
@@ -727,6 +727,7 @@ class AiSelectorTests(unittest.TestCase):
         skills_target = home / ".local/bin/kodexbar-skills"
         local_ai_target = home / ".local/bin/local-ai"
         icon_directory = home / ".local/share/icons/hicolor/scalable/apps"
+        applications_directory = home / ".local/share/applications"
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertTrue(installed.is_file())
@@ -747,6 +748,8 @@ class AiSelectorTests(unittest.TestCase):
         self.assertFalse((legacy_dir / "local_ai_drivers").exists())
         for icon in ("kodexbar-tray-ok.svg", "kodexbar-tray-warning.svg", "kodexbar-tray-critical.svg"):
             self.assertTrue((icon_directory / icon).is_file())
+        for desktop in ("kodexbar-tray.desktop", "ai-cli-control.desktop"):
+            self.assertTrue((applications_directory / desktop).is_file())
         self.assertEqual(installed.read_text(encoding="utf-8"), AI.read_text(encoding="utf-8"))
         self.assertEqual(installed_recover.read_text(encoding="utf-8"), RECOVER.read_text(encoding="utf-8"))
         for cli in ("claude", "grok"):
@@ -769,6 +772,8 @@ class AiSelectorTests(unittest.TestCase):
         self.assertFalse(installed_skills.exists())
         for icon in ("kodexbar-tray-ok.svg", "kodexbar-tray-warning.svg", "kodexbar-tray-critical.svg"):
             self.assertFalse((icon_directory / icon).exists())
+        for desktop in ("kodexbar-tray.desktop", "ai-cli-control.desktop"):
+            self.assertFalse((applications_directory / desktop).exists())
         self.assertFalse(installed_recover.exists())
         self.assertFalse((home / ".claude/skills/recover-chat").exists())
         self.assertFalse((home / ".grok/skills/recover-chat").exists())
