@@ -201,7 +201,7 @@ class QuotasEngineTests(unittest.TestCase):
     def test_version_is_the_public_suite_release(self) -> None:
         result = subprocess.run([str(ENGINE), "--version"], text=True, capture_output=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "kodexbar-quotas 0.12.14")
+        self.assertEqual(result.stdout.strip(), "kodexbar-quotas 0.12.15")
 
     def test_maps_claude_oauth_shape_to_widget_envelope(self) -> None:
         response = json.loads((FIXTURES / "claude-oauth-usage.json").read_text(encoding="utf-8"))
@@ -480,6 +480,45 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertTrue(
             quotas.claude_oauth_needs_refresh({"accessToken": "x", "expiresAt": 1758320000000}, now=now)
         )
+
+    def test_muse_counts_today_messages_from_the_local_database(self) -> None:
+        import sqlite3
+        import time
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            db_dir = home / ".local" / "share" / "opencode"
+            db_dir.mkdir(parents=True)
+            connection = sqlite3.connect(db_dir / "opencode.db")
+            connection.execute(
+                "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, "
+                "time_created INTEGER, time_updated INTEGER, data TEXT)"
+            )
+            now_ms = int(time.time() * 1000)
+            rows = [
+                ("m1", "s1", now_ms, {"modelID": "muse-spark-1.3", "tokens": {"input": 1500, "output": 60}}),
+                ("m2", "s1", now_ms, {"modelID": "muse-spark-1.2", "tokens": {"input": 500, "output": 40}}),
+                ("m3", "s1", now_ms - 48 * 3600 * 1000, {"modelID": "muse-spark-1.3", "tokens": {"input": 9, "output": 9}}),
+                ("m4", "s1", now_ms, {"modelID": "other-model", "tokens": {"input": 7, "output": 7}}),
+            ]
+            for message_id, session_id, created, data in rows:
+                connection.execute(
+                    "INSERT INTO message VALUES (?, ?, ?, ?, ?)",
+                    (message_id, session_id, created, created, json.dumps(data)),
+                )
+            connection.commit()
+            connection.close()
+            entry = quotas.fetch_muse(home=home)
+        self.assertEqual(entry["provider"], "muse")
+        self.assertEqual(entry["messagesToday"], 2)
+        self.assertIn("2 msgs", entry["usage"]["primary"]["resetDescription"])
+        self.assertIn("2K in", entry["usage"]["primary"]["resetDescription"])
+        self.assertFalse(entry["usage"]["primary"]["usageKnown"])
+
+    def test_muse_absent_database_yields_no_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(quotas.fetch_muse(home=Path(directory)), {})
+            self.assertFalse(quotas.detect_muse_installed(home=Path(directory)))
 
     def test_claude_request_uses_the_upstream_oauth_headers(self) -> None:
         payload = (FIXTURES / "claude-oauth-usage.json").read_bytes()
@@ -1778,7 +1817,7 @@ class QuotasEngineTests(unittest.TestCase):
                 self.assertTrue(quotas.detect_hermes_installed(empty_home))
                 self.assertTrue(quotas.detect_devin_installed(empty_home))
 
-    def test_build_auto_config_includes_version_and_eight_ids(self) -> None:
+    def test_build_auto_config_includes_version_and_nine_ids(self) -> None:
         payload = quotas.build_auto_config({
             "claude": True,
             "codex": False,
@@ -1792,11 +1831,11 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(payload["version"], 1)
         self.assertEqual(
             [item["id"] for item in payload["providers"]],
-            ["claude", "codex", "grok", "antigravity", "opencodego", "cursor", "hermes", "devin"],
+            ["claude", "codex", "grok", "antigravity", "opencodego", "cursor", "hermes", "devin", "muse"],
         )
         self.assertEqual(
             [item["enabled"] for item in payload["providers"]],
-            [True, False, True, False, True, True, True, True],
+            [True, False, True, False, True, True, True, True, False],
         )
 
     def test_existing_config_adds_detected_opencodego_without_writing_config(self) -> None:
@@ -1925,7 +1964,7 @@ class QuotasEngineTests(unittest.TestCase):
             by_id = {item["id"]: item["enabled"] for item in payload["providers"]}
             self.assertEqual(
                 by_id,
-                {"claude": True, "codex": True, "grok": True, "antigravity": False, "opencodego": False, "cursor": False, "hermes": False, "devin": False},
+                {"claude": True, "codex": True, "grok": True, "antigravity": False, "opencodego": False, "cursor": False, "hermes": False, "devin": False, "muse": False},
             )
             # Normal path: only detected/enabled providers are queried.
             entries = json.loads(result.stdout)
@@ -2004,7 +2043,7 @@ class QuotasEngineTests(unittest.TestCase):
             self.assertEqual(payload["version"], 1)
             self.assertEqual(
                 {item["id"]: item["enabled"] for item in payload["providers"]},
-                {"claude": False, "codex": True, "grok": False, "antigravity": False, "opencodego": False, "cursor": False, "hermes": False, "devin": False},
+                {"claude": False, "codex": True, "grok": False, "antigravity": False, "opencodego": False, "cursor": False, "hermes": False, "devin": False, "muse": False},
             )
             entries = json.loads(result.stdout)
             self.assertEqual([entry["provider"] for entry in entries], ["codex"])

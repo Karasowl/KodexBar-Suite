@@ -33,6 +33,7 @@ The suite has dedicated quota paths for the providers below:
 
 | Provider | Coverage |
 | --- | --- |
+| Muse | Native today message and token counts for muse-spark from the local OpenCode database |
 | Claude Code | Native quota reading with multi-account profiles |
 | OpenAI Codex | Native quota reading, credits, and multi-account profiles |
 | Cursor | Native monthly billing usage with Models, Other, Total, Auto, and API views |

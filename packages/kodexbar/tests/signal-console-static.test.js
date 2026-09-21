@@ -24,6 +24,21 @@ const quotaRow = qml.slice(quotaStart, providerStart)
 const providerView = qml.slice(providerStart, compactStart)
 
 assert.match(topBar, /source: Qt\.resolvedUrl\("\.\.\/icons\/kodexbar\.svg"\)/, "the product bar restores the packaged K mark")
+assert.match(
+    qml,
+    /function loginCommandForProvider\(raw\)[\s\S]{0,800}"grok": \["grok", "login"\]/,
+    "authentication failures map to verified provider login commands"
+)
+assert.match(
+    qml,
+    /text: i18n\("Sign in again"\)[\s\S]{0,400}launchLoginCommand/,
+    "the error card offers a terminal sign-in action"
+)
+assert.match(
+    qml,
+    /function launchLoginCommand\(argv\)[\s\S]{0,300}konsole --hold -e/,
+    "sign-in opens a held terminal so the login stays visible"
+)
 assert.match(topBar, /label: i18n\("Providers"\)/, "provider navigation has a visible label")
 assert.doesNotMatch(topBar, /label: i18n\("Local"\)/, "local navigation is parked")
 assert.match(topBar, /label: i18n\("Skills"\)/, "skills navigation has a visible label")

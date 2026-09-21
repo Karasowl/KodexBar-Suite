@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.12.15, 2026-09-21
+
+### Added
+
+- Muse provider: today's message and token counts for the muse-spark family from the local OpenCode database, shown in the popup, panel, and compact strip.
+
 ## 0.12.14, 2026-09-21
 
 ### Fixed
