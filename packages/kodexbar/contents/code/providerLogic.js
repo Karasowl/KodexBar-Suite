@@ -957,8 +957,13 @@ function composeCompactBlocks(entries, options) {
                 { key: "tertiary", title: "Tertiary", percentLeft: entry.tertiaryPercentLeft,
                     resetsAt: entry.tertiaryResetsAt, extra: true }
             ]
+            var countBased = id === "muse" && entry.messagesToday !== null
+                && entry.messagesToday !== undefined && !isNaN(entry.messagesToday)
             for (var standardIndex = 0; standardIndex < standard.length; standardIndex++) {
                 var standardWindow = standard[standardIndex]
+                if (countBased && standardWindow.percentLeft === null) {
+                    continue
+                }
                 var standardPart = compactStandardQuotaPart(
                     settings.quotaSelection, entry, standardWindow.key, standardWindow.title,
                     standardWindow.percentLeft, standardWindow.resetsAt, standardWindow.extra)
