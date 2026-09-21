@@ -4,6 +4,12 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+## 0.12.17, 2026-09-21
+
+### Fixed
+
+- The panel strip no longer paints over the task manager and system tray when many CLIs are installed. Up to four providers keep the full quota text. With more than four, each CLI shows one number, and whatever still does not fit folds into a +N button. The strip width is measured once, so the panel does not keep resizing and overlapping itself.
+
 ## 0.12.16, 2026-09-21
 
 ### Fixed

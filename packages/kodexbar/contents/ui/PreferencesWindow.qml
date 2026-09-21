@@ -5,6 +5,7 @@ import org.kde.kirigami as Kirigami
 import org.kde.kquickcontrols
 import org.kde.plasma.plasmoid
 import org.kde.plasma.plasma5support as Plasma5Support
+import "../code/providerLogic.js" as ProviderLogic
 
 QQC2.ApplicationWindow {
     id: preferences
@@ -627,6 +628,7 @@ QQC2.ApplicationWindow {
                                                 }
 
                                                 Rectangle {
+                                                    id: previewBar
                                                     Layout.fillWidth: true
                                                     Layout.preferredHeight: 30
                                                     radius: 9
@@ -634,18 +636,109 @@ QQC2.ApplicationWindow {
                                                     border.color: preferences.th("#262a35")
                                                     border.width: 1
                                                     clip: true
+                                                    property int fittedCount: 9999
+                                                    readonly property bool crowded: ((preferences.previewState.blocks || []).length) > 4
+                                                    property int measureAttempts: 0
+                                                    readonly property int hiddenCount: Math.max(0,
+                                                        ((preferences.previewState.blocks || []).length) - fittedCount)
+
+                                                    function scheduleFit() {
+                                                        measureAttempts = 0
+                                                        Qt.callLater(applyFit)
+                                                    }
+
+                                                    function applyFit() {
+                                                        var count = previewRepeater.count
+                                                        var fullWidths = []
+                                                        var glanceWidths = []
+                                                        for (var i = 0; i < count; i++) {
+                                                            var item = previewRepeater.itemAt(i)
+                                                            if (!item) {
+                                                                measureAttempts++
+                                                                if (measureAttempts < 8) {
+                                                                    Qt.callLater(applyFit)
+                                                                }
+                                                                return
+                                                            }
+                                                            var fullW = item.measuredFull > 0 ? item.measuredFull : item.fullChipWidth
+                                                            var glanceW = item.measuredGlance > 0 ? item.measuredGlance : item.glanceChipWidth
+                                                            if (fullW < 1) {
+                                                                measureAttempts++
+                                                                if (measureAttempts < 8) {
+                                                                    Qt.callLater(applyFit)
+                                                                    return
+                                                                }
+                                                                fullW = 140
+                                                            }
+                                                            if (glanceW < 1) {
+                                                                glanceW = Math.min(fullW, 72)
+                                                            }
+                                                            fullWidths.push(fullW + 2)
+                                                            glanceWidths.push(glanceW + 2)
+                                                        }
+                                                        var limit = Math.max(0, width - 20)
+                                                        var overflowWidth = previewOverflowMeasure.implicitWidth + 12
+                                                        var widths = crowded ? glanceWidths : fullWidths
+                                                        var chosen = ProviderLogic.fitCompactStrip(
+                                                            widths, previewRow.spacing, 0, overflowWidth, limit)
+                                                        if (fittedCount !== chosen.fittedCount) {
+                                                            fittedCount = chosen.fittedCount
+                                                        }
+                                                    }
+
+                                                    onWidthChanged: scheduleFit()
+                                                    Component.onCompleted: scheduleFit()
 
                                                     Row {
+                                                        id: previewRow
                                                         anchors.verticalCenter: parent.verticalCenter
                                                         anchors.left: parent.left
                                                         anchors.leftMargin: 10
                                                         spacing: 9
 
+                                                        QQC2.Label {
+                                                            id: previewOverflowMeasure
+                                                            visible: false
+                                                            text: "+" + ((preferences.previewState.blocks || []).length)
+                                                            font.family: appletRoot ? appletRoot.designFont : ""
+                                                            font.pixelSize: 13
+                                                            font.weight: Font.DemiBold
+                                                        }
+
                                                         Repeater {
+                                                            id: previewRepeater
                                                             model: preferences.previewState.blocks || []
+                                                            onItemAdded: previewBar.scheduleFit()
+                                                            onItemRemoved: previewBar.scheduleFit()
 
                                                             delegate: Row {
+                                                                id: previewChip
+                                                                visible: index < previewBar.fittedCount
                                                                 spacing: 6
+                                                                property int measuredFull: 0
+                                                                property int measuredGlance: 0
+                                                                readonly property int fullChipWidth: Math.max(0,
+                                                                    implicitWidth - previewQuota.implicitWidth + previewFullMetrics.width)
+                                                                readonly property int glanceChipWidth: Math.max(0,
+                                                                    implicitWidth - previewQuota.implicitWidth + previewGlanceMetrics.width)
+                                                                onFullChipWidthChanged: if (fullChipWidth > 0) measuredFull = fullChipWidth
+                                                                onGlanceChipWidthChanged: if (glanceChipWidth > 0) measuredGlance = glanceChipWidth
+
+                                                                TextMetrics {
+                                                                    id: previewFullMetrics
+                                                                    font.family: appletRoot ? appletRoot.designFont : ""
+                                                                    font.pixelSize: 13
+                                                                    font.weight: modelData.error ? Font.Bold : Font.DemiBold
+                                                                    text: modelData.displayText || ""
+                                                                }
+
+                                                                TextMetrics {
+                                                                    id: previewGlanceMetrics
+                                                                    font.family: appletRoot ? appletRoot.designFont : ""
+                                                                    font.pixelSize: 13
+                                                                    font.weight: modelData.error ? Font.Bold : Font.DemiBold
+                                                                    text: modelData.glanceText || modelData.displayText || ""
+                                                                }
 
                                                                 Rectangle {
                                                                     visible: index > 0
@@ -690,7 +783,10 @@ QQC2.ApplicationWindow {
                                                                 }
 
                                                                 QQC2.Label {
-                                                                    text: modelData.displayText || ""
+                                                                    id: previewQuota
+                                                                    text: previewBar.crowded
+                                                                        ? (modelData.glanceText || modelData.displayText || "")
+                                                                        : (modelData.displayText || "")
                                                                     anchors.verticalCenter: parent.verticalCenter
                                                                     color: modelData.error ? preferences.th("#f76b6b") : preferences.th("#e9ebf2")
                                                                     font.family: appletRoot ? appletRoot.designFont : ""
@@ -698,6 +794,16 @@ QQC2.ApplicationWindow {
                                                                     font.weight: modelData.error ? Font.Bold : Font.DemiBold
                                                                 }
                                                             }
+                                                        }
+
+                                                        QQC2.Label {
+                                                            visible: previewBar.hiddenCount > 0
+                                                            text: "+" + previewBar.hiddenCount
+                                                            anchors.verticalCenter: parent.verticalCenter
+                                                            color: preferences.th("#e9ebf2")
+                                                            font.family: appletRoot ? appletRoot.designFont : ""
+                                                            font.pixelSize: 13
+                                                            font.weight: Font.DemiBold
                                                         }
 
                                                         QQC2.Label {

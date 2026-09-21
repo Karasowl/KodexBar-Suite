@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.12.17, 2026-09-21
+
+### Fixed
+
+- No engine changes. Release carries the compact panel strip fix.
+
 ## 0.12.16, 2026-09-21
 
 ### Added
