@@ -4,6 +4,12 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+## 0.12.14, 2026-09-21
+
+### Fixed
+
+- Icon asset coverage is now asserted by an automated test.
+
 ## 0.12.13, 2026-09-21
 
 ### Fixed

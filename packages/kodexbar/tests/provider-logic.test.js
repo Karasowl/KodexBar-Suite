@@ -1277,7 +1277,7 @@ assert.match(
     /<entry name="compactProviderOrder" type="String">\s*<default>codex,claude,grok,antigravity,opencodego,hermes,devin<\/default>/,
     "the compact default includes OpenCode Go, Hermes, and Devin"
 )
-assert.equal(metadata.KPlugin.Version, "0.12.13", "package metadata uses version 0.12.13")
+assert.equal(metadata.KPlugin.Version, "0.12.14", "package metadata uses version 0.12.14")
 assert.equal(metadata.KPlugin.Website, "https://github.com/Karasowl/KodexBar-Suite", "package metadata links to the maintained suite repository")
 assert.match(mainQml, /var antigravityWindows = antigravity && Array\.isArray\(usage\.antigravityRateWindows\)/, "popup consumes the engine's Antigravity model windows")
 assert.match(mainQml, /compactLabel: antigravityKey === "gemini-weekly" \? "W"/, "compact Antigravity weekly uses W like other providers")
