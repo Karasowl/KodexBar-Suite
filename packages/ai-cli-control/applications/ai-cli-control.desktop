@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=AI CLI Control
+Comment=Choose and launch provider CLIs from the current directory
+Exec=ai
+Icon=utilities-terminal
+Terminal=true
+Categories=System;TerminalEmulator;
+StartupNotify=false

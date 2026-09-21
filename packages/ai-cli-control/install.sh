@@ -28,6 +28,7 @@ recover_source="${script_dir}/recover.py"
 uninstall_source="${script_dir}/uninstall.sh"
 adapters_dir="${script_dir}/skills-adapters"
 icons_dir="${script_dir}/icons"
+applications_source="${script_dir}/applications"
 data_dir="${HOME}/.local/share/ai-cli-control"
 installed_ai="${data_dir}/ai"
 installed_quotas="${data_dir}/kodexbar-quotas"
@@ -45,7 +46,7 @@ tray_target="${bin_dir}/kodexbar-tray"
 skills_target="${bin_dir}/kodexbar-skills"
 icon_target_dir="${HOME}/.local/share/icons/hicolor/scalable/apps"
 
-if [[ ! -f "$source_file" || ! -f "$quotas_source" || ! -f "$panel_source" || ! -f "$tray_source" || ! -f "$skills_source" || ! -f "$recover_source" || ! -f "$uninstall_source" ]]; then
+if [[ ! -f "$source_file" || ! -f "$quotas_source" || ! -f "$panel_source" || ! -f "$tray_source" || ! -f "$skills_source" || ! -f "$recover_source" || ! -f "$uninstall_source" || ! -f "${applications_source}/kodexbar-tray.desktop" || ! -f "${applications_source}/ai-cli-control.desktop" ]]; then
     say "No se encontraron los archivos fuente de instalación." "Installation source files were not found." >&2
     exit 1
 fi
@@ -128,6 +129,14 @@ mkdir -p -- "$icon_target_dir"
 for icon in kodexbar-tray-ok.svg kodexbar-tray-warning.svg kodexbar-tray-critical.svg; do
     install -m 0644 -- "${icons_dir}/${icon}" "${icon_target_dir}/${icon}"
 done
+applications_target_dir="${HOME}/.local/share/applications"
+mkdir -p -- "$applications_target_dir"
+for desktop in kodexbar-tray.desktop ai-cli-control.desktop; do
+    install -m 0644 -- "${applications_source}/${desktop}" "${applications_target_dir}/${desktop}"
+done
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$applications_target_dir" >/dev/null 2>&1 || true
+fi
 install_adapter "${HOME}/.claude" "claude"
 install_adapter "${HOME}/.grok" "grok"
 say "ai se instaló en ${target}" "ai installed at ${target}"

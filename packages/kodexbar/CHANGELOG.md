@@ -4,6 +4,12 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+## 0.12.12, 2026-09-21
+
+### Fixed
+
+- No widget changes. Release carries the multi-size Windows icon and Linux launchers.
+
 ## 0.12.11, 2026-09-20
 
 ### Changed

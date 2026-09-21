@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=KodexBar Tray
+Comment=AI quota monitor for coding assistants
+Exec=kodexbar-tray
+Icon=kodexbar-tray-ok
+Terminal=false
+Categories=Utility;
+StartupNotify=false

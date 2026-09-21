@@ -81,5 +81,11 @@ rm -rf -- "$data_dir"
 for icon in kodexbar-tray-ok.svg kodexbar-tray-warning.svg kodexbar-tray-critical.svg; do
     rm -f -- "${icon_target_dir}/${icon}"
 done
+for desktop in kodexbar-tray.desktop ai-cli-control.desktop; do
+    rm -f -- "${HOME}/.local/share/applications/${desktop}"
+done
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "${HOME}/.local/share/applications" >/dev/null 2>&1 || true
+fi
 rm -f -- "${HOME}/.config/autostart/kodexbar-tray.desktop"
 say "ai-cli-control se desinstaló." "ai-cli-control uninstalled."
