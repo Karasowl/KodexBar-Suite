@@ -20,6 +20,11 @@ SIZE = 32
 SCALE = 4
 PLANE = SIZE * SCALE
 
+# App icon sizes inside kodexbar.ico. Windows picks the closest entry per
+# view, so a single 32px image shows as a blank placeholder in the Start
+# menu and other large-icon surfaces.
+ICO_SIZES = (16, 32, 48, 256)
+
 STATUS_COLORS = {
     "ok": (0x35, 0xD0, 0x7F),
     "warning": (0xF5, 0xA6, 0x23),
@@ -53,8 +58,8 @@ def sd_circle(px: float, py: float, cx: float, cy: float, r: float) -> float:
     return math.hypot(px - cx, py - cy) - r
 
 
-def blend(base: tuple[float, float, float, float], color: tuple[int, int, int], distance: float) -> tuple[float, float, float, float]:
-    alpha = clamp(0.5 - distance / SCALE)
+def blend(base: tuple[float, float, float, float], color: tuple[int, int, int], distance: float, scale: float = SCALE) -> tuple[float, float, float, float]:
+    alpha = clamp(0.5 - distance / scale)
     if alpha <= 0:
         return base
     out_a = alpha + base[3] * (1 - alpha)
@@ -74,43 +79,45 @@ def capsule_points(cx: float, cy: float, degrees: float, half_length: float) -> 
     return cx - dx, cy - dy, cx + dx, cy + dy
 
 
-def render(status: str) -> list[list[tuple[int, int, int, int]]]:
+def render(status: str, size: int = SIZE, scale: int = SCALE) -> list[list[tuple[int, int, int, int]]]:
     dot = STATUS_COLORS[status]
+    plane = size * scale
     pixels: list[list[tuple[int, int, int, int]]] = []
-    check1 = capsule_points(60, 56, -38, 18)
-    check2 = capsule_points(78, 74, 38, 18)
-    for y in range(SIZE):
+    unit = plane / 128
+    check1 = capsule_points(60 * unit, 56 * unit, -38, 18 * unit)
+    check2 = capsule_points(78 * unit, 74 * unit, 38, 18 * unit)
+    for y in range(size):
         row = []
-        for x in range(SIZE):
-            # 4x4 subsamples per pixel for anti-aliasing.
+        for x in range(size):
+            # Subsamples per pixel for anti-aliasing.
             sample: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
-            for sy in range(SCALE):
-                for sx in range(SCALE):
-                    px = x * SCALE + sx + 0.5
-                    py = y * SCALE + sy + 0.5
+            for sy in range(scale):
+                for sx in range(scale):
+                    px = x * scale + sx + 0.5
+                    py = y * scale + sy + 0.5
                     # Gradient badge in the SVG's diagonal direction.
-                    t = clamp((px + py) / (2 * PLANE))
+                    t = clamp((px + py) / (2 * plane))
                     badge = tuple(
                         GRADIENT_START[c] + (GRADIENT_END[c] - GRADIENT_START[c]) * t for c in range(3)
                     )
                     sub: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
-                    sub = blend(sub, badge, sd_round_rect(px, py, PLANE / 2, PLANE / 2, PLANE / 2, PLANE / 2, 30))
+                    sub = blend(sub, badge, sd_round_rect(px, py, plane / 2, plane / 2, plane / 2, plane / 2, 30 * unit), scale)
                     # The three small bars keep the SVG layout: colored first bar.
-                    sub = blend(sub, dot, sd_round_rect(px, py, 45, 38, 9, 10, 6))
-                    sub = blend(sub, WHITE, sd_round_rect(px, py, 45, 64, 9, 10, 6))
-                    sub = blend(sub, WHITE, sd_round_rect(px, py, 45, 90, 9, 10, 6))
-                    sub = blend(sub, WHITE, sd_capsule(px, py, *check1, 8))
-                    sub = blend(sub, WHITE, sd_capsule(px, py, *check2, 8))
-                    sub = blend(sub, WHITE, sd_circle(px, py, 102, 102, 18))
-                    sub = blend(sub, dot, sd_circle(px, py, 102, 102, 12))
+                    sub = blend(sub, dot, sd_round_rect(px, py, 45 * unit, 38 * unit, 9 * unit, 10 * unit, 6 * unit), scale)
+                    sub = blend(sub, WHITE, sd_round_rect(px, py, 45 * unit, 64 * unit, 9 * unit, 10 * unit, 6 * unit), scale)
+                    sub = blend(sub, WHITE, sd_round_rect(px, py, 45 * unit, 90 * unit, 9 * unit, 10 * unit, 6 * unit), scale)
+                    sub = blend(sub, WHITE, sd_capsule(px, py, *check1, 8 * unit), scale)
+                    sub = blend(sub, WHITE, sd_capsule(px, py, *check2, 8 * unit), scale)
+                    sub = blend(sub, WHITE, sd_circle(px, py, 102 * unit, 102 * unit, 18 * unit), scale)
+                    sub = blend(sub, dot, sd_circle(px, py, 102 * unit, 102 * unit, 12 * unit), scale)
                     sample = tuple(sample[i] + sub[i] for i in range(4))  # type: ignore[assignment]
-            count = SCALE * SCALE
+            count = scale * scale
             row.append(tuple(round(channel / count) for channel in sample))
         pixels.append(row)
     return pixels
 
 
-def write_png(path: Path, pixels: list[list[tuple[int, int, int, int]]]) -> None:
+def encode_png(pixels: list[list[tuple[int, int, int, int]]], size: int) -> bytes:
     raw = bytearray()
     for row in pixels:
         raw.append(0)
@@ -118,8 +125,8 @@ def write_png(path: Path, pixels: list[list[tuple[int, int, int, int]]]) -> None
             raw.extend((r, g, b, a))
     compressed = zlib.compress(bytes(raw), 9)
     chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-    header = struct.pack(">IIBBBBB", SIZE, SIZE, 8, 6, 0, 0, 0)
-    path.write_bytes(
+    header = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
+    return (
         b"\x89PNG\r\n\x1a\n"
         + chunk(b"IHDR", header)
         + chunk(b"IDAT", compressed)
@@ -127,11 +134,22 @@ def write_png(path: Path, pixels: list[list[tuple[int, int, int, int]]]) -> None
     )
 
 
-def write_ico(path: Path, png_bytes: bytes) -> None:
-    """Wrap one 32x32 PNG into a minimal single-image ICO (Vista+ PNG entries)."""
-    directory = struct.pack("<HHH", 0, 1, 1)
-    entry = struct.pack("<BBBBHHII", SIZE, SIZE, 0, 0, 1, 32, len(png_bytes), 22)
-    path.write_bytes(directory + entry + png_bytes)
+def write_png(path: Path, pixels: list[list[tuple[int, int, int, int]]], size: int = SIZE) -> None:
+    path.write_bytes(encode_png(pixels, size))
+
+
+def write_ico(path: Path, images: list[tuple[int, bytes]]) -> None:
+    """Pack several PNG-compressed entries (Vista+) so every Windows surface finds its size."""
+    directory = struct.pack("<HHH", 0, 1, len(images))
+    offset = 6 + 16 * len(images)
+    blob = bytearray()
+    for size, png_bytes in images:
+        side = 0 if size >= 256 else size
+        directory += struct.pack("<BBBBHHII", side, side, 0, 0, 1, 32, len(png_bytes), offset)
+        offset += len(png_bytes)
+    for _, png_bytes in images:
+        blob.extend(png_bytes)
+    path.write_bytes(directory + bytes(blob))
 
 
 def main() -> int:
@@ -141,8 +159,12 @@ def main() -> int:
         pixels = render(status)
         write_png(target / f"kodexbar-tray-{status}.png", pixels)
         print(f"wrote {target / f'kodexbar-tray-{status}.png'}")
-    write_ico(target / "kodexbar.ico", (target / "kodexbar-tray-ok.png").read_bytes())
-    print(f"wrote {target / 'kodexbar.ico'}")
+    images = []
+    for size in ICO_SIZES:
+        scale = 4 if size <= 48 else 2
+        images.append((size, encode_png(render("ok", size, scale), size)))
+    write_ico(target / "kodexbar.ico", images)
+    print(f"wrote {target / 'kodexbar.ico'} with sizes {[size for size, _ in images]}")
     return 0
 
 
