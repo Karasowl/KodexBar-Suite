@@ -53,6 +53,8 @@ fi
 /usr/bin/kodexbar-skills
 /usr/lib/kodexbar-suite
 /usr/share/plasma/plasmoids/org.kde.plasma.kodexbar
+/usr/share/applications/kodexbar-tray.desktop
+/usr/share/applications/ai-cli-control.desktop
 /usr/share/icons/hicolor/scalable/apps/kodexbar-tray-ok.svg
 /usr/share/icons/hicolor/scalable/apps/kodexbar-tray-warning.svg
 /usr/share/icons/hicolor/scalable/apps/kodexbar-tray-critical.svg
