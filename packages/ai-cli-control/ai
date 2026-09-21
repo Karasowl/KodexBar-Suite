@@ -16,10 +16,13 @@ from dataclasses import dataclass
 from typing import NoReturn, Sequence
 
 
-VERSION = "0.12.15"
+VERSION = "0.12.16"
 EXIT_INVALID = 2
 CODEX_CACHE = Path(
     os.environ.get("AI_CODEX_MODELS_CACHE", "~/.codex/models_cache.json")
+).expanduser()
+MUSE_CATALOG_DIR = Path(
+    os.environ.get("AI_MUSE_CATALOG_DIR", "~/.local/share/muse/model-catalog")
 ).expanduser()
 
 TRANSLATIONS = {
@@ -48,6 +51,7 @@ TRANSLATIONS = {
         "cursor_description": "Opens the current folder in the editor",
         "hermes_description": "Uses the configured default model",
         "devin_description": "Interactive session without model selection",
+        "musecode_description": "Models and efforts from the local catalog",
         "copilot_description": "Model and reasoning effort per run",
         "qwen_description": "Uses the configured default model",
         "codex_catalog": "Local Codex catalog",
@@ -87,6 +91,9 @@ TRANSLATIONS = {
         "grok_query_error": "could not query 'grok models': {error}",
         "grok_failed": "'grok models' failed: {detail}",
         "grok_empty": "'grok models' returned no recognizable models",
+        "musecode_catalog": "Local Muse Code catalog",
+        "musecode_cache_error": "could not read the Muse Code catalog at {path}: {error}",
+        "musecode_catalog_empty": "the Muse Code catalog at {path} has no usable models",
         "antigravity_query_error": "could not query 'agy models': {error}",
         "antigravity_failed": "'agy models' failed: {detail}",
         "antigravity_empty": "'agy models' returned no usable models",
@@ -95,6 +102,7 @@ TRANSLATIONS = {
         "opencode_failed": "'opencode models' failed: {detail}",
         "opencode_empty": "'opencode models' returned no usable models",
         "codex_efforts_empty": "Codex model '{model}' declares no supported reasoning efforts",
+        "musecode_efforts_empty": "Muse Code model '{model}' declares no supported reasoning efforts",
         "fixed_model_provider": "{provider} uses its configured default model, so --model is not accepted",
         "editor_no_options": "Cursor opens the editor directly and takes no model, effort, or permission options",
         "no_effort_provider": "{provider} has no reasoning-effort flag, so --effort is not accepted",
@@ -112,13 +120,13 @@ TRANSLATIONS = {
         "update_summary": "Update summary:",
         "executable_missing_path": "could not find '{executable}' in PATH",
         "executable_missing_file": "the executable does not exist or is not executable: {executable}",
-        "help_description": "Choose and launch Codex, Claude, Grok, Antigravity, OpenCode, Cursor, Hermes, Devin, Copilot, or Qwen in the current directory.",
+        "help_description": "Choose and launch Codex, Claude, Grok, Antigravity, OpenCode, Cursor, Hermes, Devin, Copilot, Qwen, or Muse Code in the current directory.",
         "help_dry_run": "print the command without running it",
         "help_help": "show this help message and exit",
         "help_version": "show the program version and exit",
         "help_text": "use menus in the terminal",
         "help_language": "use English or Spanish interface text",
-        "help_update": "update codex, claude, grok, antigravity, opencode, cursor, hermes, devin, copilot, and qwen, or a comma-separated list",
+        "help_update": "update codex, claude, grok, antigravity, opencode, cursor, hermes, devin, copilot, qwen, and musecode, or a comma-separated list",
         "help_accounts": "manage extra Codex or Claude accounts for KodexBar quotas",
         "help_recover": "use 'ai recover' to recover local conversations from provider CLIs",
         "accounts_label": "Accounts",
@@ -174,6 +182,7 @@ TRANSLATIONS = {
         "cursor_description": "Abre la carpeta actual en el editor",
         "hermes_description": "Usa el modelo predeterminado configurado",
         "devin_description": "Sesión interactiva sin selección de modelo",
+        "musecode_description": "Modelos y esfuerzos desde el catálogo local",
         "copilot_description": "Modelo y esfuerzo por ejecución",
         "qwen_description": "Usa el modelo predeterminado configurado",
         "codex_catalog": "Catálogo local de Codex",
@@ -213,6 +222,9 @@ TRANSLATIONS = {
         "grok_query_error": "no se pudo consultar 'grok models': {error}",
         "grok_failed": "'grok models' falló: {detail}",
         "grok_empty": "'grok models' no devolvió modelos reconocibles",
+        "musecode_catalog": "Catálogo local de Muse Code",
+        "musecode_cache_error": "no se pudo leer el catálogo Muse Code en {path}: {error}",
+        "musecode_catalog_empty": "el catálogo Muse Code en {path} no contiene modelos utilizables",
         "antigravity_query_error": "no se pudo consultar 'agy models': {error}",
         "antigravity_failed": "'agy models' falló: {detail}",
         "antigravity_empty": "'agy models' no devolvió modelos utilizables",
@@ -221,6 +233,7 @@ TRANSLATIONS = {
         "opencode_failed": "'opencode models' falló: {detail}",
         "opencode_empty": "'opencode models' no devolvió modelos utilizables",
         "codex_efforts_empty": "el modelo Codex '{model}' no declara esfuerzos compatibles",
+        "musecode_efforts_empty": "el modelo Muse Code '{model}' no declara esfuerzos compatibles",
         "fixed_model_provider": "{provider} usa su modelo predeterminado configurado, así que --model no se acepta",
         "editor_no_options": "Cursor abre el editor directamente y no acepta opciones de modelo, esfuerzo o permisos",
         "no_effort_provider": "{provider} no tiene flag de reasoning-effort, así que --effort no se acepta",
@@ -238,13 +251,13 @@ TRANSLATIONS = {
         "update_summary": "Resumen de actualizaciones:",
         "executable_missing_path": "no se encontró '{executable}' en PATH",
         "executable_missing_file": "el ejecutable no existe o no tiene permiso de ejecución: {executable}",
-        "help_description": "Selecciona e inicia Codex, Claude, Grok, Antigravity, OpenCode, Cursor, Hermes, Devin, Copilot o Qwen en el directorio actual.",
+        "help_description": "Selecciona e inicia Codex, Claude, Grok, Antigravity, OpenCode, Cursor, Hermes, Devin, Copilot, Qwen o Muse Code en el directorio actual.",
         "help_dry_run": "imprime el comando sin ejecutarlo",
         "help_help": "muestra esta ayuda y termina",
         "help_version": "muestra la versión del programa y termina",
         "help_text": "usa menús dentro de la terminal",
         "help_language": "usa texto de interfaz en inglés o español",
-        "help_update": "actualiza codex, claude, grok, antigravity, opencode, cursor, hermes, devin, copilot y qwen, o una lista separada por comas",
+        "help_update": "actualiza codex, claude, grok, antigravity, opencode, cursor, hermes, devin, copilot, qwen y musecode, o una lista separada por comas",
         "help_accounts": "gestiona cuentas extra de Codex o Claude para las cuotas de KodexBar",
         "help_recover": "usa 'ai recover' para recuperar conversaciones locales de las CLI de proveedores",
         "accounts_label": "Cuentas",
@@ -454,7 +467,12 @@ def select_ui(force_text: bool, language: str) -> SelectorUI:
 
 def command_name(provider: str) -> str:
     variable = f"AI_{provider.upper()}_EXECUTABLE"
-    default = "agy" if provider == "antigravity" else provider
+    if provider == "antigravity":
+        default = "agy"
+    elif provider == "musecode":
+        default = "muse"
+    else:
+        default = provider
     return os.environ.get(variable, default)
 
 
@@ -482,6 +500,7 @@ def providers(language: str) -> list[Option]:
         Option("devin", "Devin", message(language, "devin_description")),
         Option("copilot", "Copilot", message(language, "copilot_description")),
         Option("qwen", "Qwen", message(language, "qwen_description")),
+        Option("musecode", "Muse Code", message(language, "musecode_description")),
     ]
 
 
@@ -556,6 +575,11 @@ def permissions(language: str) -> dict[str, list[Option]]:
             Option("manual", message(language, "manual"), message(language, "manual_description")),
             Option("sandbox", message(language, "sandbox"), message(language, "sandbox_generic_description")),
         ],
+        "musecode": [
+            Option("ask", message(language, "ask"), message(language, "ask_description")),
+            Option("automatic", message(language, "limited_automatic"), message(language, "limited_automatic_description")),
+            Option("full", message(language, "full_access"), message(language, "full_access_description")),
+        ],
     }
 
 
@@ -607,6 +631,42 @@ def load_grok_models(language: str) -> list[Option]:
     if not models:
         die(language, "grok_empty")
     return models
+
+
+def load_musecode_models(language: str) -> tuple[list[Option], dict[str, list[Option]]]:
+    try:
+        files = sorted(MUSE_CATALOG_DIR.glob("*.json"))
+        if not files:
+            raise OSError(f"no catalog files in {MUSE_CATALOG_DIR}")
+        seen: dict[str, Option] = {}
+        efforts: dict[str, list[Option]] = {}
+        for file in files:
+            payload = json.loads(file.read_text(encoding="utf-8"))
+            rows = payload.get("rows", []) if isinstance(payload, dict) else []
+            for item in rows:
+                if not isinstance(item, dict):
+                    continue
+                model_id = item.get("model_id")
+                if not isinstance(model_id, str) or not model_id:
+                    continue
+                if item.get("visibility", "visible") != "visible":
+                    continue
+                label = str(item.get("display_label") or model_id)
+                if model_id not in seen:
+                    seen[model_id] = Option(model_id, label, message(language, "musecode_catalog"))
+                tiers = [
+                    Option(str(tier.get("tier")), str(tier.get("tier")),
+                           str(tier.get("description") or ""))
+                    for tier in item.get("reasoning_effort_variants", [])
+                    if isinstance(tier, dict) and isinstance(tier.get("tier"), str)
+                ]
+                if tiers:
+                    efforts[model_id] = tiers
+    except (OSError, json.JSONDecodeError, AttributeError, TypeError) as error:
+        die(language, "musecode_cache_error", path=MUSE_CATALOG_DIR, error=error)
+    if not seen:
+        die(language, "musecode_catalog_empty", path=MUSE_CATALOG_DIR)
+    return list(seen.values()), efforts
 
 
 def load_antigravity_models(language: str) -> list[Option]:
@@ -694,6 +754,12 @@ def permission_arguments(provider: str, permission: str) -> list[str]:
         }[permission]
     if provider == "qwen":
         return {"manual": [], "sandbox": ["--sandbox"]}[permission]
+    if provider == "musecode":
+        return {
+            "ask": ["--approval-mode", "on-request"],
+            "automatic": ["--approval-mode", "never"],
+            "full": ["--yolo"],
+        }[permission]
     return {
         "manual": [], "plan": ["--mode", "plan"], "accept-edits": ["--mode", "accept-edits"],
         "sandbox": ["--sandbox"], "full": ["--dangerously-skip-permissions"],
@@ -701,6 +767,10 @@ def permission_arguments(provider: str, permission: str) -> list[str]:
 
 
 def build_command(provider: str, model: str, effort: str, permission: str) -> list[str]:
+    if provider == "musecode":
+        command = [command_name(provider), "--model", model, "--reasoning-effort", effort]
+        command.extend(permission_arguments(provider, permission))
+        return command
     if provider == "cursor":
         # Cursor is a graphical editor without model or permission flags.
         # Opening the current directory keeps the ai working-directory deal.
@@ -767,11 +837,21 @@ def version_of(executable: str, language: str) -> str:
 def build_update_command(provider: str) -> list[str]:
     if provider == "opencode":
         return [command_name(provider), "upgrade"]
+    if provider == "musecode":
+        # The launcher self-updates synchronously with MUSE_SYNC_UPDATE=1
+        # before handing off to the installed binary.
+        return [command_name(provider), "--version"]
     if provider == "cursor":
         # The Cursor app updates itself through its built-in updater.
         # The CLI only offers extension updates, so that is what runs here.
         return [command_name(provider), "--update-extensions"]
     return [command_name(provider), "update"]
+
+
+def update_environment(provider: str) -> dict[str, str] | None:
+    if provider == "musecode":
+        return {"MUSE_SYNC_UPDATE": "1"}
+    return None
 
 
 def parse_update_list(value: str, language: str) -> list[str]:
@@ -799,8 +879,14 @@ def run_updates(provider_ids: Sequence[str], dry_run: bool, language: str) -> in
         command = build_update_command(provider)
         command = [resolve_executable_name(command[0]), *command[1:]]
         before = version_of(command[0], language)
+        environment = update_environment(provider)
         try:
-            result = subprocess.run(command, check=False)
+            if environment:
+                merged = dict(os.environ)
+                merged.update(environment)
+                result = subprocess.run(command, check=False, env=merged)
+            else:
+                result = subprocess.run(command, check=False)
         except OSError as error:
             success = False
             detail = message(language, "run_failed", error=error)
@@ -1055,6 +1141,8 @@ def main() -> int:
             return run_accounts_menu(ui, language, args.dry_run)
         if provider == "codex":
             models, codex_efforts = load_codex_models(language)
+        elif provider == "musecode":
+            models, musecode_efforts = load_musecode_models(language)
         elif provider == "claude":
             models = claude_models(language)
         elif provider == "grok":
@@ -1078,6 +1166,10 @@ def main() -> int:
             efforts = codex_efforts.get(model)
             if not efforts:
                 die(language, "codex_efforts_empty", model=model)
+        elif provider == "musecode":
+            efforts = musecode_efforts.get(model)
+            if not efforts:
+                die(language, "musecode_efforts_empty", model=model)
         elif provider == "claude":
             efforts = [Option(value, value) for value in ("low", "medium", "high", "xhigh", "max")]
         elif provider == "grok":

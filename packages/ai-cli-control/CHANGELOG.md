@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.12.16, 2026-09-21
+
+### Added
+
+- Muse Code provider in `ai` with models and reasoning efforts from the local catalog, verified launch flags, and launcher self-update.
+
 ## 0.12.15, 2026-09-21
 
 ### Added

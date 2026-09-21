@@ -4,6 +4,12 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+## 0.12.16, 2026-09-21
+
+### Fixed
+
+- No widget changes. Release carries the Muse Code provider.
+
 ## 0.12.15, 2026-09-21
 
 ### Added
