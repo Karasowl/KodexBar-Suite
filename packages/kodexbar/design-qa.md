@@ -100,3 +100,10 @@ The implementation was loaded from a source-shadow package under a temporary `XD
 - Runtime logs contain no QML error, warning, binding-loop, assignment, reference, or type failure.
 
 final result: passed
+
+## Icon URL caching
+
+Plasma caches provider icons by asset URL across shell restarts. Redrawing an
+SVG in place does not refresh the strip: ship the redraw under a new filename
+and point the icon map at it (cursor-mark, opencodego-mark). Mask icons must
+stay transparent-background line art, verified at 15px before release.

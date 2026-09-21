@@ -1593,6 +1593,7 @@ PlasmoidItem {
 
     function providerIconSource(raw) {
         var key = String(raw || "").toLowerCase()
+
         var icons = {
             "abacus": "abacus",
             "alibaba": "alibaba",
@@ -1605,10 +1606,9 @@ PlasmoidItem {
             "claude": "claude",
             "openai": "openai",
             "azureopenai": "azureopenai",
-            "cursor": "cursor",
             "hermes": "hermes",
             "opencode": "opencode",
-            "opencodego": "opencodego",
+            "opencodego": "opencodego-mark",
             "factory": "factory",
             "devin": "devin",
             "zai": "zai",
@@ -1641,6 +1641,7 @@ PlasmoidItem {
             "deepgram": "deepgram",
             "llmproxy": "llmproxy",
             "copilot": "copilot",
+            "cursor": "cursor-mark",
             "muse": "muse",
             "gemini": "gemini",
             "kilo": "kilo",
