@@ -2976,17 +2976,134 @@ PlasmoidItem {
         property var blocks: []
         property bool preview: false
         property int activeLocalCount: 0
+        // Negative means the strip may use its full content width.
+        property int fitWidth: -1
+        property int naturalWidth: 0
+        property int glanceWidth: 0
+        property int fittedCount: 9999
+        property bool tailFits: true
+        property int measureAttempts: 0
+        // One number per CLI once there are many. This does not depend on the
+        // width Plasma assigned, so switching text cannot resize the applet.
+        readonly property bool crowded: (blocks ? blocks.length : 0) > 4
+        readonly property int hiddenCount: Math.max(0, (blocks ? blocks.length : 0) - fittedCount)
         // Keep every provider block fully sized. Dense only tightens spacing so more
         // accounts still push the panel item wider instead of clipping siblings.
         readonly property bool dense: blocks.length > 4
         signal providerActivated(string selectionKey)
 
-        implicitWidth: stripRow.implicitWidth
+        implicitWidth: Math.max(naturalWidth, 0)
         implicitHeight: 28
-        // Never clip provider blocks: the panel representation grows with content.
-        clip: false
-        width: implicitWidth
+        clip: fitWidth >= 0 && naturalWidth > fitWidth
         height: implicitHeight
+
+        function scheduleMeasure() {
+            measureAttempts = 0
+            Qt.callLater(measureContent)
+        }
+
+        function chipSpan(item, textWidth) {
+            var shown = crowded ? item.glanceTextWidth : item.fullTextWidth
+            if (item.chromeWidth < 1 && item.visible && item.implicitWidth > shown + 8) {
+                item.chromeWidth = item.implicitWidth - shown
+            }
+            var chrome = item.chromeWidth > 0 ? item.chromeWidth : 56
+            return chrome + Math.max(0, textWidth)
+        }
+
+        function measureContent() {
+            var count = providerRepeater.count
+            var spacing = stripRow.spacing
+            var fullWidths = []
+            var glanceWidths = []
+            var missingChrome = false
+            for (var i = 0; i < count; i++) {
+                var item = providerRepeater.itemAt(i)
+                if (!item) {
+                    measureAttempts++
+                    if (measureAttempts < 8) {
+                        Qt.callLater(measureContent)
+                    }
+                    return
+                }
+                if (item.chromeWidth < 1) {
+                    missingChrome = true
+                }
+                fullWidths.push(chipSpan(item, item.fullTextWidth) + 2)
+                glanceWidths.push(chipSpan(item, item.glanceTextWidth) + 2)
+            }
+            if (missingChrome && fittedCount < count) {
+                fittedCount = count
+                Qt.callLater(measureContent)
+                return
+            }
+            var tailWidth = activeLocalCount > 0 ? Math.max(localTail.implicitWidth, 80) : 0
+            var overflowWidth = overflowMeasure.implicitWidth + (dense ? 16 : 22)
+            var full = ProviderLogic.fitCompactStrip(fullWidths, spacing, tailWidth, overflowWidth, -1)
+            var glance = ProviderLogic.fitCompactStrip(glanceWidths, spacing, tailWidth, overflowWidth, -1)
+            if (Math.abs(naturalWidth - full.naturalWidth) > 4) {
+                naturalWidth = full.naturalWidth
+            }
+            if (Math.abs(glanceWidth - glance.naturalWidth) > 4) {
+                glanceWidth = glance.naturalWidth
+            }
+            fitToWidth()
+        }
+
+        function fitToWidth() {
+            var count = providerRepeater.count
+            if (fitWidth < 0) {
+                if (fittedCount !== count) {
+                    fittedCount = count
+                }
+                tailFits = activeLocalCount > 0
+                return
+            }
+            var widths = []
+            var spacing = stripRow.spacing
+            for (var i = 0; i < count; i++) {
+                var item = providerRepeater.itemAt(i)
+                if (!item) {
+                    return
+                }
+                var textWidth = crowded ? item.glanceTextWidth : item.fullTextWidth
+                var span = chipSpan(item, textWidth)
+                if (span < 8) {
+                    return
+                }
+                widths.push(span + 2)
+            }
+            var tailWidth = activeLocalCount > 0 ? Math.max(localTail.implicitWidth, 80) : 0
+            var overflowWidth = overflowMeasure.implicitWidth + (dense ? 16 : 22)
+            var chosen = ProviderLogic.fitCompactStrip(widths, spacing, tailWidth, overflowWidth, fitWidth)
+            if (fittedCount !== chosen.fittedCount) {
+                fittedCount = chosen.fittedCount
+            }
+            if (tailFits !== chosen.tailFits) {
+                tailFits = chosen.tailFits
+            }
+        }
+
+        onBlocksChanged: scheduleMeasure()
+        onFitWidthChanged: Qt.callLater(fitToWidth)
+        onActiveLocalCountChanged: scheduleMeasure()
+        Component.onCompleted: scheduleMeasure()
+
+        Connections {
+            target: manropeFont
+            function onStatusChanged() {
+                strip.scheduleMeasure()
+            }
+        }
+
+        PlasmaComponents.Label {
+            id: overflowMeasure
+            visible: false
+            text: "+" + (strip.blocks ? strip.blocks.length : 0)
+            font.family: root.designFont
+            font.pixelSize: 13
+            font.weight: Font.DemiBold
+        }
 
         Row {
             id: stripRow
@@ -2994,19 +3111,42 @@ PlasmoidItem {
             spacing: strip.dense ? 6 : 10
 
             Repeater {
+                id: providerRepeater
                 model: strip.blocks
+                onItemAdded: strip.scheduleMeasure()
+                onItemRemoved: strip.scheduleMeasure()
 
                 delegate: QQC2.AbstractButton {
                     id: compactProviderButton
                     required property int index
                     required property var modelData
+                    visible: index < strip.fittedCount
                     height: stripRow.height
                     implicitWidth: compactProviderContent.implicitWidth + (strip.dense ? 6 : 10)
                     leftPadding: strip.dense ? 3 : 5
                     rightPadding: strip.dense ? 3 : 5
+                    property int chromeWidth: 0
+                    readonly property int fullTextWidth: fullMetrics.width
+                    readonly property int glanceTextWidth: glanceMetrics.width
                     Accessible.name: modelData.fullText || modelData.displayText || modelData.provider
                     Accessible.description: i18n("Open %1 usage", modelData.provider || i18n("provider"))
                     onClicked: strip.providerActivated(modelData.selectionKey || "")
+
+                    TextMetrics {
+                        id: fullMetrics
+                        font.family: root.designFont
+                        font.pixelSize: 13
+                        font.weight: modelData.error ? Font.Bold : Font.DemiBold
+                        text: modelData.displayText || ""
+                    }
+
+                    TextMetrics {
+                        id: glanceMetrics
+                        font.family: root.designFont
+                        font.pixelSize: 13
+                        font.weight: modelData.error ? Font.Bold : Font.DemiBold
+                        text: modelData.glanceText || modelData.displayText || ""
+                    }
 
                     contentItem: Row {
                         id: compactProviderContent
@@ -3058,7 +3198,10 @@ PlasmoidItem {
                         }
 
                         PlasmaComponents.Label {
-                            text: modelData.displayText || ""
+                            id: quotaLabel
+                            text: strip.crowded
+                                ? (modelData.glanceText || modelData.displayText || "")
+                                : (modelData.displayText || "")
                             color: modelData.error ? root.errorColor : root.textColor
                             font.family: root.designFont
                             font.pixelSize: 13
@@ -3080,7 +3223,8 @@ PlasmoidItem {
             }
 
             Row {
-                visible: strip.activeLocalCount > 0
+                id: localTail
+                visible: strip.activeLocalCount > 0 && strip.tailFits
                 height: stripRow.height
                 spacing: 7
 
@@ -3116,20 +3260,78 @@ PlasmoidItem {
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }
+
+            QQC2.AbstractButton {
+                id: compactOverflowButton
+                visible: strip.hiddenCount > 0
+                height: stripRow.height
+                implicitWidth: overflowContent.implicitWidth + (strip.dense ? 6 : 10)
+                leftPadding: strip.dense ? 3 : 5
+                rightPadding: strip.dense ? 3 : 5
+                Accessible.name: i18n("%1 more providers", strip.hiddenCount)
+                Accessible.description: i18n("Open the remaining providers")
+                onClicked: strip.providerActivated("")
+
+                contentItem: Row {
+                    id: overflowContent
+                    spacing: strip.dense ? 4 : 7
+
+                    Rectangle {
+                        visible: strip.fittedCount > 0 || (strip.tailFits && strip.activeLocalCount > 0)
+                        width: visible ? 1 : 0
+                        height: 16
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: root.th("#333844")
+                    }
+
+                    PlasmaComponents.Label {
+                        text: "+" + strip.hiddenCount
+                        color: root.textColor
+                        font.family: root.designFont
+                        font.pixelSize: 13
+                        font.weight: Font.DemiBold
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+
+                background: Rectangle {
+                    radius: 6
+                    color: compactOverflowButton.down
+                        ? root.th("#29243d")
+                        : compactOverflowButton.hovered ? root.th("#201d2d") : "transparent"
+                }
+            }
         }
     }
 
     compactRepresentation: Item {
         id: compact
         readonly property var compactState: root.compactResult()
-        // Grow with every provider/account block so later chips push the panel
-        // item wider instead of disappearing under a fixed 520px clip.
-        readonly property int compactContentWidth: Math.max(
-            compactStrip.implicitWidth + 18,
-            (!compactState.blocks || compactState.blocks.length === 0) ? 96 : 0)
+        // Full quota text stays the preferred size for a few providers, while
+        // that text still fits in a panel. With more than four providers, or
+        // when the full strip would pass the comfort width, ask only for the
+        // one-number glance width. The floor stays small so a crowded panel
+        // can shrink the applet instead of painting over neighboring icons.
+        readonly property int compactComfortWidth: 960
+        readonly property int compactContentWidth: {
+            var full = compactStrip.naturalWidth + 18
+            var glance = compactStrip.glanceWidth + 18
+            var count = compactState.blocks ? compactState.blocks.length : 0
+            if (count === 0) {
+                return Math.max(full, 96)
+            }
+            if (count > 4 && glance > 18) {
+                return Math.max(glance, 88)
+            }
+            return Math.max(full, 88)
+        }
+        readonly property int compactFloorWidth: (compactState.blocks && compactState.blocks.length > 0)
+            ? Math.min(88, compactContentWidth)
+            : compactContentWidth
 
-        Layout.minimumWidth: compactContentWidth
+        Layout.minimumWidth: compactFloorWidth
         Layout.preferredWidth: compactContentWidth
+        Layout.maximumWidth: compactContentWidth
         Layout.minimumHeight: 30
         Layout.preferredHeight: 30
         implicitWidth: compactContentWidth
@@ -3137,17 +3339,12 @@ PlasmoidItem {
 
         Rectangle {
             id: compactBackground
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            width: Math.max(compactContentWidth, parent.width)
-            implicitWidth: compactContentWidth
-            implicitHeight: 30
+            anchors.fill: parent
             radius: 9
             color: root.cardColor
             border.color: root.lineColor
             border.width: 1
-            clip: false
+            clip: true
 
             MouseArea {
                 anchors.fill: parent
@@ -3160,6 +3357,8 @@ PlasmoidItem {
                 anchors.left: parent.left
                 anchors.leftMargin: 9
                 anchors.verticalCenter: parent.verticalCenter
+                width: Math.max(0, parent.width - 18)
+                fitWidth: width
                 blocks: compact.compactState.blocks || []
                 activeLocalCount: root.localModels.filter(function(item) { return item.state === "active" }).length
                 onProviderActivated: function(selectionKey) {
@@ -4786,6 +4985,7 @@ PlasmoidItem {
                         anchors.bottomMargin: 4
                         blocks: root.compactResult().blocks || []
                         preview: true
+                        fitWidth: width
                         activeLocalCount: root.localModels.filter(function(item) { return item.state === "active" }).length
                     }
 

@@ -873,6 +873,65 @@ function elideCompactText(value, maximumCharacters) {
     return text.slice(0, limit - 1).replace(/\s+$/g, "") + "…"
 }
 
+// How many whole chips fit in `limit` pixels. A negative limit means the strip
+// is unconstrained. When something does not fit, the overflow control is
+// reserved up front so the last visible chip is never sliced in half.
+function fitCompactStrip(chipWidths, spacing, tailWidth, overflowWidth, limit) {
+    var widths = Array.isArray(chipWidths) ? chipWidths : []
+    var gap = Math.max(0, Number(spacing) || 0)
+    var tail = Math.max(0, Number(tailWidth) || 0)
+    var overflow = Math.max(0, Number(overflowWidth) || 0)
+    var count = widths.length
+    var natural = 0
+    for (var i = 0; i < count; i++) {
+        natural += Math.max(0, Number(widths[i]) || 0)
+        if (i > 0) natural += gap
+    }
+    if (tail > 0) {
+        natural += (natural > 0 ? gap : 0) + tail
+    }
+    if (!(Number(limit) >= 0) || natural <= limit) {
+        return {
+            naturalWidth: natural,
+            fittedCount: count,
+            tailFits: tail > 0,
+            hiddenCount: 0
+        }
+    }
+
+    function reserve(hasContent) {
+        if (!(overflow > 0)) {
+            return 0
+        }
+        return overflow + (hasContent ? gap : 0)
+    }
+
+    var used = 0
+    var fit = 0
+    for (var j = 0; j < count; j++) {
+        var chip = Math.max(0, Number(widths[j]) || 0)
+        var next = used + (fit > 0 ? gap : 0) + chip
+        if (next + reserve(true) > limit) {
+            break
+        }
+        used = next
+        fit++
+    }
+    var tailFits = false
+    if (tail > 0) {
+        var tailNext = used + (fit > 0 ? gap : 0) + tail
+        if (tailNext + reserve(true) <= limit) {
+            tailFits = true
+        }
+    }
+    return {
+        naturalWidth: natural,
+        fittedCount: fit,
+        tailFits: tailFits,
+        hiddenCount: count - fit
+    }
+}
+
 function composeCompactBlocks(entries, options) {
     var settings = options || {}
     var quotaSelection = settings.showUsed === false ? "" : settings.quotaSelection
@@ -943,11 +1002,13 @@ function composeCompactBlocks(entries, options) {
                 worstUsedPercent: null,
                 quotaText: "ERR",
                 fullText: errorText,
-                displayText: "ERR"
+                displayText: "ERR",
+                glanceText: "ERR"
             })
             continue
         }
         var worstUsedPercent = null
+        var worstPart = ""
         if (settings.showUsed !== false) {
             var standard = [
                 { key: "primary", title: "Primary", percentLeft: entry.compactPrimaryPercentLeft,
@@ -974,6 +1035,7 @@ function composeCompactBlocks(entries, options) {
                     if (standardUsed !== null
                             && (worstUsedPercent === null || standardUsed > worstUsedPercent)) {
                         worstUsedPercent = standardUsed
+                        worstPart = standardPart
                     }
                 }
             }
@@ -1008,6 +1070,7 @@ function composeCompactBlocks(entries, options) {
                     if (extraUsed !== null
                             && (worstUsedPercent === null || extraUsed > worstUsedPercent)) {
                         worstUsedPercent = extraUsed
+                        worstPart = extraPart
                     }
                 }
             }
@@ -1039,7 +1102,8 @@ function composeCompactBlocks(entries, options) {
                 worstUsedPercent: worstUsedPercent,
                 quotaText: quotaText,
                 fullText: blockText,
-                displayText: elideCompactText(quotaText || blockText, settings.maximumCharacters || 28)
+                displayText: elideCompactText(quotaText || blockText, settings.maximumCharacters || 28),
+                glanceText: worstPart || (quotaParts.length > 0 ? quotaParts[0] : "")
             })
         }
     }

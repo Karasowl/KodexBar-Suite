@@ -911,6 +911,10 @@ assert.deepEqual(
     "every compact block selects the matching popup provider"
 )
 assert.equal(compactDefault.blocks[1].displayText, "ERR", "compact errors stay visible")
+assert.equal(compactDefault.blocks[1].glanceText, "ERR", "compact errors keep a one-token glance")
+assert.equal(compactDefault.blocks[0].glanceText, "S19%", "glance keeps the worst quota instead of every window")
+assert.equal(compactDefault.blocks[2].glanceText, "W31%", "glance follows the highest used window")
+assert.ok(compactDefault.blocks[3].glanceText.length <= 4, "a near-zero provider still glances at one window")
 assert.deepEqual(
     compactDefault.blocks.map(block => block.worstUsedPercent),
     [19, null, 31, 100 - 99.65964],
@@ -970,6 +974,22 @@ assert.ok(widthSafe.blocks[0].displayText.length <= 12, "each visual compact blo
 assert.match(widthSafe.blocks[0].displayText, /…$/, "width-safe compact text is visibly elided")
 assert.match(widthSafe.blocks[0].fullText, /Fas #1 20%/, "the complete selected extra remains available")
 assert.match(widthSafe.blocks[0].fullText, /Fal30%/, "multiple selected extras remain supported")
+assert.ok(!widthSafe.blocks[0].glanceText.includes("…"), "glance stays a whole quota token when the chip text is elided")
+
+const fitted = context.fitCompactStrip([100, 100, 100], 6, 0, 40, 150)
+assert.equal(fitted.fittedCount, 1, "a tight strip keeps the first whole chip")
+assert.equal(fitted.hiddenCount, 2, "chips that do not fit are counted for the overflow control")
+assert.equal(fitted.tailFits, false, "no tail is reported when none was measured")
+const roomy = context.fitCompactStrip([100, 80], 6, 0, 40, 400)
+assert.equal(roomy.hiddenCount, 0, "a strip with room shows every chip and no overflow")
+assert.equal(roomy.fittedCount, 2, "every measured chip stays visible when the strip has room")
+const unconstrained = context.fitCompactStrip([400, 400], 8, 20, 40, -1)
+assert.equal(unconstrained.hiddenCount, 0, "a negative limit leaves the strip unconstrained")
+assert.equal(unconstrained.tailFits, true, "an unconstrained strip keeps the trailing local-model tail")
+const withTail = context.fitCompactStrip([100], 6, 50, 40, 150)
+assert.equal(withTail.fittedCount, 1, "the provider chip stays when the tail does not")
+assert.equal(withTail.tailFits, false, "the local-model tail yields before a chip is sliced")
+assert.equal(withTail.hiddenCount, 0, "hiding the tail does not pretend a provider is missing")
 
 const hiddenProviders = context.composeCompactText(fixture.composeEntries, {
     providerOrder: "codex,grok",
@@ -1277,7 +1297,7 @@ assert.match(
     /<entry name="compactProviderOrder" type="String">\s*<default>codex,claude,grok,antigravity,opencodego,hermes,devin<\/default>/,
     "the compact default includes OpenCode Go, Hermes, and Devin"
 )
-assert.equal(metadata.KPlugin.Version, "0.12.16", "package metadata uses version 0.12.16")
+assert.equal(metadata.KPlugin.Version, "0.12.17", "package metadata uses version 0.12.17")
 assert.equal(metadata.KPlugin.Website, "https://github.com/Karasowl/KodexBar-Suite", "package metadata links to the maintained suite repository")
 assert.match(mainQml, /var antigravityWindows = antigravity && Array\.isArray\(usage\.antigravityRateWindows\)/, "popup consumes the engine's Antigravity model windows")
 assert.match(mainQml, /compactLabel: antigravityKey === "gemini-weekly" \? "W"/, "compact Antigravity weekly uses W like other providers")
