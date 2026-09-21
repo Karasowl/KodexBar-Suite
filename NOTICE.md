@@ -12,7 +12,7 @@ The package obtains usage data from the independent [steipete/CodexBar](https://
 
 `packages/ai-cli-control` is independent original work by Ismael, known publicly as Karasowl. It launches and updates third-party provider CLIs locally. It does not install, authenticate, configure, or represent Codex, Claude, Grok, Gemini, or Antigravity.
 
-Those product names may be trademarks of their respective owners. Their mention does not imply affiliation, sponsorship, or endorsement.
+Those product names may be trademarks of their respective owners. Their mention does not imply affiliation, sponsorship, or endorsement. The Cursor provider mark is adapted from Simple Icons (CC0).
 
 ## License files
 

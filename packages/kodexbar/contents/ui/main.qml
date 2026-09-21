@@ -1981,6 +1981,7 @@ PlasmoidItem {
             tertiaryPercentLeft: knownPercentLeft(tertiary),
             tertiaryResetsAt: resetAt(tertiary),
             creditsRemaining: credits ? credits.remaining : (typeof dashboard.creditsRemaining === "number" ? dashboard.creditsRemaining : null),
+            messagesToday: typeof entry.messagesToday === "number" ? entry.messagesToday : null,
             bankedResetCount: bankedResets.availableCount,
             bankedResetExpiresAt: bankedResets.expiresAt,
             extraUsage: extraUsage,
