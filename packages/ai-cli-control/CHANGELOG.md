@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.12.14, 2026-09-21
+
+### Fixed
+
+- Linux app menus and icon caches refresh on install and upgrade.
+
 ## 0.12.13, 2026-09-21
 
 ### Fixed
