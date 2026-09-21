@@ -113,8 +113,8 @@ How quotas work after install:
 Download and install the official release package with:
 
 ```bash
-curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.15/kodexbar-suite_0.12.15-1_all.deb
-sudo apt install ./kodexbar-suite_0.12.15-1_all.deb
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.16/kodexbar-suite_0.12.16-1_all.deb
+sudo apt install ./kodexbar-suite_0.12.16-1_all.deb
 ```
 
 To build the same package from a repository checkout:
@@ -132,15 +132,15 @@ The package installs the suite under `/usr` and can later be upgraded or removed
 On Fedora or a RHEL 10 compatible system, download and install the general RPM:
 
 ```bash
-curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.15/kodexbar-suite-0.12.15-1.noarch.rpm
-sudo dnf install ./kodexbar-suite-0.12.15-1.noarch.rpm
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.16/kodexbar-suite-0.12.16-1.noarch.rpm
+sudo dnf install ./kodexbar-suite-0.12.16-1.noarch.rpm
 ```
 
 On a RHEL 9 compatible system such as AlmaLinux 9 or Rocky Linux 9, use the dedicated package that depends on parallel Python 3.11:
 
 ```bash
-curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.15/kodexbar-suite-0.12.15-1.el9.noarch.rpm
-sudo dnf install ./kodexbar-suite-0.12.15-1.el9.noarch.rpm
+curl -LO https://github.com/Karasowl/KodexBar-Suite/releases/download/v0.12.16/kodexbar-suite-0.12.16-1.el9.noarch.rpm
+sudo dnf install ./kodexbar-suite-0.12.16-1.el9.noarch.rpm
 ```
 
 To build the same package from a repository checkout:
