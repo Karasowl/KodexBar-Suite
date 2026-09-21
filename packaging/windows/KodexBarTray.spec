@@ -14,7 +14,13 @@ a = Analysis(
         ('../../LICENSE', '.'),
         ('../../NOTICE.md', '.'),
     ],
-    hiddenimports=['pystray._win32'],
+    hiddenimports=[
+        # kodexbar-tray is exec'd at runtime through importlib, so its own
+        # imports stay invisible to the static analysis. Every stdlib module
+        # it needs beyond kodexbar-tray-win's imports must be listed here.
+        'pystray._win32',
+        'json',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

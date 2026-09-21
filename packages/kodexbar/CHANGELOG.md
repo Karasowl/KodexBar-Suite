@@ -4,6 +4,12 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+## 0.12.13, 2026-09-21
+
+### Fixed
+
+- No widget changes. Release rebuilds the Windows tray with its missing module.
+
 ## 0.12.12, 2026-09-21
 
 ### Fixed
