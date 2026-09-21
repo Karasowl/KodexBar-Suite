@@ -45,6 +45,7 @@ install -m 0644 -- \
     "$source_tree/"
 install -d -- \
     "${source_tree}/packages/ai-cli-control/icons" \
+    "${source_tree}/packages/ai-cli-control/applications" \
     "${source_tree}/packages/kodexbar" \
     "${source_tree}/packaging/aur" \
     "${source_tree}/packaging/system"
@@ -65,6 +66,10 @@ install -m 0644 -- \
     "${root_dir}/packages/ai-cli-control/icons/kodexbar-tray-critical.svg" \
     "${source_tree}/packages/ai-cli-control/icons/"
 install -m 0644 -- \
+    "${root_dir}/packages/ai-cli-control/applications/kodexbar-tray.desktop" \
+    "${root_dir}/packages/ai-cli-control/applications/ai-cli-control.desktop" \
+    "${source_tree}/packages/ai-cli-control/applications/"
+install -m 0644 -- \
     "${root_dir}/packages/kodexbar/metadata.json" \
     "${root_dir}/packages/kodexbar/LICENSE" \
     "${source_tree}/packages/kodexbar/"
@@ -76,7 +81,7 @@ install -m 0755 -- \
     "${root_dir}/packaging/system/stage-package.sh" \
     "${source_tree}/packaging/system/"
 
-source_date_epoch="${SOURCE_DATE_EPOCH:-$(git -C "$root_dir" log -1 --format=%ct 2>/dev/null || printf '0')}"
+source_date_epoch="${SOURCE_DATE_EPOCH:-$(git -C "$root_dir" log -1 --format=%ct 2>/dev/null || date +%s)}"
 if [[ ! "$source_date_epoch" =~ ^[0-9]+$ ]]; then
     printf 'Invalid SOURCE_DATE_EPOCH: %s\n' "$source_date_epoch" >&2
     exit 1
