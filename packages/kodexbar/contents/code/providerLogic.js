@@ -1007,6 +1007,12 @@ function composeCompactBlocks(entries, options) {
                 }
             }
         }
+        if (settings.showUsed !== false && entry.messagesToday !== null
+                && entry.messagesToday !== undefined && !isNaN(entry.messagesToday)) {
+            var messagesPart = compactNumber(entry.messagesToday) + " msgs"
+            block.push(messagesPart)
+            quotaParts.push(messagesPart)
+        }
         if (settings.showCredits !== false && entry.creditsRemaining !== null
                 && entry.creditsRemaining !== undefined && !isNaN(entry.creditsRemaining)
                 && entry.creditsRemaining > 0) {
@@ -1052,7 +1058,8 @@ function popupProviderPriority(provider) {
         "antigravity": 3,
         "cursor": 4,
         "hermes": 5,
-        "devin": 6
+        "devin": 6,
+        "muse": 7
     }
     var id = providerId(provider)
     return priorities[id] === undefined ? 100 : priorities[id]
@@ -1299,6 +1306,7 @@ function compactProviderLabel(provider, name) {
         "cursor": "Cr",
         "hermes": "Hm",
         "devin": "Dv",
+        "muse": "Mu",
         "gemini": "Gm"
     }
     if (labels[id]) {

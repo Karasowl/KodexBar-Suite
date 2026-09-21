@@ -87,7 +87,7 @@ PlasmoidItem {
     property bool includeStatus: Plasmoid.configuration.includeStatus === undefined ? false : Plasmoid.configuration.includeStatus
     property bool showCostSummary: Plasmoid.configuration.showCostSummary === undefined ? true : Plasmoid.configuration.showCostSummary
     property int costRefreshSeconds: Math.max(1, Plasmoid.configuration.costRefreshSeconds || 900)
-    readonly property string defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,hermes,devin"
+    readonly property string defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,hermes,devin,muse"
     property string compactProviderOrder: Plasmoid.configuration.compactProviderOrder === undefined
         ? defaultCompactProviderOrder
         : Plasmoid.configuration.compactProviderOrder
@@ -109,8 +109,8 @@ PlasmoidItem {
     readonly property color raisedColor: root.th("#1b1e28")
     readonly property color lineColor: root.th("#262a35")
     readonly property color textColor: root.th("#e9ebf2")
-    readonly property color mutedColor: root.th("#8b91a3")
-    readonly property color quietColor: root.th("#6b7080")
+    readonly property color mutedColor: root.th("#a6acbe")
+    readonly property color quietColor: root.th("#9aa1b5")
     readonly property color accentColor: root.th("#6e5aff")
     readonly property color goodColor: root.th("#45d483")
     readonly property color warningColor: root.th("#f0b429")
@@ -911,7 +911,7 @@ PlasmoidItem {
     }
 
     function localKindColor(kind) {
-        var colors = { "llm": root.th("#8f7bff"), "vision": root.th("#5ac8fa"), "image": root.th("#f0b429"), "video": root.th("#f0b429"), "audio": root.th("#ffd166"), "embedding": root.th("#45d483"), "unknown": root.th("#6b7080") }
+        var colors = { "llm": root.th("#8f7bff"), "vision": root.th("#5ac8fa"), "image": root.th("#f0b429"), "video": root.th("#f0b429"), "audio": root.th("#ffd166"), "embedding": root.th("#45d483"), "unknown": root.th("#9aa1b5") }
         return colors[kind] || colors.unknown
     }
 
@@ -1641,6 +1641,7 @@ PlasmoidItem {
             "deepgram": "deepgram",
             "llmproxy": "llmproxy",
             "copilot": "copilot",
+            "muse": "muse",
             "gemini": "gemini",
             "kilo": "kilo",
             "ollama": "ollama"
@@ -1650,6 +1651,37 @@ PlasmoidItem {
 
     function signalIconSource(name) {
         return Qt.resolvedUrl("../icons/signal/" + name + ".svg")
+    }
+
+    function loginCommandForProvider(raw) {
+        // Mirrors the engine re-login hints (kodexbar-quotas XXX_AUTH_RELOGIN):
+        // each command re-authenticates that provider interactively.
+        var commands = {
+            "codex": ["codex"],
+            "claude": ["claude"],
+            "grok": ["grok", "login"],
+            "hermes": ["hermes", "model"],
+            "devin": ["devin", "auth", "login"],
+            "antigravity": ["agy"],
+            "opencode": ["opencode", "auth"],
+            "opencodego": ["opencode", "auth"],
+            "copilot": ["copilot", "login"]
+        }
+        var entry = commands[ProviderLogic.providerId(raw)]
+        return entry instanceof Array ? entry : []
+    }
+
+    function launchLoginCommand(argv) {
+        if (!argv || !(argv instanceof Array) || argv.length === 0) {
+            return
+        }
+        var command = "konsole --hold -e"
+        for (var i = 0; i < argv.length; i++) {
+            command += " " + shellQuote(argv[i])
+        }
+        aiControlError = ""
+        aiControlExecutable.connectedSources = []
+        aiControlExecutable.connectSource(command)
     }
 
     function skillProviderIconSource(providerId) {
@@ -1718,7 +1750,7 @@ PlasmoidItem {
             return ""
         }
         var parts = []
-        if (usageKnown === false) {
+        if (usageKnown === false && !window.resetDescription) {
             parts.push(i18n("Usage not reported"))
         }
         if (window.resetDescription) {
@@ -1797,6 +1829,11 @@ PlasmoidItem {
         if (ProviderLogic.providerId(provider) === "devin") {
             if (quotaKey === "primary") {
                 return i18n("Daily")
+            }
+        }
+        if (ProviderLogic.providerId(provider) === "muse") {
+            if (quotaKey === "primary") {
+                return i18n("Today")
             }
         }
         if (quotaKey === "primary") {
@@ -2271,6 +2308,7 @@ PlasmoidItem {
                     visible: text.length > 0
                     text: root.formatResetTime(signalQuotaRow.rowData.resetsAt)
                     color: root.mutedColor
+                                            font.weight: Font.DemiBold
                     font.family: root.designFont
                     font.pixelSize: 12
                     elide: Text.ElideRight
@@ -2344,6 +2382,7 @@ PlasmoidItem {
                         && signalQuotaRow.rowData.detail.length > 0)
                     text: signalQuotaRow.rowData.detail || ""
                     color: root.mutedColor
+                                            font.weight: Font.DemiBold
                     font.family: root.designFont
                     font.pixelSize: 12
                     elide: Text.ElideRight
@@ -2369,8 +2408,9 @@ PlasmoidItem {
                         PlasmaComponents.Label {
                             text: modelData.text || ""
                             color: root.mutedColor
+                                            font.weight: Font.DemiBold
                             font.family: root.designFont
-                            font.pixelSize: 11
+                            font.pixelSize: 12
                         }
                     }
                 }
@@ -2379,6 +2419,7 @@ PlasmoidItem {
                     visible: signalQuotaRow.absoluteReset.length > 0
                     text: signalQuotaRow.absoluteReset
                     color: root.quietColor
+                                            font.weight: Font.DemiBold
                     font.family: root.designFont
                     font.pixelSize: 12
                     horizontalAlignment: Text.AlignRight
@@ -2472,7 +2513,7 @@ PlasmoidItem {
                             visible: text.length > 0
                             color: root.mutedColor
                             font.family: root.designFont
-                            font.pixelSize: 11
+                            font.pixelSize: 12
                             elide: Text.ElideRight
                             Layout.fillWidth: true
                         }
@@ -2515,6 +2556,7 @@ PlasmoidItem {
                     PlasmaComponents.Label {
                         text: i18n("Loading usage...")
                         color: root.mutedColor
+                                            font.weight: Font.DemiBold
                         font.family: root.designFont
                         font.pixelSize: 13
                         Layout.alignment: Qt.AlignHCenter
@@ -2543,6 +2585,7 @@ PlasmoidItem {
                     PlasmaComponents.Label {
                         text: i18n("Install the full KodexBar Suite to load provider quotas. Arch family distros can use the AUR package. Other distros clone the repository and run ./install.sh.")
                         color: root.mutedColor
+                                            font.weight: Font.DemiBold
                         font.family: root.designFont
                         font.pixelSize: 13
                         wrapMode: Text.WordWrap
@@ -2597,10 +2640,43 @@ PlasmoidItem {
                                 ? root.errorMessage + " " + root.errorDetail
                                 : root.errorMessage)
                         color: root.th("#d5a7ad")
+                                            font.weight: Font.DemiBold
                         font.family: root.designFont
                         font.pixelSize: 13
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
+                    }
+
+                    QQC2.Button {
+                        visible: root.popupState.hasEntry
+                            && root.activeEntry.errorCategory === "authentication"
+                            && root.loginCommandForProvider(root.activeEntry.provider).length > 0
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 44
+                        Layout.topMargin: 8
+                        text: i18n("Sign in again")
+                        Accessible.description: i18n("Open a terminal to sign in again with this provider")
+                        onClicked: root.launchLoginCommand(
+                            root.loginCommandForProvider(root.activeEntry.provider)
+                        )
+
+                        contentItem: PlasmaComponents.Label {
+                            text: parent.text
+                            color: "#ffffff"
+                            font.family: root.designFont
+                            font.pixelSize: 13
+                            font.weight: Font.DemiBold
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: 16
+                            rightPadding: 16
+                        }
+
+                        background: Rectangle {
+                            radius: 10
+                            color: parent.down ? root.th("#5543d8")
+                                : parent.hovered ? root.th("#7a67ff") : root.accentColor
+                        }
                     }
                 }
 
@@ -2628,6 +2704,7 @@ PlasmoidItem {
                         PlasmaComponents.Label {
                             text: i18n("Local time")
                             color: root.quietColor
+                                            font.weight: Font.DemiBold
                             font.family: root.designFont
                             font.pixelSize: 12
                         }
@@ -2671,6 +2748,7 @@ PlasmoidItem {
                     PlasmaComponents.Label {
                         text: i18n("The provider is connected, but it did not return quota details.")
                         color: root.quietColor
+                                            font.weight: Font.DemiBold
                         font.family: root.designFont
                         font.pixelSize: 12
                         horizontalAlignment: Text.AlignHCenter
@@ -2710,6 +2788,7 @@ PlasmoidItem {
                             ? i18n("Spend")
                             : i18n("Credits")
                         color: root.mutedColor
+                                            font.weight: Font.DemiBold
                         font.family: root.designFont
                         font.pixelSize: 13
                         Layout.fillWidth: true
@@ -2725,6 +2804,7 @@ PlasmoidItem {
                             PlasmaComponents.Label {
                                 text: modelData.label
                                 color: root.quietColor
+                                            font.weight: Font.DemiBold
                                 font.family: root.designFont
                                 font.pixelSize: 12
                             }
@@ -2752,6 +2832,7 @@ PlasmoidItem {
                             visible: signalProviderView.costRows.length > 0
                             text: i18n("Credits")
                             color: root.quietColor
+                                            font.weight: Font.DemiBold
                             font.family: root.designFont
                             font.pixelSize: 12
                         }
@@ -2799,6 +2880,7 @@ PlasmoidItem {
                                 PlasmaComponents.Label {
                                     text: modelData.label || ""
                                     color: root.mutedColor
+                                            font.weight: Font.DemiBold
                                     font.family: root.designFont
                                     font.pixelSize: 12
                                     Layout.fillWidth: true
@@ -2820,8 +2902,9 @@ PlasmoidItem {
                                 visible: !!(modelData.detail && modelData.detail.length > 0)
                                 text: modelData.detail || ""
                                 color: root.quietColor
+                                            font.weight: Font.DemiBold
                                 font.family: root.designFont
-                                font.pixelSize: 11
+                                font.pixelSize: 12
                                 horizontalAlignment: Text.AlignRight
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
@@ -2866,6 +2949,7 @@ PlasmoidItem {
                             : root.activeEntry.errorMessage ? i18n("Needs attention")
                                 : i18n("Operational")
                         color: root.mutedColor
+                                            font.weight: Font.DemiBold
                         font.family: root.designFont
                         font.pixelSize: 12
                         Layout.fillWidth: true
@@ -2875,6 +2959,7 @@ PlasmoidItem {
                     PlasmaComponents.Label {
                         text: root.formatUpdatedDateTime(root.activeEntry.updatedAt)
                         color: root.quietColor
+                                            font.weight: Font.DemiBold
                         font.family: root.designFont
                         font.pixelSize: 12
                         elide: Text.ElideRight
@@ -2964,8 +3049,9 @@ PlasmoidItem {
                             visible: !!(modelData.ordinal && modelData.ordinal.length > 0)
                             text: modelData.ordinal || ""
                             color: root.quietColor
+                                            font.weight: Font.DemiBold
                             font.family: root.designFont
-                            font.pixelSize: 11
+                            font.pixelSize: 12
                             anchors.verticalCenter: parent.verticalCenter
                         }
 
@@ -3090,6 +3176,7 @@ PlasmoidItem {
                 visible: !compact.compactState.blocks || compact.compactState.blocks.length === 0
                 text: root.panelText()
                 color: root.mutedColor
+                                            font.weight: Font.DemiBold
                 font.family: root.designFont
                 font.pixelSize: 12
                 elide: Text.ElideRight
@@ -3229,10 +3316,11 @@ PlasmoidItem {
                                     ? i18n("Scanned %1", root.formatUpdatedTime(root.skillsGeneratedAt))
                                 : i18n("Updated %1", root.formatUpdatedTime(root.activeEntry.updatedAt))
                             color: root.quietColor
+                                            font.weight: Font.DemiBold
                             font.family: root.designFont
-                            font.pixelSize: 11
+                            font.pixelSize: 12
                         }
-                        PlasmaComponents.Label { text: "·"; color: root.th("#3a3f4d"); font.pixelSize: 11 }
+                        PlasmaComponents.Label { text: "·"; color: root.th("#3a3f4d"); font.pixelSize: 12 }
                         PlasmaComponents.Label {
                             text: String(root.selectedPopupTab === "provider"
                                 ? root.formatUsageSource(
@@ -3241,7 +3329,7 @@ PlasmoidItem {
                                 : "local").toUpperCase()
                             color: root.accentColor
                             font.family: root.designFont
-                            font.pixelSize: 11
+                            font.pixelSize: 12
                             font.letterSpacing: 0.5
                         }
                     }
@@ -3641,6 +3729,7 @@ PlasmoidItem {
                             text: i18n("updated %1", root.formatUpdatedTime(root.activeEntry.updatedAt))
                                 + (root.activeEntry.isCached === true ? " · " + i18n("cached") : "")
                             color: root.quietColor
+                                            font.weight: Font.DemiBold
                             font.family: root.designFont
                             font.pixelSize: 12
                             elide: Text.ElideRight
@@ -3662,7 +3751,7 @@ PlasmoidItem {
                                     root.activeEntry.source || root.activeSource || "")).toUpperCase()
                                 color: root.th("#9787ff")
                                 font.family: root.designFont
-                                font.pixelSize: 11
+                                font.pixelSize: 12
                                 font.weight: Font.DemiBold
                                 font.letterSpacing: 0.5
                             }
@@ -3704,6 +3793,7 @@ PlasmoidItem {
                                 PlasmaComponents.Label {
                                     text: i18n("Loading usage...")
                                     color: root.mutedColor
+                                            font.weight: Font.DemiBold
                                     font.family: root.designFont
                                     font.pixelSize: 13
                                 }
@@ -3760,6 +3850,7 @@ PlasmoidItem {
                                                 objectName: "engineMissingBody"
                                                 text: i18n("This widget needs the KodexBar Suite data engine to show AI CLI quotas. Install the full suite, then open the popup again. Arch family distros can use the AUR package. Other distros clone the repository and run ./install.sh.")
                                                 color: root.mutedColor
+                                            font.weight: Font.DemiBold
                                                 font.family: root.designFont
                                                 font.pixelSize: 12
                                                 lineHeight: 1.45
@@ -3890,6 +3981,7 @@ PlasmoidItem {
                                 PlasmaComponents.Label {
                                     text: i18n("Waiting for an enabled provider to check in.")
                                     color: root.quietColor
+                                            font.weight: Font.DemiBold
                                     font.family: root.designFont
                                     font.pixelSize: 12
                                     horizontalAlignment: Text.AlignHCenter
@@ -3938,7 +4030,7 @@ PlasmoidItem {
                                                     modelData.compactKey, modelData.title)
                                                 color: root.quietColor
                                                 font.family: root.designFont
-                                                font.pixelSize: 10
+                                                font.pixelSize: 11
                                                 font.weight: Font.Bold
                                             }
                                         }
@@ -3956,6 +4048,7 @@ PlasmoidItem {
                                         PlasmaComponents.Label {
                                             text: root.formatResetTime(modelData.resetsAt).toLowerCase()
                                             color: root.quietColor
+                                            font.weight: Font.DemiBold
                                             font.family: root.designFont
                                             font.pixelSize: 12
                                             visible: text.length > 0
@@ -4043,7 +4136,7 @@ PlasmoidItem {
                                             modelData.precisePercent === true)
                                         color: root.metricAccent(modelData.percentLeft, modelData.usageKnown)
                                         font.family: root.designFont
-                                        font.pixelSize: 11
+                                        font.pixelSize: 12
                                         font.weight: Font.DemiBold
                                         Layout.topMargin: 1
                                     }
@@ -4093,6 +4186,7 @@ PlasmoidItem {
                                         visible: !!(modelData.detail && modelData.detail.length > 0)
                                         text: modelData.detail || ""
                                         color: root.quietColor
+                                            font.weight: Font.DemiBold
                                         font.family: root.designFont
                                         font.pixelSize: 12
                                         lineHeight: 1.4
@@ -4140,8 +4234,9 @@ PlasmoidItem {
                                     visible: !!(root.showEmailInWidget && root.activeEntry.account)
                                     text: root.activeEntry.account || ""
                                     color: root.quietColor
+                                            font.weight: Font.DemiBold
                                     font.family: root.designFont
-                                    font.pixelSize: 11
+                                    font.pixelSize: 12
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
                                 }
@@ -4221,6 +4316,7 @@ PlasmoidItem {
                                     text: root.formatResetTimes(root.activeEntry.bankedResetExpiresAt)
                                     visible: text.length > 0
                                     color: root.quietColor
+                                            font.weight: Font.DemiBold
                                     font.family: root.designFont
                                     font.pixelSize: 12
                                     wrapMode: Text.WordWrap
@@ -4260,6 +4356,7 @@ PlasmoidItem {
                                         PlasmaComponents.Label {
                                             text: modelData.label
                                             color: root.mutedColor
+                                            font.weight: Font.DemiBold
                                             font.family: root.designFont
                                             font.pixelSize: 12
                                             Layout.fillWidth: true
@@ -4287,8 +4384,9 @@ PlasmoidItem {
                                         : i18n("Source: %1", root.activeEntry.costSummary
                                             ? root.activeEntry.costSummary.source : "")
                                     color: root.quietColor
+                                            font.weight: Font.DemiBold
                                     font.family: root.designFont
-                                    font.pixelSize: 10
+                                    font.pixelSize: 11
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
                                 }
@@ -4316,8 +4414,9 @@ PlasmoidItem {
                                     delegate: PlasmaComponents.Label {
                                         text: modelData
                                         color: root.quietColor
+                                            font.weight: Font.DemiBold
                                         font.family: root.designFont
-                                        font.pixelSize: 11
+                                        font.pixelSize: 12
                                         wrapMode: Text.WordWrap
                                         Layout.fillWidth: true
                                     }
@@ -4343,6 +4442,7 @@ PlasmoidItem {
                                 PlasmaComponents.Label {
                                     text: i18n("Waiting for this provider to check in.")
                                     color: root.quietColor
+                                            font.weight: Font.DemiBold
                                     font.family: root.designFont
                                     font.pixelSize: 12
                                     horizontalAlignment: Text.AlignHCenter
@@ -4358,8 +4458,9 @@ PlasmoidItem {
                                     && (!root.activeEntry.costSummary)
                                 text: root.costErrorMessage
                                 color: root.quietColor
+                                            font.weight: Font.DemiBold
                                 font.family: root.designFont
-                                font.pixelSize: 11
+                                font.pixelSize: 12
                                 wrapMode: Text.WordWrap
                                 Layout.fillWidth: true
                             }
@@ -4394,6 +4495,7 @@ PlasmoidItem {
                         Layout.fillWidth: true
                         text: i18n("The local-ai monitor is parked under packages/ai-cli-control/attic/local and is not part of the program. Restore it there to bring this tab back.")
                         color: root.mutedColor
+                                            font.weight: Font.DemiBold
                         font.family: root.designFont
                         font.pixelSize: 13
                         wrapMode: Text.WordWrap
@@ -4427,6 +4529,7 @@ PlasmoidItem {
                         Layout.fillWidth: true
                         text: i18n("Read-only inventory of reusable AI skills across providers. Sync is parked for now.")
                         color: root.mutedColor
+                                            font.weight: Font.DemiBold
                         font.family: root.designFont
                         font.pixelSize: 13
                         wrapMode: Text.WordWrap
@@ -4436,8 +4539,9 @@ PlasmoidItem {
                         Layout.fillWidth: true
                         text: i18n("Same everywhere means identical in all providers. In X of Y means it lives only in some, nothing was lost. Needs attention means the same name holds different content and must be fixed by hand.")
                         color: root.quietColor
+                                            font.weight: Font.DemiBold
                         font.family: root.designFont
-                        font.pixelSize: 11
+                        font.pixelSize: 12
                         wrapMode: Text.WordWrap
                     }
 
@@ -4450,6 +4554,7 @@ PlasmoidItem {
                                 root.skillsSummary.uniqueSkills || 0,
                                 root.skillsSummary.connectedProviders || 0)
                             color: root.quietColor
+                                            font.weight: Font.DemiBold
                             font.family: root.designFont
                             font.pixelSize: 12
                         }
@@ -4461,8 +4566,9 @@ PlasmoidItem {
                                 ? i18n("Last scan %1", root.formatUpdatedTime(root.skillsGeneratedAt))
                                 : i18n("No scan yet")
                             color: root.quietColor
+                                            font.weight: Font.DemiBold
                             font.family: root.designFont
-                            font.pixelSize: 11
+                            font.pixelSize: 12
                         }
                     }
 
@@ -4536,8 +4642,9 @@ PlasmoidItem {
                                             Layout.fillWidth: true
                                             text: modelData.description || i18n("Reusable AI instruction")
                                             color: root.quietColor
+                                            font.weight: Font.DemiBold
                                             font.family: root.designFont
-                                            font.pixelSize: 11
+                                            font.pixelSize: 12
                                             elide: Text.ElideRight
                                         }
                                     }
@@ -4546,7 +4653,7 @@ PlasmoidItem {
                                         text: root.skillCompactStatusText(modelData)
                                         color: root.skillStatusColor(modelData)
                                         font.family: root.designFont
-                                        font.pixelSize: 11
+                                        font.pixelSize: 12
                                         font.weight: Font.DemiBold
                                     }
                                 }
@@ -4561,6 +4668,7 @@ PlasmoidItem {
                         Layout.fillWidth: true
                         text: i18n("No user skills were detected.")
                         color: root.mutedColor
+                                            font.weight: Font.DemiBold
                         font.family: root.designFont
                         font.pixelSize: 12
                         horizontalAlignment: Text.AlignHCenter
@@ -4586,6 +4694,7 @@ PlasmoidItem {
                         text: localReleaseDialog.warning.length > 0 ? localReleaseDialog.warning : i18n("This affects every resident model in this runtime.")
                         wrapMode: Text.WordWrap
                         color: root.mutedColor
+                                            font.weight: Font.DemiBold
                     }
                 }
             }
@@ -4610,6 +4719,7 @@ PlasmoidItem {
                             : i18n("This stops the configured local service and releases all of its runtime memory.")
                         wrapMode: Text.WordWrap
                         color: root.mutedColor
+                                            font.weight: Font.DemiBold
                     }
                 }
             }
@@ -4645,7 +4755,7 @@ PlasmoidItem {
                             text: i18n("IN THE PANEL")
                             color: root.quietColor
                             font.family: root.designFont
-                            font.pixelSize: 10
+                            font.pixelSize: 11
                             font.weight: Font.Bold
                             font.letterSpacing: 0.8
                         }
@@ -4660,7 +4770,7 @@ PlasmoidItem {
                             text: i18n("compact view")
                             color: root.th("#565b68")
                             font.family: root.designFont
-                            font.pixelSize: 10
+                            font.pixelSize: 11
                         }
                     }
 
@@ -4687,6 +4797,7 @@ PlasmoidItem {
                         anchors.bottomMargin: 10
                         text: root.panelText()
                         color: root.mutedColor
+                                            font.weight: Font.DemiBold
                         font.family: root.designFont
                         font.pixelSize: 12
                         elide: Text.ElideRight
@@ -4704,8 +4815,9 @@ PlasmoidItem {
                     text: '<a href="' + root.tipUrl + '">' + i18n("Tip on PayPal") + "</a>"
                     textFormat: Text.RichText
                     color: root.quietColor
+                                            font.weight: Font.DemiBold
                     font.family: root.designFont
-                    font.pixelSize: 11
+                    font.pixelSize: 12
                     onLinkActivated: function(link) {
                         Qt.openUrlExternally(link)
                     }

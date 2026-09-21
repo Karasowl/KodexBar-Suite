@@ -17,6 +17,7 @@ This package is also maintained inside the [KodexBar Suite monorepo](../../READM
 - Use English by default. Spanish locales receive Spanish interface text. `--language en` and `--language es` override locale detection.
 - Keep every launched and updated command as an argument array without shell evaluation.
 - Provide `kodexbar-quotas`, a local quota engine for the KodexBar Suite widget, `kodexbar-panel`, a compact adapter for non-KDE bars, and `kodexbar-tray`, a StatusNotifierItem indicator.
+- Provide `kodexbar-quotas` Muse usage: today's message and token counts for the muse-spark family from the local OpenCode database.
 - Provide `kodexbar-skills`, a local skill inventory for Codex, Claude, Grok, Gemini CLI, OpenCode, and Hermes. The widget shows it read-only. Sync stays available in the CLI engine but is parked in the UI.
 
 ## Requirements

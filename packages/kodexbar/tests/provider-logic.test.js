@@ -1277,7 +1277,7 @@ assert.match(
     /<entry name="compactProviderOrder" type="String">\s*<default>codex,claude,grok,antigravity,opencodego,hermes,devin<\/default>/,
     "the compact default includes OpenCode Go, Hermes, and Devin"
 )
-assert.equal(metadata.KPlugin.Version, "0.12.14", "package metadata uses version 0.12.14")
+assert.equal(metadata.KPlugin.Version, "0.12.15", "package metadata uses version 0.12.15")
 assert.equal(metadata.KPlugin.Website, "https://github.com/Karasowl/KodexBar-Suite", "package metadata links to the maintained suite repository")
 assert.match(mainQml, /var antigravityWindows = antigravity && Array\.isArray\(usage\.antigravityRateWindows\)/, "popup consumes the engine's Antigravity model windows")
 assert.match(mainQml, /compactLabel: antigravityKey === "gemini-weekly" \? "W"/, "compact Antigravity weekly uses W like other providers")
@@ -1865,7 +1865,7 @@ assert.match(preferencesQml, /Plasmoid\.globalShortcut = workingShortcut/, "pref
 assert.match(preferencesQml, /KeySequenceItem/, "preferences expose a native key-sequence capture control")
 assert.match(preferencesQml, /compactResultForOrder\(workingCompactProviderOrder, \{[\s\S]*quotaSelection: workingCompactQuotaSelection[\s\S]*showProvider: workingShowProviderInPanel[\s\S]*showUsed: workingShowUsedPercentInPanel[\s\S]*showCredits: workingShowCreditsInPanel/, "the live preview uses the working compact composition")
 assert.match(mainQml, /function compactResultForOrder\(providerOrder, overrides\) \{[\s\S]*overrides \|\| \{\}[\s\S]*values\.quotaSelection === undefined[\s\S]*values\.showProvider === undefined[\s\S]*values\.showUsed === undefined[\s\S]*values\.showCredits === undefined/, "compact composition accepts preview overrides while preserving configured fallbacks")
-assert.match(mainQml, /defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,hermes,devin"/, "the compact default includes detected Hermes and Devin")
+assert.match(mainQml, /defaultCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,hermes,devin,muse"/, "the compact default includes detected Hermes, Devin, and Muse")
 assert.match(mainQml, /"hermes": "Hermes"/, "popup names Hermes")
 assert.match(mainQml, /"hermes": "hermes"/, "Hermes uses its own supplied icon")
 assert.match(mainQml, /"devin": "Devin"/, "popup names Devin")

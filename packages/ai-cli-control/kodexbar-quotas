@@ -18,7 +18,7 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover - Python < 3.11
     tomllib = None  # type: ignore[assignment]
 
 
-VERSION = "0.12.14"
+VERSION = "0.12.15"
 IS_WINDOWS = os.name == "nt"
 TIMEOUT_SECONDS = 15
 COST_CACHE_TTL_SECONDS = 15 * 60
@@ -90,10 +90,10 @@ GROK_SURFACE_NAMES: dict[int, str] = {
 GROK_SEGMENTS_FLOAT_ABS_TOL = 1e-3
 PROTOBUF_MAX_DEPTH = 32
 PROTOBUF_MAX_FIELDS = 4096
-SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok", "opencodego", "cursor", "hermes", "devin"}
+SUPPORTED_PROVIDERS = {"claude", "codex", "antigravity", "grok", "opencodego", "cursor", "hermes", "devin", "muse"}
 # Stable order for auto-generated CodexBar config (upstream Codable expects version + providers).
 AUTO_CONFIG_PROVIDER_IDS = (
-    "claude", "codex", "grok", "antigravity", "opencodego", "cursor", "hermes", "devin",
+    "claude", "codex", "grok", "antigravity", "opencodego", "cursor", "hermes", "devin", "muse",
 )
 PROFILES_CONFIG_VERSION = 1
 PROFILE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
@@ -823,6 +823,8 @@ def enabled_providers(home: Path | None = None) -> list[str]:
         result.append("hermes")
     if "devin" not in explicit_ids and detect_devin_installed(root):
         result.append("devin")
+    if "muse" not in explicit_ids and detect_muse_installed(root):
+        result.append("muse")
     return result
 
 
@@ -1021,6 +1023,101 @@ def devin_credentials_path(
     return user_data_directory(home) / "devin" / "credentials.toml"
 
 
+MUSE_MODEL_PATTERN = "%muse-spark%"
+
+
+def muse_db_candidates(home: Path | None = None) -> list[Path]:
+    """Local OpenCode database locations holding per-message model usage."""
+    root = home or home_directory()
+    if IS_WINDOWS:
+        return [
+            root / "AppData" / "Local" / "opencode" / "opencode.db",
+            root / "AppData" / "Roaming" / "opencode" / "opencode.db",
+        ]
+    xdg_data = os.environ.get("XDG_DATA_HOME")
+    if xdg_data:
+        return [Path(xdg_data).expanduser() / "opencode" / "opencode.db"]
+    return [root / ".local" / "share" / "opencode" / "opencode.db"]
+
+
+def detect_muse_installed(home: Path | None = None) -> bool:
+    """Muse usage is present when the local OpenCode database exists."""
+    return any(path.is_file() for path in muse_db_candidates(home))
+
+
+def format_muse_count(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "0"
+    if number >= 1_000_000:
+        text = f"{number / 1_000_000:.1f}M"
+    elif number >= 1_000:
+        text = f"{number / 1_000:.0f}K"
+    else:
+        text = f"{int(number)}"
+    return text.rstrip("0").rstrip(".") if text.endswith("M") and "." in text else text
+
+
+def muse_day_bounds() -> tuple[int, str]:
+    """Local-midnight start as epoch milliseconds plus next-midnight ISO reset."""
+    now = datetime.now().astimezone()
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    reset = start + timedelta(days=1)
+    return int(start.timestamp() * 1000), reset.isoformat()
+
+
+def fetch_muse(home: Path | None = None) -> dict[str, Any]:
+    """Native Muse model usage from the local OpenCode database (read-only).
+
+    Counts messages and tokens for the muse-spark family since local midnight.
+    Returns an empty dict when the database is absent so no phantom entry
+    appears; usage has no vendor percent, only real local counts.
+    """
+    paths = [path for path in muse_db_candidates(home) if path.is_file()]
+    if not paths:
+        return {}
+    start_ms, resets_at = muse_day_bounds()
+    try:
+        connection = sqlite3.connect(f"file:{paths[0]}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error as error:
+        raise FetchFallback(f"Cannot open the OpenCode database: {error}", "permanent", False)
+    try:
+        row = connection.execute(
+            "SELECT COUNT(*), COALESCE(SUM(json_extract(data, '$.tokens.input')), 0), "
+            "COALESCE(SUM(json_extract(data, '$.tokens.output')), 0) FROM message "
+            "WHERE json_extract(data, '$.modelID') LIKE ? AND time_created >= ?",
+            (MUSE_MODEL_PATTERN, start_ms),
+        ).fetchone()
+    except sqlite3.Error as error:
+        raise FetchFallback(f"Cannot read Muse usage: {error}", "invalid_response", True)
+    finally:
+        try:
+            connection.close()
+        except sqlite3.Error:
+            pass
+    messages, tokens_in, tokens_out = (row or (0, 0, 0))
+    detail = (
+        f"{format_muse_count(messages)} msgs - "
+        f"{format_muse_count(tokens_in)} in / {format_muse_count(tokens_out)} out"
+    )
+    return {
+        "provider": "muse",
+        "source": "opencode-db",
+        "profileId": "default",
+        "engine": "kodexbar",
+        "messagesToday": int(messages or 0),
+        "usage": {
+            "primary": {
+                "title": "Today",
+                "resetsAt": resets_at,
+                "resetDescription": detail,
+                "usageKnown": False,
+            },
+        },
+    }
+
+
 def detect_devin_installed(home: Path | None = None) -> bool:
     """Devin is present when `devin` is on PATH or credentials.toml has an API key."""
     if command_on_path("devin"):
@@ -1044,6 +1141,7 @@ def detect_installed_providers(home: Path | None = None) -> dict[str, bool]:
         "cursor": detect_cursor_installed(root),
         "hermes": detect_hermes_installed(root),
         "devin": detect_devin_installed(root),
+        "muse": detect_muse_installed(root),
     }
 
 
@@ -5939,6 +6037,9 @@ def fetch_provider(
                 allow_upstream_fallback=allow_fallback,
             )
         )
+    if normalized == "muse" and source in (None, "auto", "opencode-db"):
+        entry = fetch_muse(home)
+        return stamp([entry] if entry else [])
     if not allow_fallback and normalized in ("opencodego", "antigravity"):
         return stamp(
             [

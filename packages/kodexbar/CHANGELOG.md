@@ -4,6 +4,12 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+## 0.12.15, 2026-09-21
+
+### Added
+
+- Muse entry with its own icon, label, and message counts in the compact strip.
+
 ## 0.12.14, 2026-09-21
 
 ### Fixed

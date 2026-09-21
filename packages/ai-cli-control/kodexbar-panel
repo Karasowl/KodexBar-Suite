@@ -31,6 +31,7 @@ LABELS = {
     "opencodego": "Og",
     "hermes": "Hm",
     "devin": "Dv",
+    "muse": "Mu",
 }
 
 
@@ -181,9 +182,11 @@ def compact_provider(entry: Any) -> dict[str, Any] | None:
         else [session_raw, weekly_raw]
     )
     severity = "critical" if error else usage_severity([value for value in severity_values if value is not None])
+    messages = entry.get("messagesToday")
     result = {
         "provider": identifier,
         "label": provider_label(identifier, entry.get("name")),
+        "messages": messages if isinstance(messages, int) and not isinstance(messages, bool) and messages >= 0 else None,
         "percentages": {"session": session, "weekly": weekly},
         "resets": {"session": session_reset, "weekly": weekly_reset},
         "severity": severity,
@@ -220,6 +223,10 @@ def block_text(provider: dict[str, Any]) -> str:
             for quota in antigravity_compact_quotas(provider["quotas"]):
                 if quota["percentage"] is not None:
                     parts.append(f'{quota["label"]} {quota["percentage"]}%')
+            return " ".join(parts)
+        messages = provider.get("messages")
+        if messages is not None:
+            parts.append(f"{messages} msgs")
             return " ".join(parts)
         session = provider["percentages"]["session"]
         weekly = provider["percentages"]["weekly"]
