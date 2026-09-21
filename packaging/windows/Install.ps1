@@ -47,4 +47,19 @@ if ($actual -ne $expected.ToLowerInvariant()) { throw "Checksum mismatch for $($
 
 Write-Host "Checksum OK. Installing $($release.tag_name)..."
 Start-Process -FilePath $setupPath -ArgumentList "/VERYSILENT", "/TASKS=`"$Tasks`"" -Wait
-Write-Host "KodexBar Suite installed. Open KodexBar Tray from the Start menu."
+$tray = $null
+try {
+    $tray = (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{7E5A2C64-52B1-4B3F-9E0D-4A7B6C1D8F21}_is1" -ErrorAction Stop).InstallLocation
+} catch {
+    $tray = $null
+}
+if ([string]::IsNullOrEmpty($tray)) {
+    $tray = Join-Path $env:LOCALAPPDATA "Programs\KodexBar-Suite"
+}
+$trayExe = Join-Path $tray "KodexBarTray.exe"
+if (Test-Path $trayExe) {
+    Start-Process -FilePath $trayExe
+    Write-Host "KodexBar Suite installed and the tray is starting. Look for its icon by the clock."
+} else {
+    Write-Host "KodexBar Suite installed. Open KodexBar Tray from the Start menu."
+}
