@@ -21,7 +21,7 @@ The public installation paths are the [AUR](https://aur.archlinux.org/packages/k
 The repository contains two installable packages and their shared tooling:
 
 - `packages/kodexbar` is a KDE Plasma 6 widget for ordered CodexBar quota and usage summaries.
-- `packages/ai-cli-control` is the local `ai` selector for launching and updating Codex, Claude, Grok, Antigravity, OpenCode, Cursor, Hermes, Devin, Copilot, and Qwen, including read-only conversation recovery with `ai recover`.
+- `packages/ai-cli-control` is the local `ai` selector for launching and updating Codex, Claude, Grok, Antigravity, OpenCode, Cursor, Hermes, Devin, Copilot, Qwen, and Muse Code, including read-only conversation recovery with `ai recover`.
 - `local-ai`, installed with `ai-cli-control`, is an optional JSON monitor for local model runtimes. It does not install runtimes or download weights.
 - `kodexbar-skills`, installed with `ai-cli-control`, inventories and synchronizes skills across six providers with confirmation, preflight, and identical-copy backups.
 

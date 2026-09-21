@@ -23,8 +23,8 @@ AUR_PKGBUILD = ROOT.parents[1] / "packaging" / "aur" / "PKGBUILD"
 AUR_INSTALL = ROOT.parents[1] / "packaging" / "aur" / "kodexbar-suite.install"
 PLASMOID_METADATA = ROOT.parent / "kodexbar" / "metadata.json"
 PLASMA_RELOAD = ROOT.parents[1] / "packaging" / "aur" / "reload-plasma-after-upgrade"
-RELEASE_VERSION = "0.12.15"
-AUR_RELEASE_VERSION = "0.12.15"
+RELEASE_VERSION = "0.12.16"
+AUR_RELEASE_VERSION = "0.12.16"
 FORBIDDEN = ("eval(", "shell=True", "shell = True", "os.system(")
 SECRET_PATTERNS = {
     "private key": re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"),
@@ -175,8 +175,11 @@ def main() -> int:
     if 'return [command_name(provider), "update"]' not in source:
         print("Updates are not built as an argument array", file=sys.stderr)
         return 1
-    if 'default = "agy" if provider == "antigravity" else provider' not in source:
+    if 'command_name("antigravity")' not in source or '"agy"' not in source:
         print("Missing Antigravity executable mapping", file=sys.stderr)
+        return 1
+    if 'provider == "musecode"' not in source or 'default = "muse"' not in source:
+        print("Missing Muse Code executable mapping", file=sys.stderr)
         return 1
     if 'Path(__file__).resolve().with_name("recover.py")' not in source:
         print("Recovery engine is not resolved beside the installed ai script", file=sys.stderr)

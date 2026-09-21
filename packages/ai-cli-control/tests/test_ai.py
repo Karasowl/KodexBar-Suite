@@ -44,6 +44,31 @@ class AiSelectorTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        self.muse_catalog = self.temp / "muse-catalog"
+        self.muse_catalog.mkdir()
+        (self.muse_catalog / "6d657461__test.json").write_text(
+            json.dumps(
+                {
+                    "rows": [
+                        {
+                            "model_id": "muse-test",
+                            "display_label": "Muse Test",
+                            "visibility": "visible",
+                            "reasoning_effort_variants": [
+                                {"tier": "low", "description": "Rapido"},
+                                {"tier": "high", "description": "Profundo"},
+                            ],
+                        },
+                        {
+                            "model_id": "muse-hidden",
+                            "visibility": "hidden",
+                            "reasoning_effort_variants": [{"effort": "low"}],
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         self.grok = self.temp / "grok-test"
         self.grok.write_text(
             textwrap.dedent(
@@ -120,6 +145,7 @@ class AiSelectorTests(unittest.TestCase):
                 "LANG": "C",
                 "LC_ALL": "C",
                 "AI_CODEX_MODELS_CACHE": str(self.cache),
+                "AI_MUSE_CATALOG_DIR": str(self.muse_catalog),
                 "AI_GROK_EXECUTABLE": str(self.grok),
                 "AI_ANTIGRAVITY_EXECUTABLE": str(self.antigravity),
                 "AI_TEST_UPDATE_LOG": str(self.update_log),
@@ -132,6 +158,8 @@ class AiSelectorTests(unittest.TestCase):
             update_args = ["upgrade"]
         elif provider == "cursor":
             update_args = ["--update-extensions"]
+        elif provider == "musecode":
+            update_args = ["--version"]
         else:
             update_args = ["update"]
         update_literal = repr(update_args)
@@ -144,7 +172,12 @@ class AiSelectorTests(unittest.TestCase):
                 from pathlib import Path
                 import sys
 
-                if sys.argv[1:] == ["--version"]:
+                if sys.argv[1:] == ["--version"] and "{provider}" == "musecode":
+                    Path(os.environ["AI_TEST_UPDATE_LOG"]).open("a").write("{provider}\\n")
+                    print("{provider} update stdout")
+                    print("{provider} update stderr", file=sys.stderr)
+                    raise SystemExit(17 if os.environ.get("AI_TEST_UPDATE_FAIL") == "{provider}" else 0)
+                elif sys.argv[1:] == ["--version"]:
                     state = Path(os.environ["AI_TEST_VERSION_STATE"]) / "{provider}"
                     count = int(state.read_text() if state.exists() else "0")
                     state.write_text(str(count + 1))
@@ -170,6 +203,7 @@ class AiSelectorTests(unittest.TestCase):
         self.devin = self.make_update_cli("devin")
         self.copilot = self.make_update_cli("copilot")
         self.qwen = self.make_update_cli("qwen")
+        self.musecode = self.make_update_cli("musecode")
         self.env.update(
             {
                 "AI_CODEX_EXECUTABLE": str(self.codex),
@@ -180,6 +214,7 @@ class AiSelectorTests(unittest.TestCase):
                 "AI_DEVIN_EXECUTABLE": str(self.devin),
                 "AI_COPILOT_EXECUTABLE": str(self.copilot),
                 "AI_QWEN_EXECUTABLE": str(self.qwen),
+                "AI_MUSECODE_EXECUTABLE": str(self.musecode),
             }
         )
 
@@ -257,6 +292,32 @@ class AiSelectorTests(unittest.TestCase):
         result = self.run_ai("--dry-run", "--provider", "cursor")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "cursor .")
+
+    def test_musecode_command_uses_catalog_models_and_verified_flags(self) -> None:
+        result = self.run_ai(
+            "--dry-run", "--provider", "musecode",
+            "--model", "muse-test", "--effort", "high", "--permissions", "ask",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            "muse --model muse-test --reasoning-effort high --approval-mode on-request",
+        )
+
+    def test_musecode_full_permissions_disable_approval_and_sandbox(self) -> None:
+        result = self.run_ai(
+            "--dry-run", "--provider", "musecode",
+            "--model", "muse-test", "--effort", "low", "--permissions", "full",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--yolo", result.stdout)
+
+    def test_musecode_hidden_models_are_not_selectable(self) -> None:
+        result = self.run_ai(
+            "--dry-run", "--provider", "musecode", "--model", "muse-hidden",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid model", result.stderr)
 
     def test_antigravity_uses_dynamic_model_with_spaces_and_no_effort_flag(self) -> None:
         result = self.run_ai(
@@ -465,7 +526,7 @@ class AiSelectorTests(unittest.TestCase):
 
     def test_text_update_selection_accepts_multiple_numbers(self) -> None:
         self.enable_update_executables()
-        result = self.run_ai("--text", "--dry-run", input_text="11\n1,3\n")
+        result = self.run_ai("--text", "--dry-run", input_text="12\n1,3\n")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.splitlines(),
@@ -572,6 +633,7 @@ class AiSelectorTests(unittest.TestCase):
                 f"{self.devin} update",
                 f"{self.copilot} update",
                 f"{self.qwen} update",
+                f"{self.musecode} --version",
             ],
         )
         self.assertEqual(result.stderr, "")
@@ -621,8 +683,8 @@ class AiSelectorTests(unittest.TestCase):
 
     def test_update_cancel_or_empty_selection_runs_nothing(self) -> None:
         self.enable_update_executables()
-        cancelled = self.run_ai("--text", input_text="11\n0\n")
-        empty = self.run_ai("--text", input_text="11\n\n")
+        cancelled = self.run_ai("--text", input_text="12\n0\n")
+        empty = self.run_ai("--text", input_text="12\n\n")
         self.assertEqual(cancelled.returncode, 0, cancelled.stderr)
         self.assertEqual(empty.returncode, 0, empty.stderr)
         self.assertEqual(cancelled.stdout, "")
@@ -647,7 +709,7 @@ class AiSelectorTests(unittest.TestCase):
         version = self.run_ai("--version")
         help_result = self.run_ai("--language", "en", "--help")
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.12.15")
+        self.assertEqual(version.stdout.strip(), "ai-cli-control 0.12.16")
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("Choose and launch Codex", help_result.stdout)
         self.assertIn("--language LANGUAGE", help_result.stdout)

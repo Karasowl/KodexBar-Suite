@@ -2,7 +2,7 @@
 
 English documentation. Complete Spanish documentation is available in [README.es.md](README.es.md).
 
-`ai-cli-control` is a local selector for launching Codex, Claude, Grok, Antigravity, OpenCode, Cursor, Hermes, Devin, Copilot, or Qwen from the current terminal directory. It keeps the selected CLI's working directory and environment. It is original work and is not a KodexBar fork.
+`ai-cli-control` is a local selector for launching Codex, Claude, Grok, Antigravity, OpenCode, Cursor, Hermes, Devin, Copilot, Qwen, or Muse Code from the current terminal directory. It keeps the selected CLI's working directory and environment. It is original work and is not a KodexBar fork.
 
 This package is also maintained inside the [KodexBar Suite monorepo](../../README.md). From that repository root, use `./install.sh` to install it together with the Plasma widget. The package-level `install.sh` remains available for standalone use.
 
@@ -107,7 +107,7 @@ Choose **Update CLIs** in the main selector, or use a non-interactive list:
 ./ai --update all --dry-run
 ```
 
-Valid identifiers are `codex`, `claude`, `grok`, `antigravity`, `opencode`, `cursor`, `hermes`, `devin`, `copilot`, and `qwen`. Updates always run in that order, even when the input order differs. The exact update arrays are `codex update`, `claude update`, `grok update`, `agy update`, `opencode upgrade`, `cursor --update-extensions`, `hermes update`, `devin update`, `copilot update`, and `qwen update`. Cursor updates only its extensions through the CLI. The Cursor app itself updates through its built-in updater. Copilot needs its CLI installed once from https://gh.io/copilot-install before `ai` can launch it.
+Valid identifiers are `codex`, `claude`, `grok`, `antigravity`, `opencode`, `cursor`, `hermes`, `devin`, `copilot`, `qwen`, and `musecode`. Updates always run in that order, even when the input order differs. The exact update arrays are `codex update`, `claude update`, `grok update`, `agy update`, `opencode upgrade`, `cursor --update-extensions`, `hermes update`, `devin update`, `copilot update`, `qwen update`, and `muse --version` (with `MUSE_SYNC_UPDATE=1`, the launcher self-update). Cursor updates only its extensions through the CLI. The Cursor app itself updates through its built-in updater. Copilot needs its CLI installed once from https://gh.io/copilot-install before `ai` can launch it.
 
 Before and after each real update, the selector attempts `<cli> --version`. Standard output and error from each update stay attached to the terminal. A failed or missing CLI is reported and the remaining selected CLIs continue. The final status is `0` only when all selected updates succeed. `--dry-run` prints the update arrays without checking versions or executing updates.
 
