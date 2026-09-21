@@ -21,7 +21,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 try:
@@ -49,6 +49,13 @@ COST_INCREMENTAL_MAX_LINE_BYTES = 1024 * 1024
 SYSTEMD_SCOPE_AVAILABLE: bool | None = None
 HTTP_MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MiB: enough for quota JSON / gRPC-web billing
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+# Verified against the installed Claude Code bundle plus its public client
+# metadata (https://claude.ai/oauth/claude-code-client-metadata): the CLI
+# refreshes with grant_type=refresh_token at this token endpoint as a public
+# client (no secret), and stores expiresAt as milliseconds since the epoch.
+CLAUDE_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
+CLAUDE_OAUTH_CLIENT_ID = "https://claude.ai/oauth/claude-code-client-metadata"
+CLAUDE_REFRESH_SKEW_SECONDS = 300
 CODEX_DEFAULT_BASE = "https://chatgpt.com/backend-api"
 CODEX_USAGE_PATH_WHAM = "/wham/usage"
 CODEX_USAGE_PATH_ALT = "/api/codex/usage"
@@ -1133,16 +1140,131 @@ def claude_access_token(
     try:
         credentials = read_json(path)
     except (OSError, json.JSONDecodeError) as error:
-        raise FetchFallback("Claude OAuth credentials are unavailable", "authentication") from error
+        raise FetchFallback("Claude OAuth credentials are unavailable (run: claude)", "authentication") from error
     if not isinstance(credentials, dict):
-        raise FetchFallback("Claude OAuth credentials are unavailable", "authentication")
+        raise FetchFallback("Claude OAuth credentials are unavailable (run: claude)", "authentication")
     oauth = credentials.get("claudeAiOauth")
     if not isinstance(oauth, dict):
-        raise FetchFallback("Claude OAuth credentials are unavailable", "authentication")
+        raise FetchFallback("Claude OAuth credentials are unavailable (run: claude)", "authentication")
     token = oauth.get("accessToken")
     if not isinstance(token, str) or not token.strip():
-        raise FetchFallback("Claude OAuth credentials are unavailable", "authentication")
+        raise FetchFallback("Claude OAuth credentials are unavailable (run: claude)", "authentication")
     return require_header_safe_credential(token, CLAUDE_CREDENTIAL_MALFORMED)
+
+
+def claude_oauth_expiry_epoch_seconds(oauth: dict[str, Any]) -> float | None:
+    """Return expiresAt as epoch seconds, tolerating seconds or milliseconds."""
+    raw = oauth.get("expiresAt")
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw <= 0:
+        return None
+    value = float(raw)
+    if value > 1e12:
+        value /= 1000.0
+    return value if value > 1e9 else None
+
+
+def claude_oauth_needs_refresh(oauth: dict[str, Any], now: float | None = None) -> bool:
+    """True when the access token is missing or expires within the skew window."""
+    token = oauth.get("accessToken")
+    if not isinstance(token, str) or not token.strip():
+        return True
+    expires = claude_oauth_expiry_epoch_seconds(oauth)
+    if expires is None:
+        return False
+    moment = time.time() if now is None else now
+    return moment >= expires - CLAUDE_REFRESH_SKEW_SECONDS
+
+
+def persist_claude_credentials(path: Path, credentials: dict[str, Any]) -> bool:
+    """Atomically rewrite the credentials file, preserving every other key."""
+    try:
+        text = json.dumps(credentials, ensure_ascii=False)
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=".credentials.", suffix=".tmp", dir=str(path.parent)
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                if fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_name, path)
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+        finally:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def try_refresh_claude_token(
+    path: Path,
+    credentials: dict[str, Any],
+    oauth: dict[str, Any],
+) -> str | None:
+    """Exchange the stored refresh token for a new access token.
+
+    Uses only the vendor-documented public-client flow, persists the result
+    back to the same file, and never raises: any failure returns None so the
+    caller keeps the existing re-login message. Tokens never reach logs.
+    """
+    refresh = oauth.get("refreshToken")
+    if not isinstance(refresh, str) or not refresh.strip():
+        return None
+    payload = urlencode(
+        {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh.strip(),
+            "client_id": CLAUDE_OAUTH_CLIENT_ID,
+        }
+    ).encode("utf-8")
+    try:
+        status, _headers, body = http_request(
+            "POST",
+            CLAUDE_TOKEN_URL,
+            {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            },
+            payload,
+            TIMEOUT_SECONDS,
+        )
+    except FetchFallback:
+        return None
+    if status != 200:
+        return None
+    try:
+        refreshed = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(refreshed, dict):
+        return None
+    access = refreshed.get("access_token")
+    if not isinstance(access, str) or not access.strip():
+        return None
+    new_refresh = refreshed.get("refresh_token")
+    oauth["accessToken"] = access.strip()
+    if isinstance(new_refresh, str) and new_refresh.strip():
+        oauth["refreshToken"] = new_refresh.strip()
+    expires_in = refreshed.get("expires_in", refreshed.get("expires_at"))
+    if isinstance(expires_in, bool):
+        expires_in = None
+    if isinstance(expires_in, (int, float)) and expires_in > 0:
+        span = float(expires_in)
+        # expires_in arrives in seconds; a millisecond-scale value is kept raw.
+        if span < 1e12:
+            span *= 1000.0
+        oauth["expiresAt"] = int(time.time() * 1000.0 + span)
+    credentials["claudeAiOauth"] = oauth
+    persist_claude_credentials(path, credentials)
+    return str(oauth["accessToken"])
 
 
 def has_claude_credentials(home: Path | None = None) -> bool:
@@ -1479,22 +1601,74 @@ def provider_error(
     return entry
 
 
+def refresh_claude_credentials(
+    home: Path | None = None,
+    *,
+    config_dir: Path | None = None,
+    credentials_file: Path | None = None,
+    force: bool = False,
+) -> str | None:
+    """Refresh the Claude access token when the stored one needs it.
+
+    Returns the fresh header-safe token, or None when there is nothing to
+    refresh with. Never raises: callers keep their existing messages.
+    """
+    if credentials_file is not None:
+        path = Path(credentials_file).expanduser()
+    elif config_dir is not None:
+        path = Path(config_dir).expanduser() / ".credentials.json"
+    else:
+        root = home or home_directory()
+        path = root / ".claude" / ".credentials.json"
+    try:
+        credentials = read_json(path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(credentials, dict):
+        return None
+    oauth = credentials.get("claudeAiOauth")
+    if not isinstance(oauth, dict):
+        return None
+    if not force and not claude_oauth_needs_refresh(oauth):
+        try:
+            return require_header_safe_credential(
+                str(oauth.get("accessToken", "")), CLAUDE_CREDENTIAL_MALFORMED
+            )
+        except FetchFallback:
+            return None
+    fresh = try_refresh_claude_token(path, credentials, oauth)
+    if fresh is None:
+        return None
+    try:
+        return require_header_safe_credential(fresh, CLAUDE_CREDENTIAL_MALFORMED)
+    except FetchFallback:
+        return None
+
+
 def fetch_claude(
     home: Path | None = None,
     *,
     config_dir: Path | None = None,
 ) -> dict[str, Any]:
-    token = claude_access_token(home, config_dir=config_dir)
-    status, body = http_get(
-        CLAUDE_USAGE_URL,
-        {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "anthropic-beta": "oauth-2025-04-20",
-            "User-Agent": "claude-code/2.1.0",
-        },
-    )
+    try:
+        token = claude_access_token(home, config_dir=config_dir)
+    except FetchFallback:
+        token = None
+    if token is None:
+        token = refresh_claude_credentials(home, config_dir=config_dir, force=True)
+        if token is None:
+            raise FetchFallback(
+                "Claude OAuth credentials are unavailable (run: claude)",
+                "authentication",
+            )
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "anthropic-beta": "oauth-2025-04-20",
+        "User-Agent": "claude-code/2.1.0",
+    }
+    status, body = http_get(CLAUDE_USAGE_URL, headers)
     if status == 429:
         return provider_error(
             "claude",
@@ -1503,7 +1677,14 @@ def fetch_claude(
             "rate_limit",
         )
     if status == 401:
-        return provider_error("claude", "claude", "Claude OAuth rejected the current credentials (HTTP 401)", "authentication")
+        retried = refresh_claude_credentials(home, config_dir=config_dir, force=True)
+        if retried is not None and retried != token:
+            headers["Authorization"] = f"Bearer {retried}"
+            status, body = http_get(CLAUDE_USAGE_URL, headers)
+            if status != 401:
+                token = retried
+        if status == 401:
+            return provider_error("claude", "claude", "Claude OAuth rejected the current credentials (HTTP 401) (run: claude)", "authentication")
     if status == 403:
         return provider_error("claude", "claude", "Claude OAuth denied access to usage data (HTTP 403)", "entitlement")
     if status != 200:

@@ -387,6 +387,100 @@ class QuotasEngineTests(unittest.TestCase):
             self.assertIn(str(failure), entry["error"]["message"])
             self.assertIn("Fallback failed: upstream also failed", entry["error"]["message"])
 
+    def test_claude_refreshes_an_empty_access_token_before_failing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            path = home / ".claude" / ".credentials.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps({"claudeAiOauth": {"accessToken": "", "refreshToken": "refresh-1", "expiresAt": 0}}),
+                encoding="utf-8",
+            )
+            fresh = json.dumps(
+                {"access_token": "access-2", "refresh_token": "refresh-2", "expires_in": 3600}
+            ).encode("utf-8")
+            posted = {}
+
+            def fake_request(method, url, headers=None, body=None, timeout=15):
+                posted["method"] = method
+                posted["url"] = url
+                posted["body"] = body
+                return 200, {}, fresh
+
+            payload = (FIXTURES / "claude-oauth-usage.json").read_bytes()
+            with patch.object(quotas, "http_request", side_effect=fake_request), patch.object(
+                quotas, "http_get", return_value=(200, payload)
+            ):
+                entry = quotas.fetch_claude(home=home)
+            self.assertEqual(posted["method"], "POST")
+            self.assertEqual(posted["url"], "https://platform.claude.com/v1/oauth/token")
+            self.assertIn(b"grant_type=refresh_token", posted["body"])
+            self.assertIn(b"refresh_token=refresh-1", posted["body"])
+            self.assertNotIn("error", entry)
+            stored = json.loads(path.read_text(encoding="utf-8"))["claudeAiOauth"]
+            self.assertEqual(stored["accessToken"], "access-2")
+            self.assertEqual(stored["refreshToken"], "refresh-2")
+            self.assertGreater(stored["expiresAt"], 0)
+
+    def test_claude_dead_refresh_token_keeps_the_relogin_message(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            path = home / ".claude" / ".credentials.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps({"claudeAiOauth": {"accessToken": "", "refreshToken": "dead", "expiresAt": 0}}),
+                encoding="utf-8",
+            )
+            with patch.object(quotas, "http_request", return_value=(400, {}, b"{}")):
+                with self.assertRaises(quotas.FetchFallback) as failure:
+                    quotas.fetch_claude(home=home)
+            self.assertIn("run: claude", str(failure.exception))
+            stored = json.loads(path.read_text(encoding="utf-8"))["claudeAiOauth"]
+            self.assertEqual(stored["accessToken"], "")
+
+    def test_claude_retries_a_401_with_a_fresh_token_once(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            path = home / ".claude" / ".credentials.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps({"claudeAiOauth": {"accessToken": "stale", "refreshToken": "refresh-1"}}),
+                encoding="utf-8",
+            )
+            fresh = json.dumps({"access_token": "access-2", "expires_in": 3600}).encode("utf-8")
+            payload = (FIXTURES / "claude-oauth-usage.json").read_bytes()
+            calls = []
+
+            def fake_get(url, headers):
+                calls.append(headers["Authorization"])
+                return (401, b"{}") if len(calls) == 1 else (200, payload)
+
+            with patch.object(quotas, "http_request", return_value=(200, {}, fresh)), patch.object(
+                quotas, "http_get", side_effect=fake_get
+            ):
+                entry = quotas.fetch_claude(home=home)
+            self.assertEqual(calls, ["Bearer stale", "Bearer access-2"])
+            self.assertNotIn("error", entry)
+
+    def test_claude_expiry_parsing_accepts_seconds_and_milliseconds(self) -> None:
+        now = 1758320000.0
+        self.assertEqual(
+            quotas.claude_oauth_expiry_epoch_seconds({"expiresAt": 1758323600000}), 1758323600.0
+        )
+        self.assertEqual(
+            quotas.claude_oauth_expiry_epoch_seconds({"expiresAt": 1758323600}), 1758323600.0
+        )
+        self.assertIsNone(quotas.claude_oauth_expiry_epoch_seconds({"expiresAt": 0}))
+        self.assertTrue(quotas.claude_oauth_needs_refresh({"accessToken": ""}, now=now))
+        self.assertFalse(
+            quotas.claude_oauth_needs_refresh(
+                {"accessToken": "x", "expiresAt": 1758323600000}, now=now
+            )
+        )
+        self.assertTrue(
+            quotas.claude_oauth_needs_refresh({"accessToken": "x", "expiresAt": 1758320000000}, now=now)
+        )
+
     def test_claude_request_uses_the_upstream_oauth_headers(self) -> None:
         payload = (FIXTURES / "claude-oauth-usage.json").read_bytes()
         with patch.object(quotas, "claude_access_token", return_value="token") as token, patch.object(
