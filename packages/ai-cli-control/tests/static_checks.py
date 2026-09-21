@@ -23,8 +23,8 @@ AUR_PKGBUILD = ROOT.parents[1] / "packaging" / "aur" / "PKGBUILD"
 AUR_INSTALL = ROOT.parents[1] / "packaging" / "aur" / "kodexbar-suite.install"
 PLASMOID_METADATA = ROOT.parent / "kodexbar" / "metadata.json"
 PLASMA_RELOAD = ROOT.parents[1] / "packaging" / "aur" / "reload-plasma-after-upgrade"
-RELEASE_VERSION = "0.12.12"
-AUR_RELEASE_VERSION = "0.12.12"
+RELEASE_VERSION = "0.12.13"
+AUR_RELEASE_VERSION = "0.12.13"
 FORBIDDEN = ("eval(", "shell=True", "shell = True", "os.system(")
 SECRET_PATTERNS = {
     "private key": re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"),
@@ -126,6 +126,27 @@ def main() -> int:
     if re.search(r"local-ai", package_statements):
         print("AUR package still references parked local-ai", file=sys.stderr)
         return 1
+    windows_spec = (ROOT.parents[1] / "packaging" / "windows" / "KodexBarTray.spec").read_text(
+        encoding="utf-8"
+    )
+    hidden = set(re.findall(r"'([a-z0-9_]+)'", windows_spec.split("hiddenimports", 1)[1].split("]", 1)[0]))
+    shared_source = (ROOT / "kodexbar-tray").read_text(encoding="utf-8")
+    tray_win_source = TRAY_WIN.read_text(encoding="utf-8")
+    stdlib_roots = set(sys.stdlib_module_names)
+    for match in re.finditer(r"(?m)^(?:import|from)\s+([a-z0-9_]+)", shared_source):
+        module = match.group(1)
+        if module not in stdlib_roots:
+            continue
+        covered = (
+            re.search(rf"(?m)^(?:import|from)\s+{module}\b", tray_win_source) is not None
+            or module in hidden
+        )
+        if not covered:
+            print(
+                f"Windows tray bundle is missing runtime module: {module}",
+                file=sys.stderr,
+            )
+            return 1
     reload_contract = (
         "post_install()",
         "post_upgrade()",

@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.12.13, 2026-09-21
+
+### Fixed
+
+- Windows tray bundle includes the runtime-loaded `json` module again, with a static check that pins every such module.
+
 ## 0.12.12, 2026-09-21
 
 ### Fixed
