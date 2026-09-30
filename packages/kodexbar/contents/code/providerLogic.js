@@ -876,21 +876,26 @@ function elideCompactText(value, maximumCharacters) {
 // How many whole chips fit in `limit` pixels. A negative limit means the strip
 // is unconstrained. When something does not fit, the overflow control is
 // reserved up front so the last visible chip is never sliced in half.
-function fitCompactStrip(chipWidths, spacing, tailWidth, overflowWidth, limit) {
+// `chipHeadroom` pads each chip in the reported natural width only. Plasma can
+// allot a panel applet a pixel less than it asked for under fractional scaling,
+// so the request carries slack while fitting tests the real chip widths.
+function fitCompactStrip(chipWidths, spacing, tailWidth, overflowWidth, limit, chipHeadroom) {
     var widths = Array.isArray(chipWidths) ? chipWidths : []
     var gap = Math.max(0, Number(spacing) || 0)
     var tail = Math.max(0, Number(tailWidth) || 0)
     var overflow = Math.max(0, Number(overflowWidth) || 0)
+    var headroom = Math.max(0, Number(chipHeadroom) || 0)
     var count = widths.length
-    var natural = 0
+    var content = 0
     for (var i = 0; i < count; i++) {
-        natural += Math.max(0, Number(widths[i]) || 0)
-        if (i > 0) natural += gap
+        content += Math.max(0, Number(widths[i]) || 0)
+        if (i > 0) content += gap
     }
     if (tail > 0) {
-        natural += (natural > 0 ? gap : 0) + tail
+        content += (content > 0 ? gap : 0) + tail
     }
-    if (!(Number(limit) >= 0) || natural <= limit) {
+    var natural = content + headroom * count
+    if (!(Number(limit) >= 0) || content <= limit) {
         return {
             naturalWidth: natural,
             fittedCount: count,
@@ -930,6 +935,19 @@ function fitCompactStrip(chipWidths, spacing, tailWidth, overflowWidth, limit) {
         tailFits: tailFits,
         hiddenCount: count - fit
     }
+}
+
+// Next width to request from the panel. It grows as soon as the content needs
+// more room, so a stale request never hides a chip. It only shrinks once the
+// drop exceeds `shrinkTolerance`, which keeps small text changes from jittering.
+function settleRequestedWidth(current, measured, shrinkTolerance) {
+    var now = Math.max(0, Number(current) || 0)
+    var next = Math.max(0, Number(measured) || 0)
+    var tolerance = Math.max(0, Number(shrinkTolerance) || 0)
+    if (next > now || now - next > tolerance) {
+        return next
+    }
+    return now
 }
 
 function composeCompactBlocks(entries, options) {

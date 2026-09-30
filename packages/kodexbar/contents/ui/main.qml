@@ -2990,6 +2990,9 @@ PlasmoidItem {
         // Keep every provider block fully sized. Dense only tightens spacing so more
         // accounts still push the panel item wider instead of clipping siblings.
         readonly property bool dense: blocks.length > 4
+        // Request slack per chip. Fitting ignores it, so a panel that allots a
+        // pixel less than requested still shows every chip.
+        readonly property int chipHeadroom: 2
         signal providerActivated(string selectionKey)
 
         implicitWidth: Math.max(naturalWidth, 0)
@@ -3004,7 +3007,9 @@ PlasmoidItem {
 
         function chipSpan(item, textWidth) {
             var shown = crowded ? item.glanceTextWidth : item.fullTextWidth
-            if (item.chromeWidth < 1 && item.visible && item.implicitWidth > shown + 8) {
+            // Refresh on every visible pass: right after a chip turns visible its Row
+            // still reports the hidden layout until the next polish.
+            if (item.visible && item.implicitWidth > shown + 8) {
                 item.chromeWidth = item.implicitWidth - shown
             }
             var chrome = item.chromeWidth > 0 ? item.chromeWidth : 56
@@ -3029,8 +3034,8 @@ PlasmoidItem {
                 if (item.chromeWidth < 1) {
                     missingChrome = true
                 }
-                fullWidths.push(chipSpan(item, item.fullTextWidth) + 2)
-                glanceWidths.push(chipSpan(item, item.glanceTextWidth) + 2)
+                fullWidths.push(Math.ceil(chipSpan(item, item.fullTextWidth)))
+                glanceWidths.push(Math.ceil(chipSpan(item, item.glanceTextWidth)))
             }
             if (missingChrome && fittedCount < count) {
                 fittedCount = count
@@ -3039,13 +3044,15 @@ PlasmoidItem {
             }
             var tailWidth = activeLocalCount > 0 ? Math.max(localTail.implicitWidth, 80) : 0
             var overflowWidth = overflowMeasure.implicitWidth + (dense ? 16 : 22)
-            var full = ProviderLogic.fitCompactStrip(fullWidths, spacing, tailWidth, overflowWidth, -1)
-            var glance = ProviderLogic.fitCompactStrip(glanceWidths, spacing, tailWidth, overflowWidth, -1)
-            if (Math.abs(naturalWidth - full.naturalWidth) > 4) {
-                naturalWidth = full.naturalWidth
+            var full = ProviderLogic.fitCompactStrip(fullWidths, spacing, tailWidth, overflowWidth, -1, chipHeadroom)
+            var glance = ProviderLogic.fitCompactStrip(glanceWidths, spacing, tailWidth, overflowWidth, -1, chipHeadroom)
+            var nextNatural = ProviderLogic.settleRequestedWidth(naturalWidth, full.naturalWidth, 4)
+            if (nextNatural !== naturalWidth) {
+                naturalWidth = nextNatural
             }
-            if (Math.abs(glanceWidth - glance.naturalWidth) > 4) {
-                glanceWidth = glance.naturalWidth
+            var nextGlance = ProviderLogic.settleRequestedWidth(glanceWidth, glance.naturalWidth, 4)
+            if (nextGlance !== glanceWidth) {
+                glanceWidth = nextGlance
             }
             fitToWidth()
         }
@@ -3071,11 +3078,11 @@ PlasmoidItem {
                 if (span < 8) {
                     return
                 }
-                widths.push(span + 2)
+                widths.push(Math.ceil(span))
             }
             var tailWidth = activeLocalCount > 0 ? Math.max(localTail.implicitWidth, 80) : 0
             var overflowWidth = overflowMeasure.implicitWidth + (dense ? 16 : 22)
-            var chosen = ProviderLogic.fitCompactStrip(widths, spacing, tailWidth, overflowWidth, fitWidth)
+            var chosen = ProviderLogic.fitCompactStrip(widths, spacing, tailWidth, overflowWidth, fitWidth, chipHeadroom)
             if (fittedCount !== chosen.fittedCount) {
                 fittedCount = chosen.fittedCount
             }
@@ -3125,12 +3132,14 @@ PlasmoidItem {
                     implicitWidth: compactProviderContent.implicitWidth + (strip.dense ? 6 : 10)
                     leftPadding: strip.dense ? 3 : 5
                     rightPadding: strip.dense ? 3 : 5
-                    property int chromeWidth: 0
-                    readonly property int fullTextWidth: fullMetrics.width
-                    readonly property int glanceTextWidth: glanceMetrics.width
+                    property real chromeWidth: 0
+                    readonly property real fullTextWidth: fullMetrics.width
+                    readonly property real glanceTextWidth: glanceMetrics.width
                     Accessible.name: modelData.fullText || modelData.displayText || modelData.provider
                     Accessible.description: i18n("Open %1 usage", modelData.provider || i18n("provider"))
                     onClicked: strip.providerActivated(modelData.selectionKey || "")
+                    // Remeasure once the Row settles so a stale chrome width never sticks.
+                    onImplicitWidthChanged: if (visible) strip.scheduleMeasure()
 
                     TextMetrics {
                         id: fullMetrics
