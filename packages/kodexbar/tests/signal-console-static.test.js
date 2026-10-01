@@ -36,7 +36,7 @@ assert.match(
 )
 assert.match(
     qml,
-    /function launchLoginCommand\(argv\)[\s\S]{0,300}konsole --hold -e/,
+    /function launchLoginCommand\(argv(?:, provider)?\)[\s\S]{0,500}konsole --hold -e/,
     "sign-in opens a held terminal so the login stays visible"
 )
 assert.match(topBar, /label: i18n\("Providers"\)/, "provider navigation has a visible label")
@@ -93,6 +93,8 @@ assert.doesNotMatch(compactRep, /Layout\.maximumWidth:\s*520/, "the compact pane
 assert.match(compactStrip, /ElideNone/, "panel provider quota labels keep their full text instead of clipping siblings")
 assert.match(compactStrip, /fitCompactStrip/, "overflow keeps whole provider chips instead of slicing the last one")
 assert.match(compactStrip, /id: compactOverflowButton/, "providers that do not fit stay reachable from an overflow control")
+assert.match(compactStrip, /anchors\.right: parent\.right/, "the overflow control stays inside the strip instead of under the clip")
+assert.match(compactStrip, /hiddenSelectionKey\(\)/, "the overflow control opens the hidden provider")
 assert.match(compactStrip, /glanceText/, "a crowded strip can fall back to one quota token per provider")
 assert.match(preferences, /function signalIcon\(name\)/, "preferences share the packaged icon family")
 assert.match(preferences, /palette\.base: preferences\.th\("#14161d"\)[\s\S]{0,300}palette\.buttonText: preferences\.th\("#e9ebf2"\)/, "preferences keep native controls legible on the dark surface")

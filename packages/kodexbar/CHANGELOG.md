@@ -6,7 +6,11 @@ All notable fork-specific changes are documented here.
 
 ### Fixed
 
-- The last provider in the panel strip no longer folds into +1 when the panel has room for it. Under fractional scaling Plasma can give the applet a pixel less than it asked for, and the strip used to hide the last chip over that pixel. The strip now fits against the real chip widths and keeps the extra pixels only in its size request. A chip that was measured before its layout settled is measured again, so the request no longer stays too small.
+- The last provider in the panel strip no longer folds into +1 when the panel has room for it. Under fractional scaling Plasma can give the applet a pixel less than it asked for, and the strip used to hide the last chip over that pixel. The strip now fits against the real chip widths and keeps the extra pixels only in its size request. A chip that was measured before its layout settled is measured again, so the request no longer stays too small (#67). Thanks @mantis5x5!
+- The panel +N control opens the hidden CLI. It stays inside the strip so the click is not lost at the edge.
+- Signing in again reloads that provider when the terminal closes, instead of leaving the old sign-in error on screen. Claude's button runs `claude auth login`, which is the command that actually signs in.
+- A Claude or Cursor rate limit keeps the last good quota on screen. Cursor stays on the slow pass. Claude is read every minute from the utilization Claude Code saves locally, so the panel follows real use without calling the rate-limited usage endpoint.
+- A held quota with a real percent keeps its usage color on the panel. Gray is only for a chip that has no number.
 
 ## 0.12.17, 2026-09-21
 

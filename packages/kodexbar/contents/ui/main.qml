@@ -61,6 +61,9 @@ PlasmoidItem {
     })
     property string skillsGeneratedAt: ""
     property string selectedPopupTab: "provider"
+    property string pendingLoginProvider: ""
+    property string deferredProviderRefresh: ""
+    property var providerBackoffUntil: ({})
     property int localModelsRefreshSeconds: Math.max(5, Math.min(3600,
         Plasmoid.configuration.localModelsRefreshInterval || 15))
     property string selectedSource: Plasmoid.configuration.sourceDefault || Plasmoid.configuration.source || "detect"
@@ -96,7 +99,7 @@ PlasmoidItem {
         : Plasmoid.configuration.compactQuotaSelection
     property int refreshSeconds: Math.max(10, Plasmoid.configuration.refreshInterval || 60)
     property int claudeRefreshSeconds: Math.max(60, Math.min(3600,
-        Plasmoid.configuration.claudeRefreshInterval || 300))
+        Plasmoid.configuration.claudeRefreshInterval || 900))
     readonly property string designFont: manropeFont.status === FontLoader.Ready && manropeFont.name.length > 0
         ? manropeFont.name
         : Kirigami.Theme.defaultFont.family
@@ -377,7 +380,7 @@ PlasmoidItem {
         if (entry.errorMessage) {
             return errorColor
         }
-        if (entry.isCached === true) {
+        if (entry.isCached === true && !ProviderLogic.entryHasReportedUsage(entry)) {
             return quietColor
         }
         if (entry.statusIndicator === "major" || entry.statusIndicator === "critical") {
@@ -1003,18 +1006,51 @@ PlasmoidItem {
         return "'" + String(value).replace(/'/g, "'\\''") + "'"
     }
 
-    function refresh() {
+    function refresh(force) {
         if (loading || startupRetryPending) {
+            return
+        }
+        if (force === true) {
+            providerBackoffUntil = ({})
+            initialUsageSeedPending = false
+            beginUsageRefresh(commandCandidatesForSeed())
             return
         }
         if (initialUsageSeedPending || (fastRefreshCyclesSinceSeed >= 10
                 && Date.now() - lastSuccessfulSeedAt >= claudeRefreshSeconds * 1000)) {
             initialUsageSeedPending = false
+            var due = providersDueForAutomaticSeed()
+            if (due !== null) {
+                fastRefreshCyclesSinceSeed = 0
+                lastSuccessfulSeedAt = Date.now()
+                if (due.length > 0) {
+                    beginUsageRefresh(providerCandidates(due))
+                }
+                return
+            }
             beginUsageRefresh(commandCandidatesForSeed())
             return
         }
         fastRefreshCyclesSinceSeed += 1
         refreshOtherProviders()
+    }
+
+    // null means nobody is waiting out a rate limit, so the all-provider seed can run.
+    function providersDueForAutomaticSeed() {
+        var known = knownProviderIds(true)
+        if (known.length === 0) {
+            return null
+        }
+        var due = []
+        var skipped = false
+        for (var i = 0; i < known.length; i++) {
+            if (known[i] === "claude" || known[i] === "cursor" || providerInBackoff(known[i])) {
+                skipped = true
+                continue
+            }
+            due.push(known[i])
+        }
+        return skipped ? due : null
     }
 
     function knownProviderIds(includeClaude) {
@@ -1026,7 +1062,7 @@ PlasmoidItem {
             for (var i = 0; i < sourceEntries.length; i++) {
                 var provider = ProviderLogic.providerId(sourceEntries[i] && sourceEntries[i].provider)
                 if (provider.length === 0 || provider === "all" || seen[provider]
-                        || (!includeClaude && provider === "claude")) {
+                        || (!includeClaude && provider === "cursor")) {
                     continue
                 }
                 seen[provider] = true
@@ -1037,7 +1073,13 @@ PlasmoidItem {
     }
 
     function refreshOtherProviders() {
-        var providers = knownProviderIds(false)
+        var known = knownProviderIds(false)
+        var providers = []
+        for (var i = 0; i < known.length; i++) {
+            if (!providerInBackoff(known[i])) {
+                providers.push(known[i])
+            }
+        }
         if (providers.length === 0) {
             if (knownProviderIds(true).length === 0) {
                 initialUsageSeedPending = true
@@ -1048,11 +1090,65 @@ PlasmoidItem {
         beginUsageRefresh(providerCandidates(providers))
     }
 
-    function refreshClaude() {
-        if (loading || knownProviderIds(true).indexOf("claude") === -1) {
+    function providerInBackoff(provider) {
+        var until = providerBackoffUntil[ProviderLogic.providerId(provider)] || 0
+        return Date.now() < until
+    }
+
+    function noteProviderBackoff(entries) {
+        var list = entries || []
+        var map = {}
+        var key
+        for (key in providerBackoffUntil) {
+            map[key] = providerBackoffUntil[key]
+        }
+        var now = Date.now()
+        var changed = false
+        for (var i = 0; i < list.length; i++) {
+            var entry = list[i]
+            var id = ProviderLogic.providerId(entry && entry.provider)
+            if (id.length === 0) {
+                continue
+            }
+            if (entry && entry.errorCategory === "rate_limit") {
+                map[id] = now + 15 * 60 * 1000
+                changed = true
+            } else if (entry && !entry.errorMessage && map[id]) {
+                delete map[id]
+                changed = true
+            }
+        }
+        if (changed) {
+            providerBackoffUntil = map
+        }
+    }
+
+    function refreshSlowProviders() {
+        var all = knownProviderIds(true)
+        var due = []
+        for (var i = 0; i < all.length; i++) {
+            if (all[i] === "cursor" && !providerInBackoff(all[i])) {
+                due.push(all[i])
+            }
+        }
+        if (due.length === 0) {
             return
         }
-        beginUsageRefresh(providerCandidates(["claude"]))
+        if (loading) {
+            var pending = deferredProviderRefresh.length > 0 ? deferredProviderRefresh.split(",") : []
+            for (var j = 0; j < due.length; j++) {
+                if (pending.indexOf(due[j]) === -1) {
+                    pending.push(due[j])
+                }
+            }
+            deferredProviderRefresh = pending.join(",")
+            return
+        }
+        beginUsageRefresh(providerCandidates(due))
+    }
+
+    function refreshClaude() {
+        refreshSlowProviders()
     }
 
     function providerCandidates(providers, startupRetry) {
@@ -1148,6 +1244,21 @@ PlasmoidItem {
             }
             loading = false
             generatedAt = new Date().toLocaleString(Qt.locale(), Locale.ShortFormat)
+            var deferred = deferredProviderRefresh
+            deferredProviderRefresh = ""
+            if (deferred.length > 0) {
+                var deferredIds = []
+                var deferredParts = deferred.split(",")
+                for (var deferredIndex = 0; deferredIndex < deferredParts.length; deferredIndex++) {
+                    if (deferredParts[deferredIndex].length > 0 && !providerInBackoff(deferredParts[deferredIndex])) {
+                        deferredIds.push(deferredParts[deferredIndex])
+                    }
+                }
+                if (deferredIds.length > 0) {
+                    beginUsageRefresh(providerCandidates(deferredIds))
+                    return
+                }
+            }
             if (entries.length === 0 && errorMessage.length === 0 && !engineNotInstalled) {
                 errorMessage = i18n("No usable CodexBar provider found")
                 errorDetail = i18n("Configure at least one provider in CodexBar or choose a compatible source.")
@@ -1184,6 +1295,7 @@ PlasmoidItem {
             fastRefreshCyclesSinceSeed = 0
             lastSuccessfulSeedAt = Date.now()
         }
+        noteProviderBackoff(incoming)
         var merged = ProviderLogic.mergeEntriesWithCache(incoming, lastGoodEntries)
         var updatedEntries = ProviderLogic.replaceProviderEntries(
             entries, merged, providers, activeQueryReplacesAll)
@@ -1659,7 +1771,7 @@ PlasmoidItem {
         // each command re-authenticates that provider interactively.
         var commands = {
             "codex": ["codex"],
-            "claude": ["claude"],
+            "claude": ["claude", "auth", "login"],
             "grok": ["grok", "login"],
             "hermes": ["hermes", "model"],
             "devin": ["devin", "auth", "login"],
@@ -1672,10 +1784,32 @@ PlasmoidItem {
         return entry instanceof Array ? entry : []
     }
 
-    function launchLoginCommand(argv) {
+    function requestProviderRefresh(provider) {
+        var id = ProviderLogic.providerId(provider)
+        if (id.length === 0) {
+            return
+        }
+        if (providerBackoffUntil[id]) {
+            var backoff = {}
+            var backoffKey
+            for (backoffKey in providerBackoffUntil) {
+                backoff[backoffKey] = providerBackoffUntil[backoffKey]
+            }
+            delete backoff[id]
+            providerBackoffUntil = backoff
+        }
+        if (loading) {
+            deferredProviderRefresh = id
+            return
+        }
+        beginUsageRefresh(providerCandidates([id]))
+    }
+
+    function launchLoginCommand(argv, provider) {
         if (!argv || !(argv instanceof Array) || argv.length === 0) {
             return
         }
+        pendingLoginProvider = ProviderLogic.providerId(provider || "")
         var command = "konsole --hold -e"
         for (var i = 0; i < argv.length; i++) {
             command += " " + shellQuote(argv[i])
@@ -2138,7 +2272,7 @@ PlasmoidItem {
                     onClicked: {
                         root.selectedPopupTab = modelData.id
                         if (modelData.id === "provider") {
-                            root.refresh()
+                            root.refresh(true)
                         } else if (modelData.id === "local") {
                             root.refreshLocalModels()
                         } else {
@@ -2217,7 +2351,7 @@ PlasmoidItem {
                     } else if (root.selectedPopupTab === "skills") {
                         root.refreshSkills()
                     } else {
-                        root.refresh()
+                        root.refresh(true)
                     }
                 }
 
@@ -2659,7 +2793,8 @@ PlasmoidItem {
                         text: i18n("Sign in again")
                         Accessible.description: i18n("Open a terminal to sign in again with this provider")
                         onClicked: root.launchLoginCommand(
-                            root.loginCommandForProvider(root.activeEntry.provider)
+                            root.loginCommandForProvider(root.activeEntry.provider),
+                            root.activeEntry.provider
                         )
 
                         contentItem: PlasmaComponents.Label {
@@ -2997,8 +3132,19 @@ PlasmoidItem {
 
         implicitWidth: Math.max(naturalWidth, 0)
         implicitHeight: 28
-        clip: fitWidth >= 0 && naturalWidth > fitWidth
+        // The chip row clips. The +N control stays outside that clip so its
+        // click is not thrown away at the edge of the panel slot.
+        clip: false
         height: implicitHeight
+
+        function hiddenSelectionKey() {
+            var list = blocks || []
+            var hidden = list.length > fittedCount ? list[fittedCount] : null
+            if (hidden && hidden.selectionKey) {
+                return hidden.selectionKey
+            }
+            return hidden && hidden.provider ? String(hidden.provider) : ""
+        }
 
         function scheduleMeasure() {
             measureAttempts = 0
@@ -3115,6 +3261,10 @@ PlasmoidItem {
         Row {
             id: stripRow
             height: parent.height
+            clip: strip.hiddenCount > 0
+            width: strip.hiddenCount > 0
+                ? Math.max(0, parent.width - compactOverflowButton.implicitWidth - spacing)
+                : implicitWidth
             spacing: strip.dense ? 6 : 10
 
             Repeater {
@@ -3269,17 +3419,21 @@ PlasmoidItem {
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }
+        }
 
-            QQC2.AbstractButton {
-                id: compactOverflowButton
-                visible: strip.hiddenCount > 0
-                height: stripRow.height
-                implicitWidth: overflowContent.implicitWidth + (strip.dense ? 6 : 10)
-                leftPadding: strip.dense ? 3 : 5
-                rightPadding: strip.dense ? 3 : 5
-                Accessible.name: i18n("%1 more providers", strip.hiddenCount)
-                Accessible.description: i18n("Open the remaining providers")
-                onClicked: strip.providerActivated("")
+        QQC2.AbstractButton {
+            id: compactOverflowButton
+            z: 2
+            visible: strip.hiddenCount > 0
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            height: strip.height
+            implicitWidth: Math.max(36, overflowContent.implicitWidth + (strip.dense ? 6 : 10))
+            leftPadding: strip.dense ? 3 : 5
+            rightPadding: strip.dense ? 3 : 5
+            Accessible.name: i18n("%1 more providers", strip.hiddenCount)
+            Accessible.description: i18n("Open the remaining providers")
+            onClicked: strip.providerActivated(strip.hiddenSelectionKey())
 
                 contentItem: Row {
                     id: overflowContent
@@ -3303,12 +3457,11 @@ PlasmoidItem {
                     }
                 }
 
-                background: Rectangle {
-                    radius: 6
-                    color: compactOverflowButton.down
-                        ? root.th("#29243d")
-                        : compactOverflowButton.hovered ? root.th("#201d2d") : "transparent"
-                }
+            background: Rectangle {
+                radius: 6
+                color: compactOverflowButton.down
+                    ? root.th("#29243d")
+                    : compactOverflowButton.hovered ? root.th("#201d2d") : "transparent"
             }
         }
     }
@@ -3654,7 +3807,7 @@ PlasmoidItem {
                         } else if (root.selectedPopupTab === "skills") {
                             root.refreshSkills()
                         } else {
-                            root.refresh()
+                            root.refresh(true)
                         }
                     }
 
@@ -5268,10 +5421,15 @@ PlasmoidItem {
         engine: "executable"
         onNewData: function(sourceName, data) {
             disconnectSource(sourceName)
+            var signedInProvider = root.pendingLoginProvider
+            root.pendingLoginProvider = ""
             if (data["exit code"] && data["exit code"] !== 0) {
                 root.aiControlError = (data.stderr || data.stdout || i18n("Exit code %1", data["exit code"])).trim()
             } else {
                 root.aiControlError = ""
+            }
+            if (signedInProvider.length > 0) {
+                root.requestProviderRefresh(signedInProvider)
             }
         }
     }

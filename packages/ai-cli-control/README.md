@@ -151,9 +151,9 @@ Supported roots are `~/.codex/skills`, `~/.claude/skills`, `~/.grok/skills`, `~/
 
 `kodexbar-quotas` is the widget's default local command. It reads the enabled providers from `~/.config/codexbar/config.json`. Claude, Codex, Grok, Cursor, Hermes, and Devin are fetched natively with stdlib HTTP:
 
-- Claude: OAuth JSON at `https://api.anthropic.com/api/oauth/usage` (15-second timeout). When the stored access token is missing, expiring, or rejected with HTTP 401, the engine exchanges the stored refresh token at the vendor token endpoint and persists the result back to `~/.claude/.credentials.json`. Only a dead refresh token asks the user to run `claude` to log in.
+- Claude: OAuth JSON at `https://api.anthropic.com/api/oauth/usage` (15-second timeout). When the stored access token is missing, expiring, or rejected with HTTP 401, the engine first lets Claude Code renew it with `claude -p /cost` (no model call, at most once every ten minutes). If that does not help, it exchanges the stored refresh token at the vendor token endpoint and persists the result back to `~/.claude/.credentials.json`. Only a dead refresh token asks the user to run `claude` to log in.
 - Codex: OAuth usage at the ChatGPT backend (`/wham/usage` or `/api/codex/usage`) using `~/.codex/auth.json`. No automatic token refresh. Auth failures ask the user to run `codex` to log in.
-- Grok: cookie-free gRPC-web billing at Grok's credits endpoint using `~/.grok/auth.json`. Auth failures ask the user to run `grok login`.
+- Grok: cookie-free gRPC-web billing at Grok's credits endpoint using `~/.grok/auth.json`. When the bearer is missing, near expiry, or rejected with HTTP 401, the engine exchanges `refresh_token` at the xAI token endpoint and writes the new bearer back. A network blip stays retryable. Only a dead refresh token asks the user to run `grok login`.
 - Hermes: Nous Portal remaining credits at `/api/oauth/account` using the access token in `~/.hermes/auth.json`. No refresh-token spend. Auth failures ask the user to run `hermes model`.
 - Devin: SeatManagement remaining percents using `windsurf_api_key` in `~/.local/share/devin/credentials.toml`. No token refresh. Auth failures ask the user to run `devin auth login`.
 
