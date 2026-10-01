@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.12.18, 2026-10-01
+
 ### Fixed
 
 - Claude and Grok no longer show a signed-out error when a usage request gets a transient HTTP 401 or loses a refresh race with the CLI. A dead refresh token still asks the user to sign in again.
