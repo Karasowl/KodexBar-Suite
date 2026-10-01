@@ -20,7 +20,7 @@ jobs:
 
       - name: Cross-platform engine tests
         run: |
-          python -m py_compile packages/ai-cli-control/ai packages/ai-cli-control/kodexbar-quotas packages/ai-cli-control/kodexbar-panel packages/ai-cli-control/kodexbar-tray packages/ai-cli-control/kodexbar-tray-win packages/ai-cli-control/local-ai packages/ai-cli-control/kodexbar-skills packages/ai-cli-control/recover.py
+          python -m py_compile packages/ai-cli-control/ai packages/ai-cli-control/kodexbar-quotas packages/ai-cli-control/kodexbar-panel packages/ai-cli-control/kodexbar-tray packages/ai-cli-control/kodexbar-tray-win packages/ai-cli-control/kodexbar-skills packages/ai-cli-control/recover.py
           python -m unittest discover -s packages/ai-cli-control/tests -p "test_windows_support.py" -v
           python packages/ai-cli-control/tests/static_checks.py
 
@@ -154,7 +154,6 @@ jobs:
             command -v kodexbar-quotas
             command -v kodexbar-panel
             command -v kodexbar-tray
-            command -v local-ai
             command -v kodexbar-skills
             grep -qx plasma=0 \"\$HOME/.local/state/kodexbar-suite/install-marker\"
             kodexbar-panel --waybar-snippet | grep -F custom/kodexbar
@@ -162,7 +161,6 @@ jobs:
               \"\$HOME/.local/share/ai-cli-control/kodexbar-quotas\" \\
               \"\$HOME/.local/share/ai-cli-control/kodexbar-panel\" \\
               \"\$HOME/.local/share/ai-cli-control/kodexbar-tray\" \\
-              \"\$HOME/.local/share/ai-cli-control/local-ai\" \\
               \"\$HOME/.local/share/ai-cli-control/kodexbar-skills\"
           "
 
