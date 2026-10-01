@@ -990,6 +990,18 @@ const withTail = context.fitCompactStrip([100], 6, 50, 40, 150)
 assert.equal(withTail.fittedCount, 1, "the provider chip stays when the tail does not")
 assert.equal(withTail.tailFits, false, "the local-model tail yields before a chip is sliced")
 assert.equal(withTail.hiddenCount, 0, "hiding the tail does not pretend a provider is missing")
+const requested = context.fitCompactStrip([77, 129], 10, 0, 30, -1, 2)
+assert.equal(requested.naturalWidth, 220, "the requested width carries headroom for every chip")
+const panelShortByOne = context.fitCompactStrip([77, 129], 10, 0, 30, requested.naturalWidth - 1, 2)
+assert.equal(panelShortByOne.hiddenCount, 0,
+    "a panel that allots a pixel less than requested still shows every chip")
+assert.equal(panelShortByOne.naturalWidth, 220, "the request stays stable while the panel runs short")
+const realContentOverflows = context.fitCompactStrip([77, 129], 10, 0, 30, 215, 2)
+assert.equal(realContentOverflows.fittedCount, 1, "headroom never lets a chip past the real strip width")
+assert.equal(realContentOverflows.hiddenCount, 1, "a chip that really does not fit still folds into overflow")
+assert.equal(context.settleRequestedWidth(218, 219, 4), 219, "the panel request grows as soon as content needs a pixel more")
+assert.equal(context.settleRequestedWidth(220, 217, 4), 220, "a small shrink keeps the current request to avoid jitter")
+assert.equal(context.settleRequestedWidth(220, 210, 4), 210, "a real shrink releases the panel space")
 
 const hiddenProviders = context.composeCompactText(fixture.composeEntries, {
     providerOrder: "codex,grok",
