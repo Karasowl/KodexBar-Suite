@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- Claude and Grok no longer show a signed-out error when a usage request gets a transient HTTP 401 or loses a refresh race with the CLI. A dead refresh token still asks the user to sign in again.
+- Claude's sign-in refresh uses the same JSON client id as Claude Code 2.1.280. The old metadata URL was rejected, so an expired access token could not be renewed.
+- After Anthropic rate-limits that sign-in refresh, the engine waits three hours before asking again. Asking on every poll kept the block in place and left the last quota sitting on screen.
+- Claude quota is read from the utilization Claude Code already stores after each reply. The usage endpoint is only asked when that local reading is older than five minutes, and at most once every five minutes.
+- An expired Claude sign-in is renewed by Claude Code itself (`claude -p /cost`, which runs no model) before the engine tries its own refresh. Anthropic kept answering HTTP 429 to the engine's refresh for hours, so the panel showed a quota that was many hours old.
+
 ## 0.12.17, 2026-09-21
 
 ### Fixed

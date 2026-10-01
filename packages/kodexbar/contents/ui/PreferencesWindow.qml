@@ -23,7 +23,7 @@ QQC2.ApplicationWindow {
     property string workingSkillsCommand: ""
     property string workingSourceDefault: "detect"
     property int workingRefreshInterval: 60
-    property int workingClaudeRefreshInterval: 300
+    property int workingClaudeRefreshInterval: 900
     property string workingCompactProviderOrder: "codex,claude,grok,antigravity,opencodego,hermes,devin"
     property string workingCompactQuotaSelection: "primary,weekly"
     property bool workingShowProviderInPanel: true
@@ -187,7 +187,7 @@ QQC2.ApplicationWindow {
         workingRefreshInterval = Math.max(10, Math.min(3600,
             Number(Plasmoid.configuration.refreshInterval || 60)))
         workingClaudeRefreshInterval = Math.max(60, Math.min(3600,
-            Number(Plasmoid.configuration.claudeRefreshInterval || 300)))
+            Number(Plasmoid.configuration.claudeRefreshInterval || 900)))
         workingCompactProviderOrder = Plasmoid.configuration.compactProviderOrder === undefined
             ? appletRoot.defaultCompactProviderOrder
             : String(Plasmoid.configuration.compactProviderOrder)
@@ -235,7 +235,7 @@ QQC2.ApplicationWindow {
         workingSkillsCommand = "kodexbar-skills"
         workingSourceDefault = "detect"
         workingRefreshInterval = 60
-        workingClaudeRefreshInterval = 300
+        workingClaudeRefreshInterval = 900
         workingCompactProviderOrder = appletRoot.defaultCompactProviderOrder
         workingCompactQuotaSelection = "primary,weekly"
         workingShowProviderInPanel = true

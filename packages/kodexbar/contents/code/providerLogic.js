@@ -409,7 +409,24 @@ function retainLiveAccountCache(cachedEntries, liveEntries, providers, replaceAl
     var cached = Array.isArray(cachedEntries) ? cachedEntries : []
     var live = Array.isArray(liveEntries) ? liveEntries : []
     if (replaceAll === true) {
-        return cacheLastGoodEntries([], live)
+        // A full seed must not forget a good reading when this pass only has a
+        // soft failure (rate limit, network). Hard failures still replace it.
+        var preserved = []
+        for (var preservedIndex = 0; preservedIndex < cached.length; preservedIndex++) {
+            var previous = cached[preservedIndex]
+            var previousKey = providerAccountKey(previous)
+            for (var liveIndex = 0; liveIndex < live.length; liveIndex++) {
+                var liveEntry = live[liveIndex]
+                if (providerAccountKey(liveEntry) !== previousKey) {
+                    continue
+                }
+                if (liveEntry && liveEntry.errorMessage && !errorHidesCachedState(liveEntry)) {
+                    preserved.push(previous)
+                }
+                break
+            }
+        }
+        return cacheLastGoodEntries(preserved, live)
     }
     var targets = {}
     var list = Array.isArray(providers) ? providers : []
@@ -1109,14 +1126,19 @@ function composeCompactBlocks(entries, options) {
         if (block.length > 0) {
             var blockText = block.join(" ")
             var quotaText = quotaParts.join(" ")
+            var hasQuotaPercent = worstUsedPercent !== null && worstUsedPercent !== undefined
             blockTexts.push(blockText)
             blocks.push({
                 provider: id,
                 selectionKey: selectionKey,
                 ordinal: ordinal,
                 error: false,
-                cached: entry.isCached === true,
-                status: entry.isCached === true ? "neutral" : compactUsageStatus(worstUsedPercent),
+                // A held reading still has a real percent. Gray is only for a chip
+                // with no number.
+                cached: entry.isCached === true && !hasQuotaPercent,
+                status: entry.isCached === true && !hasQuotaPercent
+                    ? "neutral"
+                    : compactUsageStatus(worstUsedPercent),
                 worstUsedPercent: worstUsedPercent,
                 quotaText: quotaText,
                 fullText: blockText,

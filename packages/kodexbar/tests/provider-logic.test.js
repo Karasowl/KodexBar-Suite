@@ -197,6 +197,44 @@ assert.deepEqual(
     ["default"],
     "a full seed cache only keeps the live account set"
 )
+assert.deepEqual(
+    plain(context.retainLiveAccountCache(
+        [
+            { provider: "claude", profileId: "default", compactPrimaryPercentLeft: 2 },
+            { provider: "cursor", profileId: "default", compactPrimaryPercentLeft: 30 }
+        ],
+        [
+            {
+                provider: "claude",
+                profileId: "default",
+                errorMessage: "rate limited by Anthropic right now",
+                errorCategory: "rate_limit",
+                errorRetryable: false
+            },
+            { provider: "cursor", profileId: "default", compactPrimaryPercentLeft: 31 }
+        ],
+        [],
+        true
+    )).map(entry => entry.provider + ":" + entry.compactPrimaryPercentLeft),
+    ["claude:2", "cursor:31"],
+    "a full seed keeps the last good reading when the new row is only rate limited"
+)
+assert.deepEqual(
+    plain(context.retainLiveAccountCache(
+        [{ provider: "claude", profileId: "default", compactPrimaryPercentLeft: 2 }],
+        [{
+            provider: "claude",
+            profileId: "default",
+            errorMessage: "Sign in again",
+            errorCategory: "authentication",
+            errorRetryable: false
+        }],
+        [],
+        true
+    )),
+    [],
+    "a full seed still drops the last good reading on a real sign-in failure"
+)
 
 assert.deepEqual(
     plain(context.acquisitionCandidates("detect")),
@@ -1296,7 +1334,7 @@ assert.match(configXml, /<entry name="provider" type="String">/, "legacy provide
 assert.match(configXml, /<entry name="compactProviderMigrationDone" type="Bool">/, "one-time migration has a persistent flag")
 assert.match(
     configXml,
-    /<entry name="claudeRefreshInterval" type="Int">\s*<default>300<\/default>\s*<min>60<\/min>\s*<max>3600<\/max>/,
+    /<entry name="claudeRefreshInterval" type="Int">\s*<default>900<\/default>\s*<min>60<\/min>\s*<max>3600<\/max>/,
     "Claude refresh defaults to five minutes within its supported range"
 )
 assert.match(
@@ -1810,7 +1848,7 @@ assert.match(
     "enabling cost while the popup is open consults the cost TTL"
 )
 assert.doesNotMatch(
-    mainQml.match(/function refresh\(\)[\s\S]*?function knownProviderIds/)[0],
+    mainQml.match(/function refresh\(force\)[\s\S]*?function knownProviderIds/)[0],
     /refreshCost\(/,
     "the sixty-second usage refresh does not call cost"
 )
@@ -1871,7 +1909,16 @@ assert.match(
     /function refreshOtherProviders\(\) \{[\s\S]*if \(providers\.length === 0\) \{\s*if \(knownProviderIds\(true\)\.length === 0\) \{\s*initialUsageSeedPending = true\s*refresh\(\)/,
     "an empty provider result re-enters the all-provider seed path"
 )
-assert.match(mainQml, /providerCandidates\(\["claude"\]\)/, "Claude refreshes through a provider-specific query")
+assert.match(
+    mainQml,
+    /all\[i\] === "cursor" && !providerInBackoff\(all\[i\]\)/,
+    "Cursor stays on the slow refresh"
+)
+assert.match(
+    mainQml,
+    /errorCategory === "rate_limit"/,
+    "a rate limit backs that provider off before the next automatic refresh"
+)
 assert.match(mainQml, /id: claudeRefreshTimer/, "Claude uses a separate refresh timer")
 assert.match(mainQml, /i18n\("Banked resets"\)/, "the Codex popup labels banked rate-limit resets")
 assert.match(mainQml, /root\.activeEntry\.isCached === true/, "cached popup data has a visible staleness note")
