@@ -6973,6 +6973,9 @@ def login_argv_for_profile(
         return ["claude", "auth", "login"], env_updates, "Complete sign-in in the terminal window, then return to KodexBar and refresh."
     if normalized == "grok":
         if profile.credential_source.kind == "grok-auth" and profile.credential_source.auth_file:
+            if profile.credential_source.auth_file.name != "auth.json":
+                raise ValueError("Grok sign-in writes auth.json. Add a managed Grok account for guided sign-in "
+                                 "without replacing another credential file.")
             env_updates["GROK_HOME"] = str(profile.credential_source.auth_file.parent)
         elif profile.profile_id != "default":
             raise ValueError("This Grok account has no local sign-in folder.")

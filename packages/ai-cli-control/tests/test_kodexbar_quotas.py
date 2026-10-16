@@ -2992,6 +2992,29 @@ class QuotasEngineTests(unittest.TestCase):
                 fallback.assert_not_called()
             self.assertEqual((home / ".grok" / "auth.json").read_bytes(), original)
 
+    def test_grok_guided_login_never_targets_another_auth_filename(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"APPDATA": directory}):
+            home = Path(directory)
+            self._write_grok_auth(home)
+            primary = home / ".grok" / "auth.json"
+            secondary = home / ".grok" / "second-account.json"
+            secondary.write_bytes(primary.read_bytes())
+            before = primary.read_bytes()
+            profile = quotas.ProviderProfile(
+                provider="grok", profile_id="second", profile_label="Second", enabled=True,
+                credential_source=quotas.CredentialSource(kind="grok-auth", auth_file=secondary),
+                provider_order=0, profile_order=1)
+            with patch.object(quotas, "resolve_provider_profiles", return_value=[profile]), \
+                 patch.object(quotas, "command_on_path", return_value=True), \
+                 patch.object(quotas.subprocess, "Popen") as launch:
+                with self.assertRaisesRegex(ValueError, "writes auth.json"):
+                    quotas.open_login_terminal("grok", "second", home)
+                launch.assert_not_called()
+                token, _ = quotas.grok_access_credentials(home, auth_file=secondary)
+                self.assertTrue(token)
+            self.assertEqual(primary.read_bytes(), before)
+            self.assertEqual(secondary.read_bytes(), before)
+
     def test_grok_missing_key_is_auth_relogin(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
