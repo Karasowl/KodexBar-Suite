@@ -43,6 +43,14 @@ POSIX_HOME = Path("/opt/devhome")
 
 
 class CostLockTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        # Windows resolves profiles through APPDATA even when a home is supplied.
+        appdata = mock.patch.dict(os.environ, {"APPDATA": temporary.name})
+        appdata.start()
+        self.addCleanup(appdata.stop)
+
     def test_credential_lock_serializes_concurrent_writers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "credentials.lock"
