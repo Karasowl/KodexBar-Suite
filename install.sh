@@ -63,7 +63,8 @@ bash "${ai_dir}/install.sh"
 # Backend de cuotas: CLI codexbar oficial (steipete/CodexBar). Sin él el widget
 # y la bandeja quedan en estado de error, así que se instala automáticamente.
 cli_version=""
-cli_sha256=""
+cli_sha256_x86_64=""
+cli_sha256_aarch64=""
 cli_pkgbuild="${script_dir}/packaging/aur-codexbar-cli-bin/PKGBUILD"
 if [[ -f "$cli_pkgbuild" ]]; then
     while IFS= read -r cli_line; do
@@ -72,10 +73,14 @@ if [[ -f "$cli_pkgbuild" ]]; then
                 cli_version="${cli_line#pkgver=}"
                 cli_version="${cli_version//\"/}"
                 ;;
-            sha256sums_x86_64=*)
-                cli_sha256="${cli_line#sha256sums_x86_64=(}"
+            sha256sums_x86_64=*|sha256sums_aarch64=*)
+                cli_sha256="${cli_line#*=(}"
                 cli_sha256="${cli_sha256%%)*}"
                 cli_sha256="${cli_sha256//\'}"
+                case "$cli_line" in
+                    sha256sums_x86_64=*) cli_sha256_x86_64="$cli_sha256";;
+                    sha256sums_aarch64=*) cli_sha256_aarch64="$cli_sha256";;
+                esac
                 ;;
         esac
     done < "$cli_pkgbuild"
@@ -93,20 +98,21 @@ install_codexbar_cli() {
             "tar is missing so the automatic codexbar CLI install cannot run. Download it from ${cli_manual}." >&2
         return 1
     fi
-    if [[ -z "$cli_version" || -z "$cli_sha256" ]]; then
-        say "No pude determinar la versión del CLI codexbar. Instálalo desde ${cli_manual} o el widget quedará en error." \
-            "Could not determine the codexbar CLI version. Install it from ${cli_manual} or the widget will stay in error state." >&2
-        return 1
-    fi
+    local cli_arch cli_sha256
     case "$(uname -s):$(uname -m)" in
-        Linux:x86_64) cli_arch="x86_64";;
-        Linux:aarch64|Linux:arm64) cli_arch="aarch64";;
+        Linux:x86_64) cli_arch="x86_64"; cli_sha256="$cli_sha256_x86_64";;
+        Linux:aarch64|Linux:arm64) cli_arch="aarch64"; cli_sha256="$cli_sha256_aarch64";;
         *)
             say "Instalación automática del CLI codexbar no soportada en $(uname -s) $(uname -m). Descárgalo de ${cli_manual}." \
                 "Automatic codexbar CLI install is not supported on $(uname -s) $(uname -m). Download it from ${cli_manual}." >&2
             return 1
             ;;
     esac
+    if [[ -z "$cli_version" || -z "$cli_sha256" ]]; then
+        say "No pude determinar la versión o suma del CLI codexbar. Instálalo desde ${cli_manual} o el widget quedará en error." \
+            "Could not determine the codexbar CLI version or checksum. Install it from ${cli_manual} or the widget will stay in error state." >&2
+        return 1
+    fi
     local cli_url="https://github.com/steipete/CodexBar/releases/download/v${cli_version}/CodexBarCLI-v${cli_version}-linux-${cli_arch}.tar.gz"
     local cli_tmp
     cli_tmp="$(mktemp -d)"
