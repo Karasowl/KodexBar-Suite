@@ -263,10 +263,10 @@ def is_synthetic_user_message(text):
 
 
 def codex_session(path):
-    records = list(read_json_lines(path))
-    if not records:
+    records = iter(read_json_lines(path))
+    first = next(records, None)
+    if first is None:
         return None
-    first = records[0]
     if first.get("type") != "session_meta" or not isinstance(first.get("payload"), dict):
         warn(f"se omitió sesión Codex sin session_meta válido: {path}")
         return None
@@ -274,7 +274,7 @@ def codex_session(path):
     session_id = str(meta.get("session_id") or meta.get("id") or path.stem.removeprefix("rollout-"))
     turns = []
     latest = iso_value(meta.get("timestamp"), iso_mtime(path))
-    for record in records[1:]:
+    for record in records:
         latest = iso_value(record.get("timestamp"), latest)
         if record.get("type") != "response_item" or not isinstance(record.get("payload"), dict):
             continue
@@ -376,11 +376,11 @@ def grok_sessions(cwd):
 
 def copy_sqlite(source, temporary):
     destination = temporary / source.name
-    destination.write_bytes(source.read_bytes())
+    shutil.copyfile(source, destination)
     for suffix in ("-wal", "-shm"):
         sibling = Path(str(source) + suffix)
         if sibling.is_file():
-            Path(str(destination) + suffix).write_bytes(sibling.read_bytes())
+            shutil.copyfile(sibling, Path(str(destination) + suffix))
     return destination
 
 
@@ -552,10 +552,11 @@ def agy_sessions(cwd):
 
 
 def claude_session(path):
-    records = list(read_json_lines(path))
+    records = read_json_lines(path)
     turns = []
     cwd = ""
-    started = iso_mtime(path)
+    file_time = iso_mtime(path)
+    started = file_time
     last = started
     subagent = False
     for record in records:
@@ -563,7 +564,7 @@ def claude_session(path):
             cwd = str(record["cwd"])
         timestamp = record.get("timestamp")
         if timestamp:
-            if started == iso_mtime(path):
+            if started == file_time:
                 started = iso_value(timestamp, started)
             last = iso_value(timestamp, last)
         subagent = subagent or bool(record.get("isSidechain")) or bool(record.get("agentId"))
