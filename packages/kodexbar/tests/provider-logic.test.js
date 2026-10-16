@@ -2098,3 +2098,8 @@ assert.match(mainQml, /providerWindowTitle\(entry\.provider, "weekly", usage\)/)
 assert.match(mainQml, /windowDetail\(windows\[i\]\.data, left !== null\), windows\[i\]\.data\)/)
 assert.match(mainQml, /accountLabel: identity\.accountLabel/)
 console.log("X Subscription identity, period and composition checks passed")
+
+assert.match(mainQml, /Flow \{\s*id: signalSegmentLegend[\s\S]*Layout\.fillWidth: true[\s\S]*model: signalQuotaRow\.legendItems/,
+    "the active Signal Console legend wraps on its own line without colliding with the reset timestamp")
+assert.match(mainQml, /text: signalQuotaRow\.rowData\.windowBadge \|\| ""/,
+    "the active popup shows the actual quota period badge")

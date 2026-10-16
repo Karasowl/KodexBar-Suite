@@ -2436,6 +2436,15 @@ PlasmoidItem {
                 spacing: 8
 
                 PlasmaComponents.Label {
+                    visible: text.length > 0
+                    text: signalQuotaRow.rowData.windowBadge || ""
+                    color: root.mutedColor
+                    font.family: root.designFont
+                    font.pixelSize: 12
+                    font.weight: Font.Bold
+                }
+
+                PlasmaComponents.Label {
                     text: signalQuotaRow.rowData.title || i18n("Usage")
                     color: root.textColor
                     font.family: root.designFont
@@ -2510,25 +2519,11 @@ PlasmoidItem {
                 }
             }
 
-            RowLayout {
-                visible: !!(signalQuotaRow.rowData.detail
-                    && signalQuotaRow.rowData.detail.length > 0)
-                    || signalQuotaRow.legendItems.length > 0
-                    || signalQuotaRow.absoluteReset.length > 0
+            Flow {
+                id: signalSegmentLegend
+                visible: signalQuotaRow.legendItems.length > 0
                 Layout.fillWidth: true
                 spacing: 9
-
-                PlasmaComponents.Label {
-                    visible: !!(signalQuotaRow.rowData.detail
-                        && signalQuotaRow.rowData.detail.length > 0)
-                    text: signalQuotaRow.rowData.detail || ""
-                    color: root.mutedColor
-                                            font.weight: Font.DemiBold
-                    font.family: root.designFont
-                    font.pixelSize: 12
-                    elide: Text.ElideRight
-                    Layout.fillWidth: true
-                }
 
                 Repeater {
                     model: signalQuotaRow.legendItems
@@ -2554,6 +2549,27 @@ PlasmoidItem {
                             font.pixelSize: 12
                         }
                     }
+                }
+
+            }
+
+            RowLayout {
+                visible: !!(signalQuotaRow.rowData.detail
+                    && signalQuotaRow.rowData.detail.length > 0)
+                    || signalQuotaRow.absoluteReset.length > 0
+                Layout.fillWidth: true
+                spacing: 9
+
+                PlasmaComponents.Label {
+                    visible: !!(signalQuotaRow.rowData.detail
+                        && signalQuotaRow.rowData.detail.length > 0)
+                    text: signalQuotaRow.rowData.detail || ""
+                    color: root.mutedColor
+                                            font.weight: Font.DemiBold
+                    font.family: root.designFont
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
                 }
 
                 PlasmaComponents.Label {
