@@ -2906,6 +2906,13 @@ class QuotasEngineTests(unittest.TestCase):
             with patch.object(quotas.sys, "stderr"):
                 self.assertEqual(quotas.delegate_whole_call(["usage", "--unknown"]), 2)
             delegate.assert_not_called()
+            with patch.object(quotas.sys, "stderr"), patch.object(quotas, "profiles_command") as profiles_write, \
+                 patch.object(quotas, "refresh_cost_cache_nonblocking") as cache_write:
+                for denied in [["profiles", "add", "--provider", "grok"], ["--refresh-cost-cache"],
+                               ["cost", "--format", "json", "--json-only"], ["usage", "--provider", "claude"]]:
+                    self.assertEqual(quotas.main(denied), 2)
+                profiles_write.assert_not_called()
+                cache_write.assert_not_called()
 
     def test_grok_read_only_never_refreshes_or_falls_back(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

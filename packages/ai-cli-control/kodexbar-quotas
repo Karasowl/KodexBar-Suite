@@ -7162,6 +7162,11 @@ def profiles_command(arguments: list[str]) -> int:
 
 
 def main(arguments: list[str]) -> int:
+    if quota_read_only() and arguments not in (["--version"], ["-V"]):
+        read_request = parse_usage(arguments[1:]) if arguments and arguments[0] == "usage" else None
+        if read_request is None or read_request[0] not in ("grok", "cursor"):
+            print("kodexbar-quotas: read-only validation supports Grok or Cursor usage only", file=sys.stderr)
+            return 2
     if arguments == ["--refresh-cost-cache"]:
         return refresh_cost_cache_nonblocking()
     if arguments in (["--version"], ["-V"]):

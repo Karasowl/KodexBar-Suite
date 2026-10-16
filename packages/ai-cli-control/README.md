@@ -185,7 +185,7 @@ kodexbar-quotas usage --provider grok --json --all-accounts
 
 The first command only adds a profile and an empty credential directory. The second is an explicit interactive login into that profile's `GROK_HOME`. Choose the unified account there. It does not replace `~/.grok/auth.json`. An existing independent CLI auth file can instead be referenced in `credentialSource.authFile`. See [the two-account example](examples/x-subscription-profiles.json). Merge its provider block into an existing profiles document rather than replacing other accounts.
 
-The native engine has no browser-cookie credential source to reuse. A web-only account therefore requires that separate login. No cookies are copied or written to profile configuration. Merely reading usage never starts a login or opens a browser. For read-only validation, prefix usage commands with `KODEXBAR_QUOTAS_READ_ONLY=1` to suppress Grok refresh, automatic config creation and upstream fallback.
+The native engine has no browser-cookie credential source to reuse. A web-only account therefore requires that separate login. No cookies are copied or written to profile configuration. Merely reading usage never starts a login or opens a browser. Read-only validation accepts only Grok or Cursor usage commands. Prefix those commands with `KODEXBAR_QUOTAS_READ_ONLY=1` to suppress Grok refresh, automatic config creation and upstream fallback.
 
 ## Panel adapters
 

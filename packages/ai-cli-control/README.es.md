@@ -200,7 +200,7 @@ kodexbar-quotas usage --provider grok --json --all-accounts
 
 El primer comando solo añade el perfil y una carpeta de credenciales vacía. El segundo inicia un login interactivo explícito con el `GROK_HOME` de ese perfil. Selecciona allí la cuenta unificada. No sustituye `~/.grok/auth.json`. Si ya existe un archivo de autenticación independiente de esa cuenta, puede referenciarse mediante `credentialSource.authFile`. El [ejemplo de dos cuentas](examples/x-subscription-profiles.json) muestra la estructura. Su bloque se añade al documento de perfiles existente sin reemplazar las otras cuentas.
 
-El motor nativo no tiene una fuente de cookies de navegador que reutilizar. Una cuenta que solo está autenticada en la web necesita ese login separado. No se copian cookies a la configuración. Consultar el uso nunca inicia login ni abre un navegador. Para validar en solo lectura, anteponer `KODEXBAR_QUOTAS_READ_ONLY=1` al comando evita la renovación de Grok, la creación automática de configuración y el fallback externo.
+El motor nativo no tiene una fuente de cookies de navegador que reutilizar. Una cuenta que solo está autenticada en la web necesita ese login separado. No se copian cookies a la configuración. Consultar el uso nunca inicia login ni abre un navegador. La validación de solo lectura solo acepta consultas de uso Grok o Cursor. Anteponer `KODEXBAR_QUOTAS_READ_ONLY=1` al comando evita la renovación de Grok, la creación automática de configuración y el fallback externo.
 
 ## Adaptadores de panel
 
