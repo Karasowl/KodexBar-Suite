@@ -1,0 +1,58 @@
+{
+  "plan": [
+    {
+      "field": 1,
+      "wire": 2,
+      "message": [
+        {
+          "field": 1,
+          "wire": 2,
+          "text": "Pro+"
+        },
+        {
+          "field": 2,
+          "wire": 0,
+          "value": 6000
+        },
+        {
+          "field": 6,
+          "wire": 0,
+          "value": 1
+        }
+      ]
+    }
+  ],
+  "period": [
+    {
+      "field": 1,
+      "wire": 0,
+      "value": 1784733973000
+    },
+    {
+      "field": 2,
+      "wire": 0,
+      "value": 1787412373000
+    },
+    {
+      "field": 3,
+      "wire": 2,
+      "message": [
+        {
+          "field": 12,
+          "wire": 1,
+          "value": 8.0
+        },
+        {
+          "field": 13,
+          "wire": 1,
+          "value": 4.5
+        },
+        {
+          "field": 14,
+          "wire": 1,
+          "value": 12.5
+        }
+      ]
+    }
+  ]
+}

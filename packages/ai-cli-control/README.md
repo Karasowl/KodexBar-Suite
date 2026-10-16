@@ -163,11 +163,35 @@ The exact `cost --format json --json-only` command keeps the complete upstream p
 
 Native Claude profiles keep their saved quotas and polling cooldowns in their own credential directory. Explicit credential sources and secondary profiles never fall back to the ambient upstream account. Credential refreshes and profile updates use cross-process locks on Linux and Windows. Native HTTP redirects stay on the original origin so credentials are not forwarded to another host.
 
-Usage invocations with flags the engine does not implement, such as `--status`, are delegated wholly to upstream `codexbar`.
+Usage invocations with flags the engine does not implement, such as `--status`, are delegated wholly to upstream `codexbar`. The explicit `--all-accounts` flag stays native for Grok and Cursor native sources. Other providers and source choices keep the complete upstream argument list.
 
 The installer places it at `~/.local/share/ai-cli-control/kodexbar-quotas` and links `~/.local/bin/kodexbar-quotas` only when that link is owned by this package.
 
+Grok reads the explicit `config.current_period` type and dates. Deprecated billing dates are a fallback only when `current_period` is absent. A zero percent default requires a valid quota configuration. Product IDs and names remain inside one composition bar, including Cursor, Grok Chat, Grok Bot and Bugbot. The engine exposes `prepaidBalance` in cents and positive `credits.remaining` in USD separately from included usage. Authentication mode does not identify the subscription tier.
+
+Cursor keeps its native usage and plan endpoints. Merged plans expose one weekly `The X Subscription` total in `usage.secondary`, using the included-usage reset rather than the plan renewal date. Confirmed legacy plans retain the monthly Cursor Models and Other Models budgets. Plan classification requires an explicit successful gRPC status. If plan lookup fails, the valid measurement remains with `periodType: unknown` and no invented monthly budgets.
+
+### Separate Grok accounts and verified shared quota
+
+`usage.sharedQuota` is emitted only for a unified plan with authenticated xAI user and billing-team proof. Grok uses `AuthManagement/GetUser`. Cursor uses `GetMe`, `GetSandMarketingIdentity` and the available individual `GetIndividualUnificationPrepaidPreview`. Failed or incomplete identity reads preserve quota data without a shared key. IDs are hashed in output. Email, equal percentages and equal reset dates never prove account linkage. Cursor team plans remain separate until their billing scope can be verified.
+
+Grok supports the existing `grok-auth` profile source and managed account creation. Keep the ambient account and prepare a separate account with:
+
+```sh
+kodexbar-quotas profiles add --provider grok --label "The X Subscription"
+kodexbar-quotas profiles login --provider grok --id the-x-subscription
+kodexbar-quotas usage --provider grok --json --all-accounts
+```
+
+The first command only adds a profile and an empty credential directory. The second is an explicit interactive login into that profile's `GROK_HOME`. Choose the unified account there. It does not replace `~/.grok/auth.json`. An existing independent CLI auth file can instead be referenced in `credentialSource.authFile`. See [the two-account example](examples/x-subscription-profiles.json). Merge its provider block into an existing profiles document rather than replacing other accounts.
+
+Quota reads accept any authentication filename. Guided sign-in requires the profile file to be named `auth.json`, because Grok writes that name inside `GROK_HOME`. For a differently named file, add a managed account to sign in without overwriting another credential.
+
+The native engine has no browser-cookie credential source to reuse. A web-only account therefore requires that separate login. No cookies are copied or written to profile configuration. Merely reading usage never starts a login or opens a browser. Read-only validation accepts only Grok or Cursor usage commands. Prefix those commands with `KODEXBAR_QUOTAS_READ_ONLY=1` to suppress Grok refresh, automatic config creation and upstream fallback.
+
 ## Panel adapters
+
+Waybar and the Linux and Windows trays preserve quota periods and Cursor and Grok account identity. Only verified shared pools are grouped into one measurement, preferring the latest period. Status JSON keeps `percentages.weekly` and adds `periods.weekly` to distinguish weekly, monthly and unknown periods.
 
 `kodexbar-panel` invokes the sibling `kodexbar-quotas` engine first, then the command on `PATH`. It prints the compact quota line used by the suite (`Cx`, `Cl`, `Gk`, `Ag`, `Hm`, and the other returned providers), with session and weekly usage where available. It has a 20-second engine timeout and returns a short error instead of a traceback when quota data is unavailable.
 

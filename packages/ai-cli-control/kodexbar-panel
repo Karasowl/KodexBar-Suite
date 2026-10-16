@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import math
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -183,9 +185,20 @@ def compact_provider(entry: Any) -> dict[str, Any] | None:
     )
     severity = "critical" if error else usage_severity([value for value in severity_values if value is not None])
     messages = entry.get("messagesToday")
+    usage = entry.get("usage") if isinstance(entry.get("usage"), dict) else {}
+    secondary = usage.get("secondary") if isinstance(usage.get("secondary"), dict) else {}
+    period = secondary.get("periodType") or (
+        "unknown" if identifier == "cursor" else "monthly" if identifier == "hermes" else "weekly")
+    if not isinstance(period, str) or period not in ("weekly", "monthly"):
+        period = "unknown"
+    identity = usage.get("identity") if isinstance(usage.get("identity"), dict) else {}
     result = {
         "provider": identifier,
-        "label": provider_label(identifier, entry.get("name")),
+        "label": "X" if entry.get("sharedQuotaGrouped") else provider_label(identifier, entry.get("name")),
+        "name": usage.get("planName") if usage.get("isUnified") is True else None,
+        "accountLabel": (identity.get("accountLabel") or entry.get("profileLabel") or entry.get("profileId"))
+            if identifier in ("cursor", "grok") else None,
+        "periods": {"weekly": period},
         "messages": messages if isinstance(messages, int) and not isinstance(messages, bool) and messages >= 0 else None,
         "percentages": {"session": session, "weekly": weekly},
         "resets": {"session": session_reset, "weekly": weekly_reset},
@@ -213,6 +226,58 @@ def select_entries(entries: list[Any], providers: list[str]) -> list[Any]:
     return selected
 
 
+def _timestamp(value: Any) -> float:
+    try:
+        stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return stamp.timestamp() if stamp.tzinfo else 0
+    except (AttributeError, TypeError, ValueError, OverflowError, OSError):
+        return 0
+
+
+def _shared_quota_key(entry: Any) -> tuple[str, str, str] | None:
+    if (not isinstance(entry, dict) or error_message(entry) is not None
+            or provider_id(entry.get("provider")) not in ("grok", "cursor")):
+        return None
+    usage = entry.get("usage")
+    if not isinstance(usage, dict) or usage.get("isUnified") is not True:
+        return None
+    proof, quota = usage.get("sharedQuota"), usage.get("secondary")
+    if not isinstance(proof, dict) or not isinstance(quota, dict):
+        return None
+    if (proof.get("verified") is not True or proof.get("authority") != "xai-account-team"
+            or proof.get("pool") != "included"
+            or not re.fullmatch(r"x-subscription:[a-f0-9]{64}", str(proof.get("id", "")))
+            or any(not isinstance(proof.get(key), str) or not proof[key] for key in ("accountId", "teamId"))):
+        return None
+    percent = quota.get("usedPercent")
+    start, end = _timestamp(quota.get("startsAt")), _timestamp(quota.get("resetsAt"))
+    if (not isinstance(percent, (int, float)) or isinstance(percent, bool) or not math.isfinite(percent)
+            or not 0 <= percent <= 100 or not start or end <= start
+            or quota.get("periodType") not in ("weekly", "monthly")):
+        return None
+    return proof["id"], proof["accountId"], proof["teamId"]
+
+
+def group_shared_quotas(entries: list[Any]) -> list[Any]:
+    """Collapse only proven pools, keeping one observation and the provider contract."""
+    result: list[Any] = []
+    positions: dict[tuple[str, str, str], int] = {}
+    for entry in entries:
+        key = _shared_quota_key(entry)
+        if key is None or key not in positions:
+            if key is not None:
+                positions[key] = len(result)
+            result.append(entry)
+            continue
+        previous = result[positions[key]]
+        def observation(item: dict[str, Any]) -> tuple[float, float]:
+            usage = item["usage"]
+            return _timestamp(usage["secondary"].get("startsAt")), _timestamp(usage.get("updatedAt"))
+        chosen = entry if observation(entry) > observation(previous) else previous
+        result[positions[key]] = {**chosen, "sharedQuotaGrouped": True}
+    return result
+
+
 def block_text(provider: dict[str, Any]) -> str:
     parts = [provider["label"]]
     if provider["error"]:
@@ -231,7 +296,7 @@ def block_text(provider: dict[str, Any]) -> str:
         session = provider["percentages"]["session"]
         weekly = provider["percentages"]["weekly"]
         primary_label = "D" if provider["provider"] == "devin" else "S"
-        secondary_label = "M" if provider["provider"] in {"cursor", "hermes"} else "W"
+        secondary_label = {"weekly": "W", "monthly": "M"}.get(provider["periods"]["weekly"], "?")
         if session is not None:
             parts.append(f"{primary_label} {session}%")
         if weekly is not None:
@@ -254,6 +319,10 @@ def tooltip_lines(providers: list[dict[str, Any]]) -> list[str]:
     lines: list[str] = []
     for provider in providers:
         title = f'{provider["label"]} ({provider["provider"]})'
+        if provider.get("name"):
+            title = str(provider["name"])
+        if provider.get("accountLabel"):
+            title += f' [{provider["accountLabel"]}]'
         if provider["error"]:
             lines.append(f"{title}: ERR, {provider['error_message']}")
             continue
@@ -272,7 +341,7 @@ def tooltip_lines(providers: list[dict[str, Any]]) -> list[str]:
             if not known:
                 lines.append(f"{title}: no Antigravity quotas reported")
             continue
-        weekly_title = "Monthly" if provider["provider"] in {"cursor", "hermes"} else "Weekly"
+        weekly_title = {"weekly": "Weekly", "monthly": "Monthly"}.get(provider["periods"]["weekly"], "Included usage")
         session_title = "Daily" if provider["provider"] == "devin" else "Session"
         for key, title_key in (("session", session_title), ("weekly", weekly_title)):
             percent = provider["percentages"][key]
@@ -292,7 +361,8 @@ def tooltip_lines(providers: list[dict[str, Any]]) -> list[str]:
 
 
 def compact_model(entries: list[Any], providers: list[str]) -> dict[str, Any]:
-    compact = [provider for entry in select_entries(entries, providers) if (provider := compact_provider(entry))]
+    compact = [provider for entry in group_shared_quotas(select_entries(entries, providers))
+               if (provider := compact_provider(entry))]
     text = " | ".join(block_text(provider) for provider in compact) or "No quota data"
     severity_order = {"ok": 0, "warning": 1, "critical": 2}
     severity = max((provider["severity"] for provider in compact), key=severity_order.get, default="ok")

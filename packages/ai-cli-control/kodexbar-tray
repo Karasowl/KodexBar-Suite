@@ -128,6 +128,10 @@ def provider_menu_label(provider: Any) -> str | None:
         return None
     identifier = str(provider.get("provider") or "").strip()
     label = str(provider.get("label") or identifier or "AI").strip()
+    if provider.get("name"):
+        label = str(provider["name"])
+    if provider.get("accountLabel"):
+        label += f' [{provider["accountLabel"]}]'
     if not identifier:
         return None
     if provider.get("error"):
@@ -170,7 +174,10 @@ def provider_menu_label(provider: Any) -> str | None:
     if isinstance(percentages.get("session"), int):
         quotas.append(f"Sesión {percentages['session']}%")
     if isinstance(percentages.get("weekly"), int):
-        quotas.append(f"Semanal {percentages['weekly']}%")
+        periods = provider.get("periods")
+        period = periods.get("weekly") if isinstance(periods, dict) else "weekly"
+        title = {"weekly": "Semanal", "monthly": "Mensual"}.get(period, "Uso incluido")
+        quotas.append(f"{title} {percentages['weekly']}%")
     return f"{label} ({identifier}): {', '.join(quotas) if quotas else 'sin cuotas reportadas'}"
 
 

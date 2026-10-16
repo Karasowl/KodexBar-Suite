@@ -25,6 +25,43 @@ class PanelAdapterTests(unittest.TestCase):
     def setUp(self) -> None:
         self.entries = json.loads((FIXTURES / "panel-engine-output.json").read_text(encoding="utf-8"))
 
+    def test_subscription_period_reaches_compact_and_tooltip_consumers(self) -> None:
+        for period, badge, title in [("weekly", "W", "Weekly"), ("monthly", "M", "Monthly"),
+                                     ("unknown", "?", "Included usage")]:
+            for provider in ("cursor", "grok"):
+                with self.subTest(period=period, provider=provider):
+                    entry = {"provider": provider, "usage": {"secondary": {
+                        "periodType": period, "usedPercent": 28}}}
+                    model = panel.compact_model([entry], [])
+                    self.assertIn(badge + " 28%", model["text"])
+                    self.assertIn(title + " 28%", "\n".join(panel.tooltip_lines(model["providers"])))
+                    self.assertEqual(model["providers"][0]["periods"]["weekly"], period)
+
+    def test_panel_groups_only_proven_shared_accounts_and_keeps_latest_period(self) -> None:
+        def entry(provider, user):
+            return {"provider": provider, "profileId": user, "usage": {
+                "isUnified": True, "planName": "The X Subscription",
+                "identity": {"accountLabel": "xAI " + user},
+                "sharedQuota": {"id": "x-subscription:" + "a" * 64, "verified": True,
+                                "authority": "xai-account-team", "accountId": user,
+                                "teamId": "team", "pool": "included"},
+                "updatedAt": "2026-10-16T17:00:00Z",
+                "secondary": {"usedPercent": 28, "periodType": "weekly",
+                              "startsAt": "2026-10-16T00:00:00Z", "resetsAt": "2026-10-23T00:00:00Z"}}}
+        cursor, grok, other = entry("cursor", "one"), entry("grok", "one"), entry("grok", "two")
+        model = panel.compact_model([cursor, grok, other], [])
+        self.assertEqual(model["text"], "X W 28% | Gk W 28%")
+        self.assertEqual(len(model["providers"]), 2)
+        tooltip = "\n".join(panel.tooltip_lines(model["providers"]))
+        self.assertIn("The X Subscription", tooltip)
+        self.assertIn("xAI one", tooltip)
+        self.assertIn("xAI two", tooltip)
+        self.assertEqual(len(panel.compact_model([cursor, grok, other], ["cursor"])["providers"]), 1)
+        grok["usage"]["secondary"].update(usedPercent=0, startsAt="2026-10-23T00:00:00Z", resetsAt="2026-10-30T00:00:00Z")
+        self.assertEqual(panel.compact_model([grok, cursor], [])["text"], "X W 0%")
+        del grok["usage"]["sharedQuota"]
+        self.assertEqual(len(panel.compact_model([cursor, grok], [])["providers"]), 2)
+
     def test_compact_model_applies_widget_thresholds_and_error_rendering(self) -> None:
         model = panel.compact_model(self.entries, [])
         self.assertEqual(model["text"], "Cx S 12% W 52% | Cl S 50% W 80% | Gk ERR | Ag S 0% W 0%")

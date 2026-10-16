@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "providers": {
+    "grok": {
+      "profiles": [
+        {
+          "id": "default",
+          "label": "Principal",
+          "enabled": true,
+          "credentialSource": {
+            "kind": "default"
+          }
+        },
+        {
+          "id": "the-x-subscription",
+          "label": "The X Subscription",
+          "enabled": true,
+          "credentialSource": {
+            "kind": "grok-auth",
+            "authFile": "~/.config/kodexbar-suite/accounts/grok/the-x-subscription/auth.json"
+          }
+        }
+      ]
+    }
+  }
+}
