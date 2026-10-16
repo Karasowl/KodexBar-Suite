@@ -248,3 +248,5 @@ Lee [CONTRIBUTING.md](CONTRIBUTING.md) antes de proponer un cambio. Las versione
 ## Licencia y avisos
 
 Copyright 2026 Ismael (Karasowl). Se publica bajo la [licencia MIT](LICENSE). Los avisos de productos de terceros están en [NOTICE.md](NOTICE.md).
+
+Grok lee el tipo y las fechas de `config.current_period`. Las fechas deprecated se usan solo cuando falta `current_period`. El cero predeterminado exige una configuración de cuota válida. Los ID y nombres de producto se conservan dentro de una sola barra de composición, incluidos Cursor, Grok Chat, Grok Bot y Bugbot. El motor expone `prepaidBalance` en centavos y `credits.remaining` positivo en USD, separado de la cuota incluida. El modo de autenticación no identifica el nivel del plan.

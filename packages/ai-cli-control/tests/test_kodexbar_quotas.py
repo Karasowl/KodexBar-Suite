@@ -51,6 +51,22 @@ def _protobuf_key(field: int, wire_type: int) -> bytes:
     return _encode_varint((field << 3) | wire_type)
 
 
+def encode_wire_fixture(rows: list[dict]) -> bytes:
+    body = b""
+    for row in rows:
+        wire = row["wire"]
+        body += _protobuf_key(row["field"], wire)
+        if wire == 0:
+            body += _encode_varint(row["value"])
+        elif wire in (1, 5):
+            body += struct.pack("<d" if wire == 1 else "<f", row["value"])
+        elif wire == 2:
+            value = (encode_wire_fixture(row["message"]) if "message" in row
+                     else row.get("text", "").encode("utf-8"))
+            body += _encode_varint(len(value)) + value
+    return body
+
+
 def build_grok_surface_entry(surface_id: int, used_percent: float | None = None) -> bytes:
     """One repeated field-7 surface: id (field 1 varint) + optional percent (field 2 fixed32)."""
     body = _protobuf_key(1, 0) + _encode_varint(surface_id)
@@ -2582,7 +2598,7 @@ class QuotasEngineTests(unittest.TestCase):
             abs(segment_sum - secondary["usedPercent"]) <= quotas.GROK_SEGMENTS_FLOAT_ABS_TOL
         )
         self.assertNotIn("extraRateWindows", entry["usage"])
-        # Live protobuf has no balance field: fetch_grok never passes credits_remaining.
+        # This fixture does not include a prepaid_balance message.
         self.assertNotIn("credits", entry)
 
     def test_map_grok_usage_omits_segments_when_sum_mismatches_weekly(self) -> None:
@@ -2741,17 +2757,11 @@ class QuotasEngineTests(unittest.TestCase):
         segments = quotas.map_grok_segments([(9, 10.0), (3, 10.0), (2, 50.0), (1, 0.0)])
         self.assertEqual(
             [(item["title"], item["points"]) for item in segments],
-            [("Grok Build", 50.0), ("Other surface", 10.0), ("Other surface", 10.0)],
+            [("Grok Build", 50.0), ("Grok Plugins", 10.0), ("Grok Bot", 10.0)],
         )
 
-    def test_map_grok_usage_credits_gate_is_unit_of_mapper_not_scanner(self) -> None:
-        """Unit of map_grok_usage only: credits_remaining is not extracted from protobuf.
-
-        The billing wire format at live balance 0 exposes no dollar-balance field, so
-        fetch_grok/scan_grok_billing_protobuf do not pass credits_remaining. This test
-        only checks that the mapper emits top-level credits when a positive balance is
-        injected as an argument (dormant path), not end-to-end extraction.
-        """
+    def test_map_grok_usage_credits_are_separate_from_quota(self) -> None:
+        """Optional USD credits never create another included-quota window."""
         surfaces = [(2, 79.0)]
         message = build_minimal_grok_billing_message(85.0, 1784733973, surfaces=surfaces)
         used, resets, scanned = quotas.scan_grok_billing_protobuf(message)
@@ -2784,6 +2794,56 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertNotIn("credits", fetched)
         self.assertIsNone(fetched["usage"]["primary"])
         self.assertAlmostEqual(fetched["usage"]["secondary"]["usedPercent"], 85.0, places=3)
+
+    def test_grok_current_period_and_cent_follow_current_schema(self) -> None:
+        fixture = json.loads((FIXTURES / "grok-current-weekly.json").read_text())
+        billing = quotas.parse_grok_billing(encode_wire_fixture(fixture["protobuf"]))
+        self.assertEqual(billing["periodType"], "weekly")
+        self.assertEqual(billing["usedPercent"], 0)
+        self.assertEqual(billing["resetsAt"], "2026-10-21T15:26:13.089456Z")
+        self.assertEqual(billing["prepaidBalanceCents"], 0)
+        mapped = quotas.map_grok_usage(0, billing["resetsAt"], {"auth_mode": "oidc"}, billing=billing)
+        self.assertEqual(mapped["usage"]["planName"], "The X Subscription")
+        self.assertEqual(mapped["usage"]["identity"]["loginMethod"], "oidc")
+        self.assertEqual(mapped["usage"]["prepaidBalance"], {"amount": 0, "unit": "cent", "currency": "USD"})
+        self.assertNotIn("credits", mapped)
+
+        config = fixture["protobuf"][0]["message"]
+        current = next(row for row in config if row["field"] == 8)["message"]
+        current[0]["value"] = 1  # MONTHLY
+        current[2]["message"][0]["value"] += 24 * 86400
+        balance = next(row for row in config if row["field"] == 12)
+        balance.pop("text", None)
+        balance["message"] = [{"field": 1, "wire": 0, "value": 1250}]
+        config.append({"field": 1, "wire": 5, "value": 31.0})
+        config.extend({"field": 7, "wire": 2, "message": [
+            {"field": 1, "wire": 0, "value": product},
+            {"field": 2, "wire": 5, "value": points}]} for product, points in [(10, 20), (9, 5), (4, 6)])
+        billing = quotas.parse_grok_billing(encode_wire_fixture(fixture["protobuf"]))
+        self.assertEqual(billing["periodType"], "monthly")
+        self.assertEqual(billing["resetsAt"], "2026-11-14T15:26:13.089456Z")
+        mapped = quotas.map_grok_usage(31, billing["resetsAt"], billing=billing, surfaces=billing["surfaces"])
+        self.assertEqual(mapped["credits"], {"remaining": 12.5, "currency": "USD"})
+        self.assertEqual([(x["productId"], x["title"]) for x in mapped["usage"]["secondary"]["segments"]],
+                         [(10, "Cursor"), (4, "Grok Chat"), (9, "Grok Bot")])
+        self.assertNotIn("extraRateWindows", mapped["usage"])
+
+    def test_grok_absent_config_or_unrelated_timestamp_never_becomes_zero(self) -> None:
+        timestamp = [{"field": 1, "wire": 0, "value": 1990000000}]
+        cases = [[], [{"field": 1, "wire": 2, "message": []}],
+                 [{"field": 2, "wire": 2, "message": timestamp}],
+                 [{"field": 1, "wire": 2, "message": [{"field": 5, "wire": 2, "message": timestamp}]}],
+                 [{"field": 1, "wire": 2, "message": [{"field": 8, "wire": 2, "message": []}]}]]
+        for rows in cases:
+            with self.subTest(rows=rows), self.assertRaises(quotas.FetchFallback):
+                quotas.parse_grok_billing(encode_wire_fixture(rows))
+
+    def test_grok_product_default_zero_is_distinct_from_truncation(self) -> None:
+        self.assertEqual(quotas._parse_grok_surface_submessage(memoryview(build_grok_surface_entry(10))), (10, 0.0))
+        self.assertEqual(quotas._parse_grok_surface_submessage(memoryview(build_grok_surface_entry(10) + b"\x15\x00")), (None, None))
+        self.assertEqual(quotas.map_grok_segments([(99, 1)])[0],
+                         {"productId": 99, "title": "Other surface", "points": 1.0})
+        self.assertFalse(quotas._grok_surface_components_valid([(10, 5), (10, 5)]))
 
     def test_grok_missing_key_is_auth_relogin(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

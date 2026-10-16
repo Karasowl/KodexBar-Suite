@@ -233,3 +233,5 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Releases follow
 ## License and notices
 
 Copyright 2026 Ismael (Karasowl). Licensed under the [MIT License](LICENSE). Third-party product notices are in [NOTICE.md](NOTICE.md).
+
+Grok reads the explicit `config.current_period` type and dates. Deprecated billing dates are a fallback only when `current_period` is absent. A zero percent default requires a valid quota configuration. Product IDs and names remain inside one composition bar, including Cursor, Grok Chat, Grok Bot and Bugbot. The engine exposes `prepaidBalance` in cents and positive `credits.remaining` in USD separately from included usage. Authentication mode does not identify the subscription tier.
