@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 try:
     import fcntl
@@ -500,7 +500,7 @@ class ProviderProfile:
     @property
     def allows_upstream_fallback(self) -> bool:
         # Secondary profiles must never inherit the ambient default account via unscoped upstream.
-        return self.profile_id == "default"
+        return self.profile_id == "default" and self.credential_source.kind == "default"
 
 
 def expand_user_path(value: str, home: Path | None = None) -> Path:
@@ -1298,24 +1298,25 @@ def claude_oauth_needs_refresh(oauth: dict[str, Any], now: float | None = None) 
 
 @contextmanager
 def _exclusive_file_lock(lock_path: Path):
-    """Hold an exclusive lock for a credential read-refresh-write.
-
-    The lock file sits beside the credential file. On Windows the lock is a
-    no-op; the sibling re-read still avoids burning a rotated refresh token.
-    """
+    """Serialize credential and profile updates across processes on every platform."""
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    handle = os.fdopen(fd, "r+b")
     try:
-        if fcntl is not None:
-            fcntl.flock(fd, fcntl.LOCK_EX)
+        lock = (
+            _acquire_flock(handle, blocking=True)
+            if fcntl is not None
+            else _acquire_msvcrt_lock(handle, blocking=True)
+        )
+    except BaseException:
+        handle.close()
+        raise
+    if lock is None:
+        raise OSError("Timed out waiting for the account lock")
+    try:
         yield
     finally:
-        if fcntl is not None:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-            except OSError:
-                pass
-        os.close(fd)
+        release_cost_lock(lock)
 
 
 def _transient_token_status(status: int) -> str | None:
@@ -1527,6 +1528,22 @@ def read_http_body_limited(stream: Any, max_bytes: int = HTTP_MAX_BODY_BYTES) ->
     return b"".join(chunks)
 
 
+class SameOriginRedirectHandler(HTTPRedirectHandler):
+    """Keep quota credentials and refresh bodies on their original origin."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        def origin(url):
+            parsed = urlparse(url)
+            return parsed.scheme, parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
+
+        if origin(req.full_url) != origin(newurl):
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+urlopen = build_opener(SameOriginRedirectHandler()).open
+
+
 def http_request(
     method: str,
     url: str,
@@ -1555,6 +1572,8 @@ def http_request(
             payload = b""
         except Exception:
             payload = b""
+        finally:
+            error.close()
         return int(error.code), resp_headers, payload
     except FetchFallback:
         raise
@@ -1951,12 +1970,14 @@ def claude_user_config_path(home: Path | None = None) -> Path:
     return (home or home_directory()) / ".claude.json"
 
 
-def claude_usage_poll_path(home: Path | None = None) -> Path:
-    return (home or home_directory()) / ".claude" / ".usage-poll-at"
+def claude_usage_poll_path(home: Path | None = None, *, config_dir: Path | None = None) -> Path:
+    directory = Path(config_dir).expanduser() if config_dir is not None else (home or home_directory()) / ".claude"
+    return directory / ".usage-poll-at"
 
 
-def claude_saved_usage_path(home: Path | None = None) -> Path:
-    return (home or home_directory()) / ".claude" / ".kodexbar-usage.json"
+def claude_saved_usage_path(home: Path | None = None, *, config_dir: Path | None = None) -> Path:
+    directory = Path(config_dir).expanduser() if config_dir is not None else (home or home_directory()) / ".claude"
+    return directory / ".kodexbar-usage.json"
 
 
 def _claude_saved_usage_record(cached: Any) -> tuple[dict[str, Any], float] | None:
@@ -1972,11 +1993,11 @@ def _claude_saved_usage_record(cached: Any) -> tuple[dict[str, Any], float] | No
     return util, age
 
 
-def read_claude_header_usage(home: Path | None = None) -> tuple[dict[str, Any], float] | None:
+def read_claude_header_usage(home: Path | None = None, *, config_dir: Path | None = None) -> tuple[dict[str, Any], float] | None:
     """Newest utilization Claude or KodexBar already saved, plus its age in seconds."""
     candidates: list[tuple[dict[str, Any], float]] = []
     try:
-        config = read_json(claude_user_config_path(home))
+        config = read_json(claude_user_config_path(home)) if config_dir is None else None
     except (OSError, json.JSONDecodeError, ValueError):
         config = None
     if isinstance(config, dict):
@@ -1984,7 +2005,7 @@ def read_claude_header_usage(home: Path | None = None) -> tuple[dict[str, Any], 
         if record is not None:
             candidates.append(record)
     try:
-        saved = read_json(claude_saved_usage_path(home))
+        saved = read_json(claude_saved_usage_path(home, config_dir=config_dir))
     except (OSError, json.JSONDecodeError, ValueError):
         saved = None
     record = _claude_saved_usage_record(saved)
@@ -1995,13 +2016,13 @@ def read_claude_header_usage(home: Path | None = None) -> tuple[dict[str, Any], 
     return min(candidates, key=lambda item: item[1])
 
 
-def remember_claude_usage(home: Path | None, payload: Any) -> None:
+def remember_claude_usage(home: Path | None, payload: Any, *, config_dir: Path | None = None) -> None:
     """Keep the last usage payload so a later poll can show it without an error."""
     if not isinstance(payload, dict):
         return
     if "limits" not in payload and "five_hour" not in payload:
         return
-    path = claude_saved_usage_path(home)
+    path = claude_saved_usage_path(home, config_dir=config_dir)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
@@ -2015,8 +2036,8 @@ def remember_claude_usage(home: Path | None, payload: Any) -> None:
         pass
 
 
-def claude_usage_from_header_cache(home: Path | None, *, allow_stale: bool) -> dict[str, Any] | None:
-    found = read_claude_header_usage(home)
+def claude_usage_from_header_cache(home: Path | None, *, allow_stale: bool, config_dir: Path | None = None) -> dict[str, Any] | None:
+    found = read_claude_header_usage(home, config_dir=config_dir)
     if found is None:
         return None
     util, age = found
@@ -2026,16 +2047,16 @@ def claude_usage_from_header_cache(home: Path | None, *, allow_stale: bool) -> d
     return map_claude_usage(util, updated_at=updated_at)
 
 
-def claude_usage_poll_cooling(home: Path | None = None) -> bool:
+def claude_usage_poll_cooling(home: Path | None = None, *, config_dir: Path | None = None) -> bool:
     try:
-        until = float(claude_usage_poll_path(home).read_text(encoding="utf-8").strip())
+        until = float(claude_usage_poll_path(home, config_dir=config_dir).read_text(encoding="utf-8").strip())
     except (OSError, ValueError):
         return False
     return time.time() < until
 
 
-def note_claude_usage_poll(home: Path | None = None) -> None:
-    path = claude_usage_poll_path(home)
+def note_claude_usage_poll(home: Path | None = None, *, config_dir: Path | None = None) -> None:
+    path = claude_usage_poll_path(home, config_dir=config_dir)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(str(int(time.time() + CLAUDE_USAGE_POLL_COOLDOWN_SECONDS)), encoding="utf-8")
@@ -2043,8 +2064,8 @@ def note_claude_usage_poll(home: Path | None = None) -> None:
         pass
 
 
-def claude_rate_limit_or_header_cache(home: Path | None, message: str) -> dict[str, Any]:
-    cached = claude_usage_from_header_cache(home, allow_stale=True)
+def claude_rate_limit_or_header_cache(home: Path | None, message: str, *, config_dir: Path | None = None) -> dict[str, Any]:
+    cached = claude_usage_from_header_cache(home, allow_stale=True, config_dir=config_dir)
     if cached is not None:
         return cached
     return provider_error("claude", "claude", message, "rate_limit", False)
@@ -2058,13 +2079,15 @@ def fetch_claude(
     # Claude records quota on ordinary replies. Reading that file does not
     # touch the usage endpoint, so the panel can follow along without waiting
     # out a rate limit.
-    fresh = claude_usage_from_header_cache(home, allow_stale=False)
+    fresh = claude_usage_from_header_cache(home, allow_stale=False, config_dir=config_dir)
     if fresh is not None:
         return fresh
-    if claude_usage_poll_cooling(home):
-        held = claude_usage_from_header_cache(home, allow_stale=True)
-        if held is not None:
-            return held
+    if claude_usage_poll_cooling(home, config_dir=config_dir):
+        return claude_rate_limit_or_header_cache(
+            home,
+            "Claude OAuth usage endpoint is rate limited by Anthropic right now. Wait a few minutes, then click Refresh.",
+            config_dir=config_dir,
+        )
     try:
         token = claude_access_token(home, config_dir=config_dir)
     except FetchFallback:
@@ -2074,7 +2097,7 @@ def fetch_claude(
             token = refresh_claude_credentials(home, config_dir=config_dir, force=True)
         except FetchFallback as error:
             if error.category == "rate_limit":
-                return claude_rate_limit_or_header_cache(home, str(error))
+                return claude_rate_limit_or_header_cache(home, str(error), config_dir=config_dir)
             if error.retryable:
                 raise
             token = None
@@ -2088,7 +2111,7 @@ def fetch_claude(
             current = refresh_claude_credentials(home, config_dir=config_dir, force=False)
         except FetchFallback as error:
             if error.category == "rate_limit":
-                return claude_rate_limit_or_header_cache(home, str(error))
+                return claude_rate_limit_or_header_cache(home, str(error), config_dir=config_dir)
             if error.retryable:
                 raise
             current = None
@@ -2102,12 +2125,6 @@ def fetch_claude(
         "User-Agent": "claude-code/2.1.0",
     }
     status, body = http_get(CLAUDE_USAGE_URL, headers)
-    if status == 429:
-        note_claude_usage_poll(home)
-        return claude_rate_limit_or_header_cache(
-            home,
-            "Claude OAuth usage endpoint is rate limited by Anthropic right now. Wait a few minutes, then click Refresh.",
-        )
     if status == 401:
         try:
             retried = refresh_claude_credentials(
@@ -2115,7 +2132,7 @@ def fetch_claude(
             )
         except FetchFallback as error:
             if error.category == "rate_limit":
-                return claude_rate_limit_or_header_cache(home, str(error))
+                return claude_rate_limit_or_header_cache(home, str(error), config_dir=config_dir)
             if error.retryable:
                 raise
             retried = None
@@ -2126,6 +2143,13 @@ def fetch_claude(
                 token = retried
         if status == 401:
             return provider_error("claude", "claude", "Claude OAuth rejected the current credentials (HTTP 401) (run: claude)", "authentication")
+    if status == 429:
+        note_claude_usage_poll(home, config_dir=config_dir)
+        return claude_rate_limit_or_header_cache(
+            home,
+            "Claude OAuth usage endpoint is rate limited by Anthropic right now. Wait a few minutes, then click Refresh.",
+            config_dir=config_dir,
+        )
     if status == 403:
         return provider_error("claude", "claude", "Claude OAuth denied access to usage data (HTTP 403)", "entitlement")
     if status != 200:
@@ -2137,8 +2161,8 @@ def fetch_claude(
         parsed = map_claude_usage(payload)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise FetchFallback("Claude OAuth returned invalid JSON", "invalid_response", True) from error
-    remember_claude_usage(home, payload)
-    note_claude_usage_poll(home)
+    remember_claude_usage(home, payload, config_dir=config_dir)
+    note_claude_usage_poll(home, config_dir=config_dir)
     return parsed
 
 
@@ -4908,9 +4932,8 @@ def _find_incremental_start(path: Path, anchor_fetched_at: float) -> tuple[int, 
                 low = end
             else:
                 high = start
+        # low is zero or the end of a complete record, already a line boundary.
         handle.seek(low)
-        if low > 0:
-            handle.readline(COST_INCREMENTAL_MAX_LINE_BYTES + 1)
         while handle.tell() < size:
             start = handle.tell()
             raw = handle.readline(COST_INCREMENTAL_MAX_LINE_BYTES + 1)
@@ -6578,14 +6601,14 @@ def fetch_provider(
     if normalized == "muse" and source in (None, "auto", "opencode-db"):
         entry = fetch_muse(home)
         return stamp([entry] if entry else [])
-    if not allow_fallback and normalized in ("opencodego", "antigravity"):
+    if not allow_fallback:
         return stamp(
             [
                 provider_error(
                     normalized,
                     source or "auto",
-                    f"Multi-account profiles for {normalized} are not first-class yet. "
-                    "Use a single default profile or upstream multi-entry output.",
+                    f"The selected source for {normalized} cannot query this profile. "
+                    "Use the native source for this account.",
                     "permanent",
                     False,
                 )
@@ -6718,9 +6741,12 @@ def _unique_profile_id(existing: set[str], label: str) -> str:
     if base not in existing:
         return base
     index = 2
-    while f"{base}-{index}" in existing:
+    while True:
+        suffix = f"-{index}"
+        candidate = base[:64 - len(suffix)] + suffix
+        if candidate not in existing:
+            return candidate
         index += 1
-    return f"{base}-{index}"
 
 
 def _profile_to_json_object(profile: ProviderProfile) -> dict[str, Any]:
@@ -6802,6 +6828,15 @@ def add_managed_profile(
     label: str | None = None,
     home: Path | None = None,
 ) -> ProviderProfile:
+    with _exclusive_file_lock(profiles_config_path(home).with_suffix(".lock")):
+        return _add_managed_profile_unlocked(provider, label, home)
+
+
+def _add_managed_profile_unlocked(
+    provider: str,
+    label: str | None = None,
+    home: Path | None = None,
+) -> ProviderProfile:
     """Create a user-friendly secondary account profile with managed local paths."""
     normalized = provider.strip().lower()
     if normalized not in MANAGED_PROFILE_PROVIDERS:
@@ -6847,6 +6882,17 @@ def remove_managed_profile(
     *,
     delete_files: bool = False,
 ) -> None:
+    with _exclusive_file_lock(profiles_config_path(home).with_suffix(".lock")):
+        _remove_managed_profile_unlocked(provider, profile_id, home, delete_files=delete_files)
+
+
+def _remove_managed_profile_unlocked(
+    provider: str,
+    profile_id: str,
+    home: Path | None = None,
+    *,
+    delete_files: bool = False,
+) -> None:
     normalized = provider.strip().lower()
     target_id = profile_id.strip()
     if target_id == "default":
@@ -6857,6 +6903,14 @@ def remove_managed_profile(
     remaining = [p for p in document[normalized] if p.profile_id != target_id]
     if len(remaining) == len(document[normalized]):
         raise ValueError("That account is not configured.")
+    account_dir = None
+    if delete_files:
+        if normalized not in MANAGED_PROFILE_PROVIDERS or not PROFILE_ID_PATTERN.fullmatch(target_id):
+            raise ValueError("Only managed account folders can be deleted.")
+        account_dir = managed_account_dir(normalized, target_id, home)
+        expected_parent = accounts_root_path(home).resolve() / normalized
+        if account_dir.is_symlink() or account_dir.resolve().parent != expected_parent:
+            raise ValueError("Account folder resolves outside its managed provider directory.")
     # If only principal remains, drop the whole provider group so ambient default returns.
     non_default = [p for p in remaining if p.profile_id != "default"]
     if not non_default:
@@ -6869,10 +6923,8 @@ def remove_managed_profile(
             path.unlink()
     else:
         write_profiles_document(document, home)
-    if delete_files:
-        account_dir = managed_account_dir(normalized, target_id, home)
-        if account_dir.is_dir() and accounts_root_path(home) in account_dir.parents:
-            shutil.rmtree(account_dir, ignore_errors=True)
+    if account_dir is not None and account_dir.is_dir():
+        shutil.rmtree(account_dir)
 
 
 def login_argv_for_profile(

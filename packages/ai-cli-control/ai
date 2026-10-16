@@ -977,11 +977,16 @@ def kodexbar_quotas_executable() -> Path | None:
     return Path(which) if which else None
 
 
+def quotas_profiles_command(arguments: Sequence[str], engine: Path) -> list[str]:
+    prefix = [str(engine)] if getattr(sys, "frozen", False) else [sys.executable, str(engine)]
+    return [*prefix, "profiles", *arguments]
+
+
 def run_quotas_profiles(arguments: Sequence[str], language: str) -> subprocess.CompletedProcess[str]:
     engine = kodexbar_quotas_executable()
     if engine is None:
         die(language, "accounts_quotas_missing")
-    command = [sys.executable, str(engine), "profiles", *arguments]
+    command = quotas_profiles_command(arguments, engine)
     return subprocess.run(command, text=True, capture_output=True, check=False)
 
 
@@ -1048,7 +1053,7 @@ def run_accounts_menu(ui: SelectorUI, language: str, dry_run: bool) -> int:
         argv = ["add", "--provider", provider, "--label", label, "--login"]
         if dry_run:
             engine = kodexbar_quotas_executable()
-            print(shlex.join([sys.executable, str(engine or "kodexbar-quotas"), "profiles", *argv]))
+            print(shlex.join(quotas_profiles_command(argv, engine or Path("kodexbar-quotas"))))
             return 0
         result = run_quotas_profiles(argv, language)
         if result.returncode != 0:
@@ -1073,7 +1078,7 @@ def run_accounts_menu(ui: SelectorUI, language: str, dry_run: bool) -> int:
         argv = ["login", "--provider", provider, "--id", profile_id]
         if dry_run:
             engine = kodexbar_quotas_executable()
-            print(shlex.join([sys.executable, str(engine or "kodexbar-quotas"), "profiles", *argv]))
+            print(shlex.join(quotas_profiles_command(argv, engine or Path("kodexbar-quotas"))))
             return 0
         result = run_quotas_profiles(argv, language)
         if result.returncode != 0:
@@ -1087,7 +1092,7 @@ def run_accounts_menu(ui: SelectorUI, language: str, dry_run: bool) -> int:
     argv = ["remove", "--provider", provider, "--id", profile_id]
     if dry_run:
         engine = kodexbar_quotas_executable()
-        print(shlex.join([sys.executable, str(engine or "kodexbar-quotas"), "profiles", *argv]))
+        print(shlex.join(quotas_profiles_command(argv, engine or Path("kodexbar-quotas"))))
         return 0
     result = run_quotas_profiles(argv, language)
     if result.returncode != 0:

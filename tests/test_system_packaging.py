@@ -146,6 +146,18 @@ class SystemPackagingTests(unittest.TestCase):
             {"@VERSION@", "@RELEASE@", "@RELEASE_SUFFIX@", "@CHANGELOG_DATE@"},
         )
 
+    def test_manual_linux_release_checks_out_tags_without_branch_ambiguity(self) -> None:
+        workflow = (ROOT / ".github/workflows/release-linux.yml").read_text(encoding="utf-8")
+        refs = re.findall(r"^\s+ref: (.+)$", workflow, re.MULTILINE)
+        # checkout prefers a branch over a tag when both have the same short name.
+        # All three packages must instead build the exact requested tag namespace.
+        self.assertEqual(len(refs), 3)
+        for ref in refs:
+            self.assertEqual(
+                ref,
+                "${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

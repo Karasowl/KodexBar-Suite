@@ -12,6 +12,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import threading
 from typing import Any
 
 
@@ -266,6 +267,7 @@ class TrayApplication:
         self.gtk = gtk
         self.interval = interval
         self.executable = executable
+        self.refreshing = False
         self.indicator = indicator_api.Indicator.new(
             "kodexbar-tray",
             icon_path("ok"),
@@ -306,8 +308,24 @@ class TrayApplication:
         self.indicator.set_menu(menu)
 
     def refresh(self, _item: Any = None) -> bool:
-        self.apply_status(fetch_status(self.executable))
+        if not self.refreshing:
+            self.refreshing = True
+            threading.Thread(target=self.refresh_worker, daemon=True).start()
         return True
+
+    def refresh_worker(self) -> None:
+        try:
+            status = fetch_status(self.executable)
+        except Exception:
+            status = error_status("kodexbar-panel falló")
+        self.glib.idle_add(self.finish_refresh, status)
+
+    def finish_refresh(self, status: dict[str, Any]) -> bool:
+        try:
+            self.apply_status(status)
+        finally:
+            self.refreshing = False
+        return False
 
     def run(self) -> int:
         self.refresh()

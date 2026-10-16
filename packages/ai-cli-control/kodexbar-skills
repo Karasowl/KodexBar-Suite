@@ -107,7 +107,10 @@ def tree_signature(root: Path) -> str:
     records: list[tuple[str, int, str]] = []
     file_count = 0
     byte_count = 0
-    for current, directories, files in os.walk(root, followlinks=False):
+    def fail_walk(error):
+        raise error
+
+    for current, directories, files in os.walk(root, followlinks=False, onerror=fail_walk):
         current_path = Path(current)
         directories[:] = sorted(
             name for name in directories if name not in IGNORED_PARTS
@@ -128,13 +131,19 @@ def tree_signature(root: Path) -> str:
             if not path.is_file():
                 continue
             file_count += 1
-            byte_count += path.stat().st_size
-            if file_count > MAX_SKILL_FILES or byte_count > MAX_SKILL_BYTES:
+            if file_count > MAX_SKILL_FILES or byte_count + path.stat().st_size > MAX_SKILL_BYTES:
                 raise SkillScanError(
                     "Skill exceeds the scan limit "
                     f"({MAX_SKILL_FILES} files or {MAX_SKILL_BYTES} bytes)"
                 )
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            hasher = hashlib.sha256()
+            with path.open("rb") as handle:
+                while chunk := handle.read(1024 * 1024):
+                    byte_count += len(chunk)
+                    if byte_count > MAX_SKILL_BYTES:
+                        raise SkillScanError("Skill exceeds the byte scan limit")
+                    hasher.update(chunk)
+            digest = hasher.hexdigest()
             mode = stat.S_IMODE(path.stat().st_mode)
             records.append((relative, mode, digest))
     encoded = json.dumps(records, ensure_ascii=False, separators=(",", ":"))
@@ -162,7 +171,7 @@ def skill_description(skill_file: Path) -> str:
     return ""
 
 
-def inspect_source(provider: Provider, entry: Path) -> SkillSource:
+def inspect_source(provider: Provider, entry: Path, cache: dict | None = None) -> SkillSource:
     kind = "symlink" if entry.is_symlink() else "directory"
     try:
         resolved = entry.resolve(strict=True)
@@ -170,7 +179,7 @@ def inspect_source(provider: Provider, entry: Path) -> SkillSource:
         return SkillSource(
             provider.identifier,
             entry,
-            entry.resolve(strict=False),
+            entry.absolute(),
             kind,
             None,
             "",
@@ -188,7 +197,12 @@ def inspect_source(provider: Provider, entry: Path) -> SkillSource:
             "SKILL.md is missing",
         )
     try:
-        digest = tree_signature(resolved)
+        cached = cache.get(resolved) if cache is not None else None
+        if cached is None:
+            cached = (tree_signature(resolved), skill_description(marker))
+            if cache is not None:
+                cache[resolved] = cached
+        digest, description = cached
     except (OSError, SkillScanError) as error:
         return SkillSource(
             provider.identifier,
@@ -205,12 +219,12 @@ def inspect_source(provider: Provider, entry: Path) -> SkillSource:
         resolved,
         kind,
         digest,
-        skill_description(marker),
+        description,
         None,
     )
 
 
-def scan_provider(provider: Provider) -> dict[str, SkillSource]:
+def scan_provider(provider: Provider, cache: dict | None = None) -> dict[str, SkillSource]:
     result: dict[str, SkillSource] = {}
     if not provider.root.is_dir():
         return result
@@ -223,7 +237,7 @@ def scan_provider(provider: Provider) -> dict[str, SkillSource]:
             continue
         if not entry.is_dir() and not entry.is_symlink():
             continue
-        source = inspect_source(provider, entry)
+        source = inspect_source(provider, entry, cache)
         if source.digest is not None or source.error is not None:
             result[entry.name] = source
     return result
@@ -309,7 +323,8 @@ def skill_cell(
 
 def build_inventory(home: Path, requested: str | None = None) -> dict[str, Any]:
     providers = selected_providers(provider_definitions(home), requested)
-    scans = {provider.identifier: scan_provider(provider) for provider in providers}
+    cache: dict = {}
+    scans = {provider.identifier: scan_provider(provider, cache) for provider in providers}
     connected = [
         provider for provider in providers if provider_available(provider)
     ]

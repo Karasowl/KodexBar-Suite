@@ -9,6 +9,8 @@ import subprocess
 import tempfile
 import textwrap
 import unittest
+import threading
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -80,6 +82,36 @@ class TrayLogicTests(unittest.TestCase):
         self.assertEqual([item["kind"] for item in model[-5:]], ["separator", "refresh", "open", "separator", "quit"])
         error = tray.menu_model(tray.error_status("panel falló"))
         self.assertEqual(error[0], {"kind": "info", "label": "panel falló"})
+
+    def test_slow_refresh_keeps_ui_free_and_coalesces_requests(self) -> None:
+        application = tray.TrayApplication(Mock(), Mock(), Mock(), 300)
+        application.apply_status = Mock()
+        started = threading.Event()
+        release = threading.Event()
+        delivered = threading.Event()
+        status = tray.error_status("offline")
+
+        def slow_fetch(_executable):
+            started.set()
+            release.wait(2)
+            return status
+
+        application.glib.idle_add.side_effect = lambda *_args: delivered.set()
+        with patch.object(tray, "fetch_status", side_effect=slow_fetch) as fetch:
+            try:
+                self.assertTrue(application.refresh())
+                self.assertTrue(started.wait(1))
+                self.assertTrue(application.refresh())
+                self.assertEqual(fetch.call_count, 1)
+                application.apply_status.assert_not_called()
+            finally:
+                release.set()
+                self.assertTrue(delivered.wait(2))
+        callback, result = application.glib.idle_add.call_args.args
+        self.assertIs(result, status)
+        self.assertFalse(callback(result))
+        application.apply_status.assert_called_once_with(status)
+        self.assertFalse(application.refreshing)
 
     def test_interval_validation(self) -> None:
         self.assertEqual(tray.validate_interval("60"), 60)

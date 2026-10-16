@@ -29,24 +29,30 @@ if ($null -eq $setupAsset) { throw "No Windows setup found in release $($release
 $sumsAsset = $release.assets | Where-Object { $_.name -eq "SHA256SUMS-windows" } | Select-Object -First 1
 if ($null -eq $sumsAsset) { throw "No SHA256SUMS-windows found in release $($release.tag_name)." }
 
-$dir = Join-Path $env:TEMP "kodexbar-suite-install"
-New-Item -ItemType Directory -Force -Path $dir | Out-Null
-$setupPath = Join-Path $dir $setupAsset.name
-$sumsPath = Join-Path $dir "SHA256SUMS-windows"
-Invoke-WebRequest -Uri $setupAsset.browser_download_url -OutFile $setupPath
-Invoke-WebRequest -Uri $sumsAsset.browser_download_url -OutFile $sumsPath
+$dir = Join-Path $env:TEMP ("kodexbar-suite-install-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $dir | Out-Null
+try {
+    $setupPath = Join-Path $dir $setupAsset.name
+    $sumsPath = Join-Path $dir "SHA256SUMS-windows"
+    Invoke-WebRequest -Uri $setupAsset.browser_download_url -OutFile $setupPath
+    Invoke-WebRequest -Uri $sumsAsset.browser_download_url -OutFile $sumsPath
 
-$expected = $null
-foreach ($line in (Get-Content $sumsPath)) {
-    $parts = $line.Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)
-    if ($parts.Count -ge 2 -and $parts[1].TrimStart("*") -eq $setupAsset.name) { $expected = $parts[0] }
+    $expected = $null
+    foreach ($line in (Get-Content $sumsPath)) {
+        $parts = $line.Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)
+        if ($parts.Count -ge 2 -and $parts[1].TrimStart("*") -eq $setupAsset.name) { $expected = $parts[0] }
+    }
+    if ([string]::IsNullOrEmpty($expected)) { throw "Checksum entry missing for $($setupAsset.name)." }
+    $actual = (Get-FileHash $setupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne $expected.ToLowerInvariant()) { throw "Checksum mismatch for $($setupAsset.name)." }
+
+    Write-Host "Checksum OK. Installing $($release.tag_name)..."
+    $installer = Start-Process -FilePath $setupPath -ArgumentList "/VERYSILENT", "/TASKS=`"$Tasks`"" -Wait -PassThru
+    if ($installer.ExitCode -ne 0) { throw "Installer failed with exit code $($installer.ExitCode)." }
 }
-if ([string]::IsNullOrEmpty($expected)) { throw "Checksum entry missing for $($setupAsset.name)." }
-$actual = (Get-FileHash $setupPath -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($actual -ne $expected.ToLowerInvariant()) { throw "Checksum mismatch for $($setupAsset.name)." }
-
-Write-Host "Checksum OK. Installing $($release.tag_name)..."
-Start-Process -FilePath $setupPath -ArgumentList "/VERYSILENT", "/TASKS=`"$Tasks`"" -Wait
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
 $tray = $null
 try {
     $tray = (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{7E5A2C64-52B1-4B3F-9E0D-4A7B6C1D8F21}_is1" -ErrorAction Stop).InstallLocation
