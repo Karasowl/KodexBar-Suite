@@ -268,7 +268,7 @@ QQC2.ApplicationWindow {
     }
 
     function quotasProfilesCommand(argv) {
-        var command = shellQuote(workingCommand || "kodexbar-quotas")
+        var command = shellQuote(ProviderLogic.commandCandidates(workingCommand)[0])
         command += " profiles"
         for (var i = 0; i < argv.length; i++) {
             command += " " + shellQuote(argv[i])
