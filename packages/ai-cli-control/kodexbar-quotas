@@ -3348,7 +3348,8 @@ def _set_shared_quota(entry: dict[str, Any], user_id: str, team_id: str, evidenc
         accountId="xai:" + account, accountLabel="xAI " + account[:8])
 
 
-def enrich_grok_identity(entry: dict[str, Any], headers: dict[str, str]) -> None:
+def enrich_grok_identity(entry: dict[str, Any], headers: dict[str, str],
+                         auth_entry: dict[str, Any] | None = None) -> None:
     fields = _read_identity_message("https://grok.com/auth_mgmt.AuthManagement/GetUser", headers)
     if fields is None:
         return
@@ -3362,6 +3363,11 @@ def enrich_grok_identity(entry: dict[str, Any], headers: dict[str, str]) -> None
                 accountLabel="xAI " + _identity_hash(user_id)[:8])
         if email:
             entry["usage"]["identity"]["accountEmail"] = email
+        # Refuse grouping if the selected credential describes another billing
+        # team or user. The local fields can veto proof, never establish it.
+        if auth_entry and (auth_entry.get("team_id") not in (None, "", team_id)
+                           or auth_entry.get("user_id") not in (None, "", user_id)):
+            return
         _set_shared_quota(entry, user_id, team_id, "auth_mgmt.AuthManagement/GetUser")
     except (ValueError, UnicodeDecodeError):
         return
@@ -3561,7 +3567,7 @@ def fetch_grok(
     try:
         entry = map_grok_usage(billing["usedPercent"], billing["resetsAt"], auth_entry,
                                surfaces=billing["surfaces"], billing=billing)
-        enrich_grok_identity(entry, headers)
+        enrich_grok_identity(entry, headers, auth_entry)
         return entry
     except FetchFallback:
         raise
@@ -6674,7 +6680,9 @@ def parse_usage(arguments: list[str]) -> tuple[str, str | None, bool] | None:
     index = 0
     while index < len(arguments):
         argument = arguments[index]
-        if argument in ("--json", "--json-only"):
+        if argument in ("--json", "--json-only", "--all-accounts"):
+            # Native reads already enumerate every enabled profile. Accept the
+            # explicit flag instead of delegating to an ambient companion account.
             index += 1
         elif argument == "--pretty":
             pretty = True
@@ -6693,6 +6701,9 @@ def parse_usage(arguments: list[str]) -> tuple[str, str | None, bool] | None:
 
 
 def delegate_whole_call(arguments: list[str], executable: str | None = None) -> int:
+    if quota_read_only():
+        print("kodexbar-quotas: read-only validation requires a native usage command", file=sys.stderr)
+        return 2
     resolved = executable if executable is not None else upstream_path()
     if resolved is None:
         print("kodexbar-quotas: upstream codexbar is not installed", file=sys.stderr)

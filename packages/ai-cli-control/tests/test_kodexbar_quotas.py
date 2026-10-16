@@ -2870,6 +2870,9 @@ class QuotasEngineTests(unittest.TestCase):
             self.assertEqual(grok["usage"]["identity"]["accountId"], cursor["usage"]["identity"]["accountId"])
             self.assertNotIn(user, json.dumps(grok))
             self.assertNotIn(team, json.dumps(cursor))
+            mismatched = blank("grok")
+            quotas.enrich_grok_identity(mismatched, {}, {"team_id": "another-team"})
+            self.assertNotIn("sharedQuota", mismatched["usage"])
             # A different authenticated team must never be deduplicated.
             responses["GetUser"][1] = text(44, "different-team")
             other = blank("grok")
@@ -2884,6 +2887,25 @@ class QuotasEngineTests(unittest.TestCase):
             error = blank("grok")
             quotas.enrich_grok_identity(error, {})
             self.assertNotIn("sharedQuota", error["usage"])
+
+    def test_all_accounts_stays_native_and_read_only(self) -> None:
+        args = ["usage", "--provider", "grok", "--json", "--all-accounts"]
+        self.assertEqual(quotas.parse_usage(args[1:]), ("grok", None, False))
+        profiles = [quotas.synthetic_default_profile("grok")]
+        with patch.dict(os.environ, {"KODEXBAR_QUOTAS_READ_ONLY": "1"}), \
+             patch.object(quotas, "ensure_auto_config") as auto_config, \
+             patch.object(quotas, "enabled_providers", return_value=["grok"]), \
+             patch.object(quotas, "resolve_provider_profiles", return_value=profiles), \
+             patch.object(quotas, "fetch_profiles", return_value=[]) as fetch, \
+             patch.object(quotas, "print_json"), \
+             patch.object(quotas.subprocess, "call") as delegate:
+            self.assertEqual(quotas.main(args), 0)
+            fetch.assert_called_once_with(profiles, None)
+            auto_config.assert_not_called()
+            delegate.assert_not_called()
+            with patch.object(quotas.sys, "stderr"):
+                self.assertEqual(quotas.delegate_whole_call(["usage", "--unknown"]), 2)
+            delegate.assert_not_called()
 
     def test_grok_read_only_never_refreshes_or_falls_back(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
