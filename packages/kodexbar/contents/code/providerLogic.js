@@ -564,10 +564,32 @@ function compactStandardWindowSelected(configuredSelection, entry, quotaKey, ext
     return false
 }
 
-function compactQuotaLabel(quotaKey, title, provider) {
-    // Cursor's billing-cycle total lives in the weekly slot but is monthly.
+function periodBadge(window) {
+    if (!window || !window.periodType) {
+        return ""
+    }
+    var period = String(window.periodType).toLowerCase()
+    return period === "weekly" ? "W" : period === "monthly" ? "M" : "?"
+}
+
+function subscriptionWindowTitle(provider, usage) {
+    if (usage && usage.isUnified === true) {
+        return "The X Subscription"
+    }
+    if (providerId(provider) === "cursor") {
+        return usage && usage.isUnified === false ? "Cursor Models" : "Included usage"
+    }
+    var type = usage && usage.secondary && usage.secondary.periodType
+    return type === "weekly" ? "Weekly" : type === "monthly" ? "Monthly" : "Included usage"
+}
+
+function compactQuotaLabel(quotaKey, title, provider, window) {
+    var explicit = periodBadge(window)
+    if (explicit) {
+        return explicit
+    }
     if (providerId(provider) === "cursor" && compactQuotaKey(quotaKey) === "weekly") {
-        return "M"
+        return "?"
     }
     if (providerId(provider) === "hermes" && compactQuotaKey(quotaKey) === "weekly") {
         return "M"
@@ -607,16 +629,31 @@ function compactExtraPart(configuredSelection, provider, title, percentLeft, res
     return compactQuotaPart(configuredSelection, provider, key, title, percentLeft, resetsAt, true)
 }
 
-function compactStandardQuotaPart(configuredSelection, entry, quotaKey, title, percentLeft, resetsAt, extra) {
+function compactStandardQuotaPart(configuredSelection, entry, quotaKey, title, percentLeft, resetsAt, extra, window) {
     var key = compactQuotaKey(quotaKey)
     if (!compactStandardWindowSelected(configuredSelection, entry, key, extra)) {
         return ""
     }
     var provider = providerId(entry && entry.provider)
-    return compactValuePart(compactQuotaLabel(key, title, provider), percentLeft, resetsAt)
+    var metadata = window || (entry && entry.windowMetadata && entry.windowMetadata[key])
+    return compactValuePart(compactQuotaLabel(key, title, provider, metadata), percentLeft, resetsAt)
 }
 
-function normalizeUsageSegments(segments) {
+var quotaProducts = {
+    1: { title: "API", color: "#22c7e8" },
+    2: { title: "Grok Build", color: "#7c5cff" },
+    3: { title: "Grok Plugins", color: "#b99aff" },
+    4: { title: "Grok Chat", color: "#4f96ff" },
+    5: { title: "Imagine", color: "#ff5ebe" },
+    6: { title: "Voice", color: "#50b8ab" },
+    7: { title: "Grok App Builder", color: "#d6a862" },
+    8: { title: "Grok Tasks", color: "#c7cf59" },
+    9: { title: "Grok Bot", color: "#f0b429" },
+    10: { title: "Cursor", color: "#45d483" },
+    11: { title: "Bugbot", color: "#ef7b62" }
+}
+
+function normalizeUsageSegments(segments, usedPercent) {
     var list = Array.isArray(segments) ? segments : []
     var normalized = []
     for (var i = 0; i < list.length; i++) {
@@ -628,20 +665,33 @@ function normalizeUsageSegments(segments) {
         if (!isFinite(points) || points <= 0) {
             continue
         }
-        var title = String(item.title || "").trim()
+        var productId = typeof item.productId === "number" ? item.productId : null
+        var product = productId !== null ? quotaProducts[productId] : null
+        var title = product ? product.title : String(item.title || "").trim()
         if (!title) {
             title = "Other surface"
         }
-        normalized.push({
-            title: title,
-            points: Math.max(0, Math.min(100, points))
-        })
+        var segment = { title: title, points: Math.max(0, Math.min(100, points)) }
+        if (productId !== null) {
+            segment.productId = productId
+        }
+        normalized.push(segment)
+    }
+    if (typeof usedPercent === "number") {
+        var sum = 0
+        for (var j = 0; j < normalized.length; j++) {
+            sum += normalized[j].points
+        }
+        if (sum > 100 || Math.abs(sum - usedPercent) > 0.001) {
+            return []
+        }
     }
     return normalized
 }
 
-function segmentLegendLabel(title) {
-    return String(title || "")
+function segmentLegendLabel(title, productId) {
+    var product = quotaProducts[productId]
+    return String(product ? product.title : (title || ""))
         .replace(/^Grok\s+/i, "")
         .trim() || "Other"
 }
@@ -663,31 +713,30 @@ function formatSegmentLegendParts(segments) {
     var list = normalizeUsageSegments(segments)
     var parts = []
     for (var i = 0; i < list.length; i++) {
-        var label = segmentLegendLabel(list[i].title)
+        var label = segmentLegendLabel(list[i].title, list[i].productId)
         var display = formatSegmentPointsDisplay(list[i].points)
-        parts.push({
-            title: list[i].title,
-            points: list[i].points,
-            text: label + " " + display
-        })
+        var part = { title: list[i].title, points: list[i].points, text: label + " " + display }
+        if (list[i].productId !== undefined) {
+            part.productId = list[i].productId
+        }
+        parts.push(part)
     }
     return parts
 }
 
-function segmentBarColor(title, index) {
+function segmentBarColor(title, index, productId) {
+    if (quotaProducts[productId]) {
+        return quotaProducts[productId].color
+    }
     var key = String(title || "").toLowerCase()
-    if (key.indexOf("build") !== -1) {
-        return "#7c5cff"
+    for (var id in quotaProducts) {
+        if (quotaProducts[id].title.toLowerCase() === key) {
+            return quotaProducts[id].color
+        }
     }
-    if (key.indexOf("api") !== -1) {
-        return "#22c7e8"
-    }
-    if (key.indexOf("imagine") !== -1) {
-        return "#ff5ebe"
-    }
-    // Unknown/Other: distinct from Build/API/Imagine.
     var palette = ["#7c5cff", "#22c7e8", "#ff5ebe", "#45d483", "#f0b429"]
-    return palette[Math.abs(Number(index) || 0) % palette.length]
+    var stableIndex = productId !== undefined ? productId : index
+    return palette[Math.abs(Number(stableIndex) || 0) % palette.length]
 }
 
 function standardWindowVisible(percentLeft, resetsAt) {
@@ -697,7 +746,7 @@ function standardWindowVisible(percentLeft, resetsAt) {
     return Boolean(resetsAt)
 }
 
-function standardWindowRow(quotaKey, title, percentLeft, resetsAt, detail) {
+function standardWindowRow(quotaKey, title, percentLeft, resetsAt, detail, window) {
     if (!standardWindowVisible(percentLeft, resetsAt)) {
         return null
     }
@@ -710,11 +759,15 @@ function standardWindowRow(quotaKey, title, percentLeft, resetsAt, detail) {
         usageKnown: usageKnown,
         compactKey: compactQuotaKey(quotaKey),
         compactExtra: false,
-        windowBadge: quotaWindowBadge(quotaKey, title)
+        windowBadge: quotaWindowBadge(quotaKey, title, window)
     }
 }
 
-function quotaWindowBadge(quotaKey, title) {
+function quotaWindowBadge(quotaKey, title, window) {
+    var explicit = periodBadge(window)
+    if (explicit) {
+        return explicit
+    }
     var key = compactQuotaKey(quotaKey)
     var normalizedTitle = String(title || "")
         .trim()
@@ -967,11 +1020,89 @@ function settleRequestedWidth(current, measured, shrinkTolerance) {
     return now
 }
 
+function sharedQuotaKey(entry) {
+    var proof = entry && entry.sharedQuota
+    var provider = providerId(entry && entry.provider)
+    if ((provider !== "cursor" && provider !== "grok") || entry.isUnified !== true
+            || !proof || proof.verified !== true || proof.authority !== "xai-account-team"
+            || !proof.accountId || !proof.teamId || proof.pool !== "included"
+            || !/^x-subscription:[a-f0-9]{64}$/.test(String(proof.id || ""))) {
+        return ""
+    }
+    var window = entry.windowMetadata && entry.windowMetadata.weekly
+    var start = window && Date.parse(window.startsAt)
+    var end = window && Date.parse(window.resetsAt)
+    if (typeof entry.secondaryPercentLeft !== "number" || !isFinite(entry.secondaryPercentLeft)
+            || !window || !isFinite(start) || !isFinite(end) || start >= end
+            || (window.periodType !== "weekly" && window.periodType !== "monthly")) {
+        return ""
+    }
+    // Dates select the observation window only AFTER authoritative identity proof.
+    return proof.id + ":" + proof.accountId + ":" + proof.teamId
+        + ":" + window.periodType + ":" + start + ":" + end
+}
+
+function groupSharedQuotaEntries(entries) {
+    var result = []
+    var positions = {}
+    var list = Array.isArray(entries) ? entries : []
+    for (var i = 0; i < list.length; i++) {
+        var entry = list[i]
+        var key = sharedQuotaKey(entry)
+        if (!key || entry.errorMessage || positions[key] === undefined) {
+            if (key && !entry.errorMessage) {
+                positions[key] = result.length
+            }
+            result.push(entry)
+            continue
+        }
+        var previous = result[positions[key]]
+        // Pick one measurement, never add two observations of the same budget.
+        var previousTime = Date.parse(previous.updatedAt) || 0
+        var entryTime = Date.parse(entry.updatedAt) || 0
+        var useEntry = previous.cached === true && entry.cached !== true
+            || (previous.cached === true) === (entry.cached === true) && entryTime > previousTime
+        var chosen = useEntry ? entry : previous
+        var other = useEntry ? previous : entry
+        var combined = {}
+        for (var property in chosen) {
+            combined[property] = chosen[property]
+        }
+        combined.name = "The X Subscription"
+        combined.sharedMembers = (previous.sharedMembers || [{
+            provider: previous.provider, profileId: previous.profileId, profileLabel: previous.profileLabel
+        }]).concat(entry.sharedMembers || [{
+            provider: entry.provider, profileId: entry.profileId, profileLabel: entry.profileLabel
+        }])
+        combined.rows = (chosen.rows || []).map(function(row) {
+            if (row.compactKey !== "weekly" || row.segments && row.segments.length
+                    || Math.abs(chosen.secondaryPercentLeft - other.secondaryPercentLeft) > 0.001) {
+                return row
+            }
+            var donors = other.rows || []
+            for (var j = 0; j < donors.length; j++) {
+                if (donors[j].compactKey === "weekly" && donors[j].segments) {
+                    var copy = {}
+                    for (var field in row) {
+                        copy[field] = row[field]
+                    }
+                    copy.segments = donors[j].segments
+                    copy.segmentLegendItems = donors[j].segmentLegendItems
+                    return copy
+                }
+            }
+            return row
+        })
+        result[positions[key]] = combined
+    }
+    return result
+}
+
 function composeCompactBlocks(entries, options) {
     var settings = options || {}
     var quotaSelection = settings.showUsed === false ? "" : settings.quotaSelection
-    var orderedEntries = filterAndOrderEntries(entries, settings.providerOrder)
-    var selected = filterCompactEntries(entries, settings.providerOrder, quotaSelection)
+    var orderedEntries = groupSharedQuotaEntries(filterAndOrderEntries(entries, settings.providerOrder))
+    var selected = groupSharedQuotaEntries(filterCompactEntries(entries, settings.providerOrder, quotaSelection))
     if (selected.length === 0) {
         return {
             hasSelection: false,
@@ -1018,7 +1149,7 @@ function composeCompactBlocks(entries, options) {
         var quotaParts = []
         var ordinal = providerCounts[id] > 1 ? "#" + providerOrdinal : ""
         if (settings.showProvider !== false) {
-            var providerLabel = compactProviderLabel(entry.provider, entry.name)
+            var providerLabel = entry.sharedMembers ? "X" : compactProviderLabel(entry.provider, entry.name)
             block.push(ordinal ? providerLabel + " " + ordinal : providerLabel)
         } else if (ordinal) {
             block.push(ordinal)
@@ -1200,6 +1331,10 @@ function orderPopupEntries(entries) {
 }
 
 function entrySelectionKey(entry, provider, occurrence) {
+    var shared = sharedQuotaKey(entry)
+    if (shared) {
+        return shared
+    }
     var profile = String(entry && entry.profileId || "").trim()
     if (profile.length > 0) {
         return provider + ":" + profile
@@ -1208,7 +1343,7 @@ function entrySelectionKey(entry, provider, occurrence) {
 }
 
 function decoratePopupEntries(entries) {
-    var ordered = orderPopupEntries(entries)
+    var ordered = orderPopupEntries(groupSharedQuotaEntries(entries))
     var counts = {}
     var occurrences = {}
     var decorated = []
@@ -1248,6 +1383,10 @@ function decoratePopupEntries(entries) {
 }
 
 function popupSelectionKeyForEntry(entries, targetEntry) {
+    var shared = sharedQuotaKey(targetEntry)
+    if (shared) {
+        return shared
+    }
     var ordered = orderPopupEntries(entries)
     var occurrences = {}
     for (var i = 0; i < ordered.length; i++) {

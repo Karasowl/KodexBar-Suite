@@ -489,6 +489,7 @@ assert.equal(antigravityCompact.blocks[0].status, "good", "Antigravity severity 
 const cursorCompact = plain(context.composeCompactBlocks([{
     provider: "cursor",
     name: "Cursor",
+    windowMetadata: { weekly: { periodType: "monthly" } },
     compactPrimaryPercentLeft: null,
     primaryResetsAt: null,
     secondaryPercentLeft: 55,
@@ -505,6 +506,7 @@ assert.equal(cursorCompact.blocks[0].status, "good", "Cursor severity comes from
 const cursorZeroCompact = plain(context.composeCompactBlocks([{
     provider: "cursor",
     name: "Cursor",
+    windowMetadata: { weekly: { periodType: "monthly" } },
     compactPrimaryPercentLeft: null,
     primaryResetsAt: null,
     secondaryPercentLeft: 100,
@@ -1475,7 +1477,7 @@ assert.match(
 // Segmented weekly bar (Grok composition): segments attach to weekly row, not extra windows.
 assert.match(
     mainQml,
-    /windows\[i\]\.key === "weekly"[\s\S]*normalizeUsageSegments\(windows\[i\]\.data\.segments\)/,
+    /windows\[i\]\.key === "weekly"[\s\S]*normalizeUsageSegments\(windows\[i\]\.data\.segments, windows\[i\]\.data\.usedPercent\)/,
     "normalizeEntry attaches secondary.segments onto the weekly row"
 )
 assert.match(
@@ -1511,12 +1513,12 @@ assert.match(
 // Accessible legend: circular color swatch + text, same color helper as the bar.
 assert.match(
     mainQml,
-    /function segmentColor\(title, index\) \{\s*return ProviderLogic\.segmentBarColor\(title, index\)/,
+    /function segmentColor\(title, index, productId\) \{\s*return ProviderLogic\.segmentBarColor\(title, index, productId\)/,
     "QML segmentColor delegates to ProviderLogic.segmentBarColor for bar and legend"
 )
 assert.match(
     mainQml,
-    /root\.segmentColor\(modelData\.title, index\)/,
+    /root\.segmentColor\(modelData\.title, index, modelData\.productId\)/,
     "bar and legend both call root.segmentColor"
 )
 assert.match(
@@ -1526,7 +1528,7 @@ assert.match(
 )
 assert.match(
     mainQml,
-    /Rectangle \{\s*width: 8\s*height: 8\s*radius: 4\s*color: root\.th\(root\.segmentColor\(modelData\.title, index\)\)/,
+    /Rectangle \{\s*width: 8\s*height: 8\s*radius: 4\s*color: root\.th\(root\.segmentColor\(modelData\.title, index, modelData\.productId\)\)/,
     "each legend item has an 8px circular color dot"
 )
 assert.match(
@@ -1968,9 +1970,9 @@ assert.match(
 assert.match(mainQml, /ThemedMark \{[\s\S]{0,220}root\.providerIconSource/, "compact and popup provider logos use the themed mark")
 assert.doesNotMatch(mainQml, /Image \{[\s\S]{0,240}providerIconSource/, "provider logos are not raw Images that ignore the Plasma theme")
 assert.doesNotMatch(preferencesQml, /Image \{[\s\S]{0,240}providerIcon/, "preferences provider logos follow the same themed mark")
-assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey\)[\s\S]*hermes[\s\S]*Monthly/, "Hermes monthly remaining uses the Monthly window label")
-assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey\)[\s\S]*devin[\s\S]*Daily/, "Devin remaining uses the Daily window label")
-assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey\)[\s\S]*OpenCode Go/, "OpenCode Go uses its five-hour, weekly, and monthly window labels")
+assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey, usage\)[\s\S]*hermes[\s\S]*Monthly/, "Hermes monthly remaining uses the Monthly window label")
+assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey, usage\)[\s\S]*devin[\s\S]*Daily/, "Devin remaining uses the Daily window label")
+assert.match(mainQml, /function providerWindowTitle\(provider, quotaKey, usage\)[\s\S]*OpenCode Go/, "OpenCode Go uses its five-hour, weekly, and monthly window labels")
 assert.match(mainQml, /ProviderLogic\.providerId\(entry\.provider\) === "opencodego"/, "OpenCode Go keeps its plan label when upstream omits identity")
 assert.match(mainQml, /function formatUsageSource\(provider, source\)[\s\S]*opencodego[\s\S]*local · estimated/, "OpenCode Go local usage is labeled as estimated")
 assert.match(mainQml, /root\.formatUsageSource\(\s*root\.activeEntry\.provider,\s*root\.activeEntry\.source/, "provider identity surfaces the estimated OpenCode Go source label")
@@ -2021,3 +2023,78 @@ assert.match(preferencesQml, /i18n\("Version %1", Plasmoid\.metaData\.version/, 
 assert.match(preferencesQml, /i18n\("Restore defaults"\)/, "preferences localize footer actions")
 
 console.log("provider logic fixtures passed")
+
+// The X Subscription: identity proof, periods and one composed quota.
+assert.equal(context.compactQuotaLabel("weekly", "The X Subscription", "cursor", { periodType: "weekly" }), "W")
+assert.equal(context.compactQuotaLabel("weekly", "Cursor Models", "cursor", { periodType: "monthly" }), "M")
+assert.equal(context.compactQuotaLabel("weekly", "Weekly", "cursor", { periodType: "unknown" }), "?")
+assert.equal(context.quotaWindowBadge("weekly", "The X Subscription", { periodType: "weekly" }), "W")
+assert.equal(context.quotaWindowBadge("weekly", "Weekly", { periodType: "monthly" }), "M")
+assert.equal(context.subscriptionWindowTitle("cursor", { isUnified: true }), "The X Subscription")
+assert.equal(context.subscriptionWindowTitle("cursor", { isUnified: false }), "Cursor Models")
+assert.equal(context.subscriptionWindowTitle("cursor", {}), "Included usage")
+const xProducts = [[10, "Cursor"], [2, "Grok Build"], [1, "API"], [5, "Imagine"], [4, "Grok Chat"], [9, "Grok Bot"], [11, "Bugbot"]]
+const xSegments = plain(context.normalizeUsageSegments(xProducts.map(([id]) => ({ productId: id, title: "old title", points: 4 })), 28))
+assert.deepEqual(xSegments.map(item => [item.productId, item.title]), xProducts)
+assert.equal(context.normalizeUsageSegments(xSegments, 29).length, 0, "a partial composition never appears as a full shared quota")
+for (const item of xSegments) {
+    assert.equal(context.segmentBarColor(item.title, 0, item.productId), context.segmentBarColor(item.title, 8, item.productId))
+}
+assert.equal(new Set(xSegments.map(item => context.segmentBarColor(item.title, 0, item.productId))).size, 7)
+assert.deepEqual(plain(context.formatSegmentLegendParts(xSegments)).map(item => item.productId), xProducts.map(item => item[0]))
+function sharedEntry(provider, profileId, accountId) {
+    const window = { periodType: "weekly", startsAt: "2026-10-16T15:54:47.025Z", resetsAt: "2026-10-23T15:54:47.025Z", usedPercent: 28 }
+    return {
+        provider, profileId, name: provider, accountLabel: "xAI " + accountId, isUnified: true,
+        sharedQuota: { id: "x-subscription:" + "a".repeat(64), authority: "xai-account-team", verified: true, accountId, teamId: "team-1", pool: "included" },
+        windowMetadata: { weekly: window }, secondaryPercentLeft: 72, secondaryResetsAt: window.resetsAt,
+        compactPrimaryPercentLeft: null, primaryResetsAt: null, tertiaryPercentLeft: null, tertiaryResetsAt: null,
+        updatedAt: "2026-10-16T17:00:00Z",
+        rows: [{ compactKey: "weekly", compactExtra: false, title: "The X Subscription", percentLeft: 72, resetsAt: window.resetsAt, segments: provider === "grok" ? xSegments : [] }]
+    }
+}
+const xCursor = sharedEntry("cursor", "default", "account-1")
+const xGrok = sharedEntry("grok", "unified", "account-1")
+const xOther = sharedEntry("grok", "default", "account-2")
+xOther.sharedQuota.id = "x-subscription:" + "b".repeat(64)
+const grouped = plain(context.groupSharedQuotaEntries([xCursor, xGrok, xOther]))
+assert.equal(grouped.length, 2, "shared account collapses while the other Grok account survives")
+assert.equal(grouped[0].name, "The X Subscription")
+assert.equal(grouped[0].rows.length, 1, "products are composition, never separate budgets")
+assert.equal(grouped[0].rows[0].segments.length, 7)
+assert.equal(grouped[0].secondaryPercentLeft, 72, "do not add two readings of one pool")
+assert.equal(grouped[0].sharedMembers.length, 2)
+assert.deepEqual(grouped.map(item => item.accountLabel), ["xAI account-1", "xAI account-2"])
+assert.equal(context.decoratePopupEntries([xCursor, xGrok, xOther]).length, 2)
+for (const order of ["cursor,grok", "grok,cursor", "cursor", "grok"]) {
+    const compact = plain(context.composeCompactBlocks([xCursor, xGrok], { providerOrder: order, quotaSelection: "weekly" }))
+    assert.equal(compact.blocks.length, 1, "one compact quota for " + order)
+    assert.equal(compact.blocks[0].quotaText, "W28%")
+    assert.equal(compact.blocks[0].selectionKey, context.sharedQuotaKey(xCursor))
+}
+const scopedX = plain(context.composeCompactBlocks([xCursor, xGrok], { providerOrder: "grok,cursor", quotaSelection: "cursor.weekly" }))
+assert.equal(scopedX.blocks.length, 1, "provider-scoped selection still finds the shared quota")
+const noProof = plain(xGrok)
+delete noProof.sharedQuota
+assert.equal(context.groupSharedQuotaEntries([xCursor, noProof]).length, 2, "equal dates, percentages and plan never prove shared identity")
+for (const field of ["accountId", "teamId", "authority", "pool", "verified"]) {
+    const wrong = plain(xGrok)
+    wrong.sharedQuota[field] = field === "verified" ? false : "different"
+    assert.equal(context.groupSharedQuotaEntries([xCursor, wrong]).length, 2, "distinct proof field " + field + " stays separate")
+}
+const olderWindow = plain(xGrok)
+olderWindow.windowMetadata.weekly.resetsAt = "2026-10-30T15:54:47.025Z"
+assert.equal(context.groupSharedQuotaEntries([xCursor, olderWindow]).length, 2, "different observation periods cannot merge")
+const newerCursor = plain(xCursor)
+newerCursor.updatedAt = "2026-10-16T17:01:00Z"
+newerCursor.secondaryPercentLeft = 70
+const changed = plain(context.groupSharedQuotaEntries([xGrok, newerCursor]))[0]
+assert.equal(changed.secondaryPercentLeft, 70)
+assert.equal(changed.rows[0].segments.length, 0, "old product totals never describe a different current total")
+assert.equal(context.groupSharedQuotaEntries([xGrok, newerCursor])[0].rows.length, 1)
+assert.match(mainQml, /windowMetadata: \{ primary: primary, weekly: secondary, tertiary: tertiary \}/)
+assert.match(mainQml, /sharedQuota: usage\.sharedQuota/)
+assert.match(mainQml, /providerWindowTitle\(entry\.provider, "weekly", usage\)/)
+assert.match(mainQml, /windowDetail\(windows\[i\]\.data, left !== null\), windows\[i\]\.data\)/)
+assert.match(mainQml, /accountLabel: identity\.accountLabel/)
+console.log("X Subscription identity, period and composition checks passed")

@@ -297,8 +297,8 @@ PlasmoidItem {
     }
 
     // Shared color for bar segments and legend dots (single source in providerLogic).
-    function segmentColor(title, index) {
-        return ProviderLogic.segmentBarColor(title, index)
+    function segmentColor(title, index, productId) {
+        return ProviderLogic.segmentBarColor(title, index, productId)
     }
 
     function formatResetTime(value) {
@@ -1938,7 +1938,11 @@ PlasmoidItem {
         return summary
     }
 
-    function providerWindowTitle(provider, quotaKey) {
+    function providerWindowTitle(provider, quotaKey, usage) {
+        if ((ProviderLogic.providerId(provider) === "cursor" || ProviderLogic.providerId(provider) === "grok")
+                && (quotaKey === "secondary" || quotaKey === "weekly")) {
+            return ProviderLogic.subscriptionWindowTitle(provider, usage)
+        }
         if (ProviderLogic.providerId(provider) === "opencodego") {
             if (quotaKey === "primary") {
                 return i18n("5-hour")
@@ -1948,12 +1952,6 @@ PlasmoidItem {
             }
             if (quotaKey === "tertiary") {
                 return i18n("Monthly")
-            }
-        }
-        if (ProviderLogic.providerId(provider) === "cursor") {
-            // Matches cursor.com: Cursor Models is the main included pool.
-            if (quotaKey === "secondary" || quotaKey === "weekly") {
-                return i18n("Cursor Models")
             }
         }
         if (ProviderLogic.providerId(provider) === "hermes") {
@@ -1995,21 +1993,21 @@ PlasmoidItem {
         var bankedResets = ProviderLogic.normalizeCodexResetCredits(usage.codexResetCredits)
         var rows = []
         var windows = antigravity ? [] : [
-            { key: "primary", title: providerWindowTitle(entry.provider, "primary"), data: primary },
-            { key: "weekly", title: providerWindowTitle(entry.provider, "weekly"), data: secondary },
-            { key: "tertiary", title: providerWindowTitle(entry.provider, "tertiary"), data: tertiary }
+            { key: "primary", title: providerWindowTitle(entry.provider, "primary", usage), data: primary },
+            { key: "weekly", title: providerWindowTitle(entry.provider, "weekly", usage), data: secondary },
+            { key: "tertiary", title: providerWindowTitle(entry.provider, "tertiary", usage), data: tertiary }
         ]
         for (var i = 0; i < windows.length; i++) {
             var left = knownPercentLeft(windows[i].data)
             var reset = resetAt(windows[i].data)
             var standardRow = ProviderLogic.standardWindowRow(
                 windows[i].key, windows[i].title, left, reset,
-                windowDetail(windows[i].data, left !== null))
+                windowDetail(windows[i].data, left !== null), windows[i].data)
             if (standardRow !== null) {
                 // Weekly composition segments (Grok): points sum to usedPercent of one pool.
                 if (windows[i].key === "weekly" && windows[i].data
                         && Array.isArray(windows[i].data.segments)) {
-                    var segments = ProviderLogic.normalizeUsageSegments(windows[i].data.segments)
+                    var segments = ProviderLogic.normalizeUsageSegments(windows[i].data.segments, windows[i].data.usedPercent)
                     if (segments.length > 0) {
                         standardRow.segments = segments
                         // Accessible legend items (dot color + name + points). No duplicated total.
@@ -2073,7 +2071,7 @@ PlasmoidItem {
                     compactExtra: true,
                     windowBadge: ProviderLogic.quotaWindowBadge(
                         ProviderLogic.compactQuotaKey(extra.title || "extra"),
-                        extra.title || i18n("Extra"))
+                        extra.title || i18n("Extra"), extra.window)
                 })
             }
         }
@@ -2104,9 +2102,16 @@ PlasmoidItem {
             version: entry.version,
             source: entry.source,
             account: entry.account || usage.accountEmail || identity.accountEmail || "",
+            accountLabel: identity.accountLabel || ((ProviderLogic.providerId(entry.provider) === "cursor"
+                || ProviderLogic.providerId(entry.provider) === "grok")
+                ? (entry.profileLabel || entry.profileId || "") : ""),
+            identity: identity,
+            isUnified: usage.isUnified,
+            sharedQuota: usage.sharedQuota || null,
+            windowMetadata: { primary: primary, weekly: secondary, tertiary: tertiary },
             profileId: entry.profileId || "",
             profileLabel: entry.profileLabel || "",
-            plan: usage.loginMethod || identity.loginMethod || dashboard.accountPlan
+            plan: usage.planName || usage.loginMethod || identity.loginMethod || dashboard.accountPlan
                 || (ProviderLogic.providerId(entry.provider) === "opencodego" ? i18n("OpenCode Go") : ""),
             primaryPercentLeft: displayPercentLeft(entry.provider, primary, secondary),
             compactPrimaryPercentLeft: antigravity ? null : primaryLeft,
@@ -2499,7 +2504,7 @@ PlasmoidItem {
                             width: signalQuotaTrack.width
                                 * Math.min(100, Math.max(0, modelData.points)) / 100
                             height: signalQuotaTrack.height
-                            color: root.th(root.segmentColor(modelData.title, index))
+                            color: root.th(root.segmentColor(modelData.title, index, modelData.productId))
                         }
                     }
                 }
@@ -2537,7 +2542,7 @@ PlasmoidItem {
                             width: 7
                             height: 7
                             radius: 4
-                            color: root.th(root.segmentColor(modelData.title, index))
+                            color: root.th(root.segmentColor(modelData.title, index, modelData.productId))
                             anchors.verticalCenter: parent.verticalCenter
                         }
 
@@ -2627,6 +2632,9 @@ PlasmoidItem {
                         PlasmaComponents.Label {
                             text: {
                                 var details = []
+                                if (root.activeEntry.accountLabel) {
+                                    details.push(root.activeEntry.accountLabel)
+                                }
                                 if (root.activeEntry.plan) {
                                     details.push(root.activeEntry.plan)
                                 }
@@ -3651,7 +3659,7 @@ PlasmoidItem {
                                 : root.selectedPopupTab === "skills"
                                     ? i18n("%1 across %2 providers", root.skillsSummary.uniqueSkills || 0,
                                         root.skillsSummary.connectedProviders || 0)
-                                : (root.activeEntry.plan || root.activeEntry.accountLabel || root.activeEntry.source || i18n("Usage"))
+                                : (root.activeEntry.accountLabel || root.activeEntry.plan || root.activeEntry.source || i18n("Usage"))
                             color: root.th("#7a8093")
                             font.family: root.designFont
                             font.pixelSize: 12
@@ -4471,7 +4479,7 @@ PlasmoidItem {
 
                                                     Rectangle {
                                                         anchors.fill: parent
-                                                        color: root.th(root.segmentColor(modelData.title, index))
+                                                        color: root.th(root.segmentColor(modelData.title, index, modelData.productId))
                                                     }
 
                                                     // Dark 1px divider on internal frontiers only.
@@ -4526,7 +4534,7 @@ PlasmoidItem {
                                                     width: 8
                                                     height: 8
                                                     radius: 4
-                                                    color: root.th(root.segmentColor(modelData.title, index))
+                                                    color: root.th(root.segmentColor(modelData.title, index, modelData.productId))
                                                     anchors.verticalCenter: parent.verticalCenter
                                                 }
 

@@ -221,3 +221,11 @@ Usage data is supplied by the independent [CodexBar CLI](https://github.com/stei
 The shared navigation and utility icons are adapted from [Tabler Icons](https://github.com/tabler/tabler-icons), used under the MIT License. The bundled license is at [`contents/icons/signal/LICENSE`](contents/icons/signal/LICENSE).
 
 Licensed under the original MIT license. See [LICENSE](LICENSE). The notice file supplements the license and does not replace it.
+
+## The X Subscription
+
+Merged Cursor plans show one weekly quota named `The X Subscription`, with a `W` badge and no included Other Models budget. Confirmed legacy Cursor plans retain their two monthly budgets and `M`. Unknown plan modality uses `?` rather than guessing monthly. Grok uses the period type returned by its current quota configuration.
+
+Cursor and Grok collapse into one quota entry only when the engine supplies authenticated proof of the same xAI account, billing team and included pool for the same period. The popup and compact panel use one measurement, never the sum of both readings. Product usage remains a composition of that single bar, with stable product IDs, names and colors for Cursor, Grok Build, API, Imagine, Grok Chat, Grok Bot and Bugbot. A stale breakdown that does not match the selected total is omitted.
+
+Without that proof, entries stay separate and show their account identifier. Full email display remains optional. Profiles and their refresh caches stay separate even when their quota is grouped for display. Adding the unified account as a second Grok profile preserves the original account. See the [engine account instructions](../ai-cli-control/README.md#separate-grok-accounts-and-verified-shared-quota).
