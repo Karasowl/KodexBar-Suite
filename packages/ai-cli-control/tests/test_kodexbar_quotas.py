@@ -183,9 +183,8 @@ def build_cursor_period_usage_frame(
 def build_cursor_plan_info_frame(plan: str, display_name: str | None = None) -> bytes:
     """gRPC-web data frame for GetPlanInfoResponse with a nested plan entry."""
     entry = _protobuf_key(1, 2) + _encode_varint(len(plan.encode("utf-8"))) + plan.encode("utf-8")
-    if display_name:
-        encoded = display_name.encode("utf-8")
-        entry += _protobuf_key(2, 2) + _encode_varint(len(encoded)) + encoded
+    entry += _protobuf_key(2, 0) + _encode_varint(6000)
+    entry += _protobuf_key(6, 0) + _encode_varint(1)
     message = _protobuf_key(1, 2) + _encode_varint(len(entry)) + entry
     return b"\x00" + len(message).to_bytes(4, "big") + message
 
@@ -3006,7 +3005,7 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(secondary["windowMinutes"], 31 * 24 * 60)
         self.assertEqual(secondary["resetsAt"], "2026-08-22T15:26:13Z")
         extras = {item["title"]: item["window"]["usedPercent"] for item in entry["usage"]["extraRateWindows"]}
-        self.assertEqual(extras, {"Other Models": 4.5, "Total": 12.5})
+        self.assertEqual(extras, {"Other Models": 4.5})
         self.assertNotIn(TEST_CURSOR_TOKEN, json.dumps(entry))
         self.assertEqual(urls, [quotas.CURSOR_USAGE_URL, quotas.CURSOR_PLAN_URL])
 
@@ -3028,14 +3027,14 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertAlmostEqual(period["autoPercent"], 1.0175, places=6)
         self.assertAlmostEqual(period["apiPercent"], 19.354545454545455, places=6)
         self.assertAlmostEqual(period["totalPercent"], 3.234065934065934, places=6)
-        mapped = quotas.map_cursor_usage(period, {"displayName": "Pro+"})
+        mapped = quotas.map_cursor_usage(period, {"plan": "Pro+", "isMerged": False})
         self.assertAlmostEqual(mapped["usage"]["secondary"]["usedPercent"], 1.0175, places=6)
         extras = {
             item["title"]: item["window"]["usedPercent"]
             for item in mapped["usage"]["extraRateWindows"]
         }
         self.assertAlmostEqual(extras["Other Models"], 19.354545454545455, places=6)
-        self.assertAlmostEqual(extras["Total"], 3.234065934065934, places=6)
+        self.assertNotIn("Total", extras)
         self.assertNotIn("Auto", extras)
 
     def test_cursor_tiny_total_double_falls_back_to_banner(self) -> None:
@@ -3074,6 +3073,50 @@ class QuotasEngineTests(unittest.TestCase):
                 entry = quotas.fetch_cursor(home)
         self.assertAlmostEqual(entry["usage"]["secondary"]["usedPercent"], 0.0, places=6)
         self.assertNotIn("loginMethod", entry["usage"]["identity"])
+
+    def test_cursor_merged_and_legacy_schema_fixtures(self) -> None:
+        for name, kind, percent, extras in [
+            ("cursor-merged-weekly.json", "weekly", 0, False),
+            ("cursor-legacy-monthly.json", "monthly", 8, True),
+        ]:
+            with self.subTest(name=name):
+                fixture = json.loads((FIXTURES / name).read_text())
+                plan = quotas.parse_cursor_plan_info(encode_wire_fixture(fixture["plan"]))
+                period = quotas.parse_cursor_period_usage(encode_wire_fixture(fixture["period"]))
+                mapped = quotas.map_cursor_usage(period, plan)["usage"]
+                self.assertEqual(mapped["secondary"]["periodType"], kind)
+                self.assertEqual(mapped["secondary"]["usedPercent"], percent)
+                self.assertEqual("extraRateWindows" in mapped, extras)
+                self.assertNotIn("displayName", plan)
+                if kind == "weekly":
+                    self.assertEqual(mapped["planName"], "The X Subscription")
+                    self.assertEqual(mapped["secondary"]["resetsAt"], "2026-10-23T15:54:47.025000Z")
+                    self.assertEqual(plan["billingCycleEnd"], 1794844149383)
+                    period.update(autoPercent=91, apiPercent=80, totalPercent=24)
+                    period["billingCycleEndMs"] = plan["billingCycleEnd"]
+                    mapped = quotas.map_cursor_usage(period, plan)["usage"]
+                    self.assertEqual(mapped["secondary"]["usedPercent"], 24)
+                    self.assertEqual(mapped["secondary"]["resetsAt"], "2026-10-23T15:54:47.025000Z")
+                    self.assertNotIn("extraRateWindows", mapped)
+
+    def test_cursor_plan_trailer_failure_keeps_unknown_modality(self) -> None:
+        fixture = json.loads((FIXTURES / "cursor-merged-weekly.json").read_text())
+        def frame(rows):
+            body = encode_wire_fixture(rows)
+            return b"\x00" + len(body).to_bytes(4, "big") + body
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_cursor_state_db(home)
+            for broken in [frame(fixture["plan"]) + build_grpc_web_trailer_frame(16),
+                           frame([]), b"\x00\x00\x00\x00\x02\x0a\x01"]:
+                def fake_http(method, url, *args):
+                    return 200, {}, frame(fixture["period"]) if url == quotas.CURSOR_USAGE_URL else broken
+                with patch.object(quotas, "http_request", side_effect=fake_http):
+                    usage = quotas.fetch_cursor(home)["usage"]
+                self.assertEqual(usage["secondary"]["usedPercent"], 0)
+                self.assertEqual(usage["secondary"]["periodType"], "unknown")
+                self.assertIsNone(usage["isUnified"])
+                self.assertNotIn("extraRateWindows", usage)
 
     def test_cursor_401_is_auth_relogin_without_upstream_delegation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

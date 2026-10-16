@@ -1,0 +1,83 @@
+{
+  "plan": [
+    {
+      "field": 1,
+      "wire": 2,
+      "message": [
+        {
+          "field": 1,
+          "wire": 2,
+          "text": "Premium"
+        },
+        {
+          "field": 3,
+          "wire": 2,
+          "text": ""
+        },
+        {
+          "field": 4,
+          "wire": 0,
+          "value": 1794844149383
+        },
+        {
+          "field": 6,
+          "wire": 0,
+          "value": 2
+        },
+        {
+          "field": 7,
+          "wire": 0,
+          "value": 1792770887025
+        }
+      ]
+    },
+    {
+      "field": 3,
+      "wire": 0,
+      "value": 1
+    }
+  ],
+  "period": [
+    {
+      "field": 1,
+      "wire": 0,
+      "value": 1792166087025
+    },
+    {
+      "field": 2,
+      "wire": 0,
+      "value": 1792770887025
+    },
+    {
+      "field": 3,
+      "wire": 2,
+      "message": [
+        {
+          "field": 6,
+          "wire": 0,
+          "value": 0
+        },
+        {
+          "field": 7,
+          "wire": 2,
+          "text": "We work with model providers to give you free usage beyond what you've purchased. Amounts may vary."
+        },
+        {
+          "field": 12,
+          "wire": 1,
+          "value": 0.0
+        },
+        {
+          "field": 13,
+          "wire": 1,
+          "value": 0.0
+        },
+        {
+          "field": 14,
+          "wire": 1,
+          "value": 0.0
+        }
+      ]
+    }
+  ]
+}

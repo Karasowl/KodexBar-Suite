@@ -3692,81 +3692,38 @@ def parse_cursor_plan_usage(body: bytes) -> dict[str, Any]:
 
 
 def parse_cursor_plan_info(body: bytes) -> dict[str, Any]:
-    """Parse GetPlanInfoResponse for the plan display name (best effort).
+    """GetPlanInfoResponse: plan_info=1, is_merged=3 (proto3 false).
 
-    Returns {"plan": str | None, "displayName": str | None}. The plan name
-    lives in a nested message (field 1: name, field 2: display name).
+    A missing/malformed plan is unknown, never proof of a legacy monthly plan.
     """
-    view = memoryview(body)
-    plan: str | None = None
-    display_name: str | None = None
-    index = 0
     try:
-        while index < len(view):
-            tag, index = _read_protobuf_varint(view, index)
-            field = tag >> 3
-            wire = tag & 7
-            if wire == 0:
-                _value, index = _read_protobuf_varint(view, index)
-            elif wire == 1:
-                index += 8
-            elif wire == 5:
-                index += 4
-            elif wire == 2:
-                length, index = _read_protobuf_varint(view, index)
-                end = index + length
-                if end > len(view):
-                    raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
-                payload = bytes(view[index:end])
-                index = end
-                if field == 1:
-                    inner_name, inner_display = parse_cursor_plan_entry(payload)
-                    if inner_name is not None:
-                        plan = inner_name
-                    if inner_display is not None:
-                        display_name = inner_display
-            else:
-                break
-    except Exception:
-        return {"plan": plan, "displayName": display_name}
-    return {"plan": plan, "displayName": display_name}
+        fields = _protobuf_fields(body)
+        entry = _protobuf_value(fields, 1, 2)
+        if entry is None:
+            raise ValueError("Missing plan")
+        plan = parse_cursor_plan_entry(entry)
+        plan["isMerged"] = bool(_protobuf_value(fields, 3, 0, 0))
+        return plan
+    except (ValueError, UnicodeDecodeError):
+        raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True) from None
 
 
-def parse_cursor_plan_entry(body: bytes) -> tuple[str | None, str | None]:
-    """Parse one plan message: field 1 name, field 2 display name (best effort)."""
-    view = memoryview(body)
-    name: str | None = None
-    display_name: str | None = None
-    index = 0
-    try:
-        while index < len(view):
-            tag, index = _read_protobuf_varint(view, index)
-            field = tag >> 3
-            wire = tag & 7
-            if wire == 2:
-                length, index = _read_protobuf_varint(view, index)
-                end = index + length
-                if end > len(view):
-                    break
-                payload = bytes(view[index:end])
-                index = end
-                try:
-                    text = payload.decode("utf-8")
-                except UnicodeDecodeError:
-                    continue
-                if field == 1 and name is None:
-                    name = text
-                elif field == 2 and display_name is None:
-                    display_name = text
-            elif wire == 0:
-                _value, index = _read_protobuf_varint(view, index)
-            elif wire in (1, 5):
-                index += 8 if wire == 1 else 4
-            else:
-                break
-    except Exception:
-        return name, display_name
-    return name, display_name
+def parse_cursor_plan_entry(body: bytes) -> dict[str, Any]:
+    """PlanInfo: field 2 is included_amount_cents, not a display name."""
+    fields = _protobuf_fields(body)
+    name = _protobuf_value(fields, 1, 2, b"").decode("utf-8")
+    if not name.strip():
+        raise ValueError("Missing plan name")
+    plan = {"plan": name, "includedAmountCents": _protobuf_value(fields, 2, 0, 0),
+            "includedUsagePeriod": {1: "monthly", 2: "weekly"}.get(
+                _protobuf_value(fields, 6, 0, 0), "unknown")}
+    for field, key in ((4, "billingCycleEnd"), (7, "includedUsageResetsAt")):
+        value = _protobuf_value(fields, field, 0)
+        if value is not None:
+            if not CURSOR_TS_MIN <= value <= CURSOR_TS_MAX:
+                raise ValueError("Invalid plan timestamp")
+            plan[key] = value
+    return plan
 
 
 def map_cursor_usage(
@@ -3774,68 +3731,51 @@ def map_cursor_usage(
     plan: dict[str, Any] | None = None,
     updated_at: str | None = None,
 ) -> dict[str, Any]:
-    """Map GetCurrentPeriodUsage to the widget envelope.
+    """Unified: one total pool. Confirmed legacy: two monthly model budgets.
 
-    Align with cursor.com Pro+ billing:
-      Cursor Models  → secondary (compact M)
-      Other Models   → extra window
-      Total          → extra window when present and distinct
-    autoPercent/apiPercent keys still carry models/other for compatibility.
+    secondary stays the compatibility slot. Unknown modality keeps the valid total
+    without inventing monthly budgets. Plan renewal is never a quota reset.
     """
+    merged = plan.get("isMerged") if plan else None
     models_percent = period.get("autoPercent")
-    other_percent = period.get("apiPercent")
     total_percent = period.get("totalPercent")
-    # Headline pool: Cursor Models, else overall total.
-    headline = models_percent if models_percent is not None else total_percent
-    if headline is None:
+    headline = models_percent if merged is False and models_percent is not None else total_percent
+    if headline is None and merged is None:
+        headline = models_percent
+    if headline is None or not math.isfinite(headline) or not _percent_in_range(headline):
         raise FetchFallback(CURSOR_INVALID_RESPONSE, "invalid_response", True)
+    period_type = "weekly" if merged is True else "monthly" if merged is False else "unknown"
     cycle_end_ms = period.get("billingCycleEndMs")
     cycle_start_ms = period.get("billingCycleStartMs")
-    resets_at = unix_seconds_to_iso(cycle_end_ms / 1000) if cycle_end_ms is not None else None
-    window_minutes = cursor_billing_cycle_minutes(cycle_start_ms, cycle_end_ms)
-
-    secondary: dict[str, Any] = {"usedPercent": headline}
+    if merged is True and plan.get("includedUsageResetsAt") is not None:
+        cycle_end_ms = plan["includedUsageResetsAt"]
+    resets_at = (datetime.fromtimestamp(cycle_end_ms / 1000, timezone.utc).isoformat().replace("+00:00", "Z")
+                 if cycle_end_ms is not None else None)
+    secondary: dict[str, Any] = {"usedPercent": headline, "periodType": period_type}
     if resets_at is not None:
         secondary["resetsAt"] = resets_at
+    if cycle_start_ms is not None:
+        secondary["startsAt"] = datetime.fromtimestamp(cycle_start_ms / 1000, timezone.utc).isoformat().replace("+00:00", "Z")
+    window_minutes = cursor_billing_cycle_minutes(cycle_start_ms, cycle_end_ms)
     if window_minutes is not None:
         secondary["windowMinutes"] = window_minutes
-
-    extras: list[dict[str, Any]] = []
-    for key, title, value in (
-        ("cursor-other-models", "Other Models", other_percent),
-        ("cursor-total", "Total", total_percent),
-    ):
-        if value is None:
-            continue
-        # Skip Total when it is the same number already shown as Cursor Models.
-        if key == "cursor-total" and models_percent is not None and abs(value - models_percent) < 1e-9:
-            continue
-        window: dict[str, Any] = {"usedPercent": value}
-        if resets_at is not None:
-            window["resetsAt"] = resets_at
-        extras.append({"id": key, "title": title, "window": window})
-
     identity: dict[str, Any] = {"providerID": "cursor"}
-    if plan:
-        plan_name = plan.get("displayName") or plan.get("plan")
-        if isinstance(plan_name, str) and plan_name:
-            identity["loginMethod"] = plan_name
-
+    if plan and plan.get("plan"):
+        identity["loginMethod"] = plan["plan"]
     usage: dict[str, Any] = {
-        "identity": identity,
-        "primary": None,
-        "secondary": secondary,
-        "tertiary": None,
-        "updatedAt": updated_at or iso_now(),
+        "identity": identity, "primary": None, "secondary": secondary, "tertiary": None,
+        "isUnified": merged, "updatedAt": updated_at or iso_now(),
     }
-    if extras:
-        usage["extraRateWindows"] = extras
-    return {
-        "provider": "cursor",
-        "source": "cursor",
-        "usage": usage,
-        "engine": "kodexbar",
-    }
+    if plan:
+        usage["cursorPlan"] = plan
+    if merged is True:
+        usage["planName"] = "The X Subscription"
+    elif merged is False and period.get("apiPercent") is not None:
+        usage["extraRateWindows"] = [{
+            "id": "cursor-other-models", "title": "Other Models",
+            "window": {**secondary, "usedPercent": period["apiPercent"]},
+        }]
+    return {"provider": "cursor", "source": "cursor", "usage": usage, "engine": "kodexbar"}
 
 
 def cursor_grpc_status_error(status: int, message: str | None) -> dict[str, Any]:
@@ -3951,7 +3891,7 @@ def fetch_cursor(
 
     plan: dict[str, Any] | None = None
     try:
-        status_plan, _plan_headers, plan_body = http_request(
+        status_plan, plan_headers, plan_body = http_request(
             "POST",
             CURSOR_PLAN_URL,
             headers,
@@ -3959,11 +3899,12 @@ def fetch_cursor(
             CURSOR_TIMEOUT_SECONDS,
         )
         if status_plan == 200:
-            plan_data, _plan_trailer_status, _plan_trailer_message = parse_grpc_web_frames(plan_body)
-            if plan_data is not None:
+            plan_data, plan_trailer_status, _plan_trailer_message = parse_grpc_web_frames(plan_body)
+            plan_status = plan_trailer_status if plan_trailer_status is not None else _grpc_status_from_headers(plan_headers)
+            if plan_data is not None and plan_status in (None, 0):
                 plan = parse_cursor_plan_info(plan_data)
     except (FetchFallback, Exception):
-        # Plan name is cosmetic; quota data stays usable without it.
+        # Keep the valid measurement with unknown modality when plan lookup fails.
         plan = None
 
     try:

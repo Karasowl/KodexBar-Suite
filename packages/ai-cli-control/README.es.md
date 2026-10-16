@@ -250,3 +250,5 @@ Lee [CONTRIBUTING.md](CONTRIBUTING.md) antes de proponer un cambio. Las versione
 Copyright 2026 Ismael (Karasowl). Se publica bajo la [licencia MIT](LICENSE). Los avisos de productos de terceros están en [NOTICE.md](NOTICE.md).
 
 Grok lee el tipo y las fechas de `config.current_period`. Las fechas deprecated se usan solo cuando falta `current_period`. El cero predeterminado exige una configuración de cuota válida. Los ID y nombres de producto se conservan dentro de una sola barra de composición, incluidos Cursor, Grok Chat, Grok Bot y Bugbot. El motor expone `prepaidBalance` en centavos y `credits.remaining` positivo en USD, separado de la cuota incluida. El modo de autenticación no identifica el nivel del plan.
+
+Cursor conserva sus endpoints nativos de uso y plan. Los planes fusionados muestran un solo total semanal de `The X Subscription` en `usage.secondary`, con el reinicio de cuota en vez de la renovación del plan. Los planes legacy confirmados conservan los presupuestos mensuales Cursor Models y Other Models. Si falla la consulta del plan, se conserva la medición válida con `periodType: unknown`, sin inventar presupuestos mensuales.
