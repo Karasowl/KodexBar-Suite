@@ -8,6 +8,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest.mock import patch
 from contextlib import redirect_stderr, redirect_stdout
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_file_location, spec_from_loader
@@ -22,6 +23,22 @@ UNINSTALL = ROOT / "uninstall.sh"
 
 
 class AiSelectorTests(unittest.TestCase):
+    def test_profiles_command_launches_frozen_engine_directly(self) -> None:
+        loader = SourceFileLoader("ai_accounts_test", str(AI))
+        spec = spec_from_loader(loader.name, loader)
+        module = module_from_spec(spec)
+        sys.modules[loader.name] = module
+        self.addCleanup(sys.modules.pop, loader.name, None)
+        loader.exec_module(module)
+        engine = Path("/bundle/kodexbar-quotas.exe")
+        for frozen in (True, False):
+            with self.subTest(frozen=frozen), patch.object(module.sys, "frozen", frozen, create=True), patch.object(
+                module, "kodexbar_quotas_executable", return_value=engine
+            ), patch.object(module.subprocess, "run") as run:
+                module.run_quotas_profiles(["list", "--json"], "en")
+                expected = [str(engine)] if frozen else [sys.executable, str(engine)]
+                self.assertEqual(run.call_args.args[0], [*expected, "profiles", "list", "--json"])
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
