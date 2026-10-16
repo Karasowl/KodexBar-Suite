@@ -1112,7 +1112,8 @@ function groupSharedQuotaEntries(entries) {
                 continue
             }
             var observed = Date.parse(candidate.prepaidBalanceUpdatedAt || candidate.updatedAt) || 0
-            var held = candidate.prepaidBalanceIsCached === true || candidate.isCached === true
+            var held = typeof candidate.prepaidBalanceIsCached === "boolean"
+                ? candidate.prepaidBalanceIsCached : candidate.isCached === true
             if (!balanceOwner || balanceCached && !held
                     || balanceCached === held && observed > balanceTime) {
                 balanceOwner = candidate
@@ -1156,6 +1157,20 @@ function composeCompactBlocks(entries, options) {
     var quotaSelection = settings.showUsed === false ? "" : settings.quotaSelection
     var orderedEntries = groupSharedQuotaEntries(filterAndOrderEntries(entries, settings.providerOrder))
     var selected = groupSharedQuotaEntries(filterCompactEntries(entries, settings.providerOrder, quotaSelection))
+    // A provider-scoped selection can choose Cursor while the complete group
+    // chooses Grok. Count accounts using the representative actually displayed.
+    for (var ordinalIndex = 0; ordinalIndex < orderedEntries.length; ordinalIndex++) {
+        var ordinalKey = sharedQuotaKey(orderedEntries[ordinalIndex])
+        if (!ordinalKey) {
+            continue
+        }
+        for (var selectedIndex = 0; selectedIndex < selected.length; selectedIndex++) {
+            if (sharedQuotaKey(selected[selectedIndex]) === ordinalKey) {
+                orderedEntries[ordinalIndex] = selected[selectedIndex]
+                break
+            }
+        }
+    }
     if (selected.length === 0) {
         return {
             hasSelection: false,

@@ -53,6 +53,8 @@ Cursor y Grok se agrupan en una sola entrada únicamente cuando el motor aporta 
 
 Sin esa prueba, las entradas permanecen separadas y muestran el identificador de cuenta. Mostrar el correo completo sigue siendo opcional. Los perfiles y sus cachés se mantienen separados aunque la cuota se agrupe en pantalla. Añadir la cuenta unificada como segundo perfil Grok conserva la original. Consulta las [instrucciones de cuentas del motor](../ai-cli-control/README.es.md#cuentas-grok-separadas-y-cuota-compartida-verificada).
 
+La selección compacta por proveedor conserva los ordinales de las cuentas visibles aunque la cuota compartida elija otra fuente. El saldo mantiene su propia fecha y estado de caché, independientes de la medición de cuota.
+
 ## Requisitos
 
 - KDE Plasma 6

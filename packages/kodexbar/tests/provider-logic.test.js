@@ -2135,6 +2135,24 @@ for (const list of [[fundedGroup, spentGrok], [spentGrok, fundedGroup]]) {
     assert.equal(result.prepaidBalance.amount, 0, "a newer known zero supersedes the old balance")
     assert.equal(result.creditsRemaining, null)
 }
+const cachedNextCursor = plain(nextPeriod)
+cachedNextCursor.provider = "cursor"
+cachedNextCursor.isCached = true
+const cachedQuotaWithLiveBalance = context.groupSharedQuotaEntries([cachedNextCursor, spentGrok])[0]
+assert.equal(cachedQuotaWithLiveBalance.isCached, true)
+assert.equal(cachedQuotaWithLiveBalance.prepaidBalanceIsCached, false)
+for (const list of [[cachedQuotaWithLiveBalance, fundedGrok], [fundedGrok, cachedQuotaWithLiveBalance]]) {
+    const result = context.groupSharedQuotaEntries(list)[0]
+    assert.equal(result.prepaidBalance.amount, 0, "cached quota never reclassifies a separately observed live balance")
+    assert.equal(result.creditsRemaining, null)
+}
+const otherCursor = plain(xOther)
+otherCursor.provider = "cursor"
+const scopedCursorAccounts = plain(context.composeCompactBlocks([xGrok, xCursor, otherCursor], {
+    providerOrder: "grok,cursor", quotaSelection: "cursor.weekly"
+})).blocks
+assert.deepEqual(scopedCursorAccounts.map(block => block.ordinal), ["#1", "#2"],
+    "provider-scoped filtering retains distinct ordinals when the full shared group chooses another provider")
 for (const invalid of [null, { points: NaN }, { points: -1 }, { points: 101 }, { points: "2" },
                        { productId: 10, points: 0 }]) {
     assert.equal(context.normalizeUsageSegments([{ productId: 10, points: 28 }, invalid], 28).length, 0,

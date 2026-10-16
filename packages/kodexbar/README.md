@@ -53,6 +53,8 @@ Cursor and Grok collapse into one quota entry only when the engine supplies auth
 
 Without that proof, entries stay separate and show their account identifier. Full email display remains optional. Profiles and their refresh caches stay separate even when their quota is grouped for display. Adding the unified account as a second Grok profile preserves the original account. See the [engine account instructions](../ai-cli-control/README.md#separate-grok-accounts-and-verified-shared-quota).
 
+Provider-scoped compact selection keeps visible account ordinals even when the shared quota chooses another source. Balance observations retain their own timestamp and cache status independently of the quota measurement.
+
 ## Requirements
 
 - KDE Plasma 6
