@@ -742,22 +742,28 @@ def default_save_path(provider, now=None, directory=None):
 
 
 def available_path(path):
-    if not path.exists():
+    if not path.exists() and not path.is_symlink():
         return path
     suffix = 1
     while True:
         candidate = path.with_name(f"{path.stem}-{suffix}{path.suffix}")
-        if not candidate.exists():
+        if not candidate.exists() and not candidate.is_symlink():
             return candidate
         suffix += 1
 
 
 def save_markdown(dump, provider, session_id, project, destination=None, now=None):
     path = Path(destination).expanduser() if destination else default_save_path(provider, now=now)
-    path = available_path(path)
     content = dump_header(provider, session_id, project, now=now) + dump + "\n"
-    path.write_text(content, encoding="utf-8")
-    return path
+    while True:
+        destination_path = available_path(path)
+        try:
+            fd = os.open(destination_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        return destination_path
 
 
 class ClipboardUnavailable(ValueError):

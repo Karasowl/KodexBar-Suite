@@ -993,6 +993,36 @@ class RecoverEngineTests(unittest.TestCase):
         self.assertEqual(copied.stat().st_size, source.stat().st_size)
         self.assertLess(peak, 3_000_000)
 
+    def test_recovery_export_does_not_follow_dangling_symlinks(self) -> None:
+        destination = self.temp / "export.md"
+        victim = self.temp / "unrelated.md"
+        destination.symlink_to(victim)
+        saved = self.engine.save_markdown("conversation", "codex", "test", "project", destination)
+        self.assertFalse(victim.exists())
+        self.assertTrue(destination.is_symlink())
+        self.assertNotEqual(saved, destination)
+        self.assertIn("conversation", saved.read_text())
+        if os.name != "nt":
+            self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
+
+    def test_recovery_export_preserves_a_file_created_after_name_selection(self) -> None:
+        destination = self.temp / "export.md"
+        original_open = os.open
+        raced = False
+
+        def competing_open(path, flags, mode):
+            nonlocal raced
+            if not raced:
+                raced = True
+                destination.write_text("other export")
+            return original_open(path, flags, mode)
+
+        with patch.object(self.engine.os, "open", side_effect=competing_open):
+            saved = self.engine.save_markdown("conversation", "codex", "test", "project", destination)
+        self.assertEqual(destination.read_text(), "other export")
+        self.assertNotEqual(saved, destination)
+        self.assertIn("conversation", saved.read_text())
+
     def write_codex_session(self, session_id: str, timestamp: str, text: str) -> None:
         path = self.home / ".codex/sessions/2026/07" / f"rollout-{session_id}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
