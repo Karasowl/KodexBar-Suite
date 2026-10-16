@@ -169,7 +169,7 @@ The installer places it at `~/.local/share/ai-cli-control/kodexbar-quotas` and l
 
 Grok reads the explicit `config.current_period` type and dates. Deprecated billing dates are a fallback only when `current_period` is absent. A zero percent default requires a valid quota configuration. Product IDs and names remain inside one composition bar, including Cursor, Grok Chat, Grok Bot and Bugbot. The engine exposes `prepaidBalance` in cents and positive `credits.remaining` in USD separately from included usage. Authentication mode does not identify the subscription tier.
 
-Cursor keeps its native usage and plan endpoints. Merged plans expose one weekly `The X Subscription` total in `usage.secondary`, using the included-usage reset rather than the plan renewal date. Confirmed legacy plans retain the monthly Cursor Models and Other Models budgets. If plan lookup fails, the valid measurement remains with `periodType: unknown` and no invented monthly budgets.
+Cursor keeps its native usage and plan endpoints. Merged plans expose one weekly `The X Subscription` total in `usage.secondary`, using the included-usage reset rather than the plan renewal date. Confirmed legacy plans retain the monthly Cursor Models and Other Models budgets. Plan classification requires an explicit successful gRPC status. If plan lookup fails, the valid measurement remains with `periodType: unknown` and no invented monthly budgets.
 
 ### Separate Grok accounts and verified shared quota
 

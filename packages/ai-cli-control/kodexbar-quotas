@@ -3399,14 +3399,18 @@ def enrich_cursor_identity(entry: dict[str, Any], headers: dict[str, str]) -> No
             if email:
                 entry["usage"]["identity"]["accountEmail"] = email
             # This proof is for an individual's pool, never a Cursor team budget.
-            if _protobuf_value(me, 7, 0, 0):
+            if not auth_id or _protobuf_value(me, 7, 0, 0) or _protobuf_value(me, 9, 0, 0):
                 return
         if len(responses) != 3 or any(item is None for item in responses):
             return
         marketing, prepaid = responses[1:]
         user_id = _identity_text(marketing, 1)
-        if not user_id and _protobuf_value(marketing, 2, 0) == 3:
-            user_id = _identity_text(marketing, 3)
+        identity_kind = _protobuf_value(marketing, 2, 0)
+        if identity_kind is not None:
+            current_user_id = _identity_text(marketing, 3)
+            if identity_kind != 3 or not current_user_id or user_id not in ("", current_user_id):
+                return
+            user_id = current_user_id
         if not _protobuf_value(prepaid, 1, 0, 0):
             return
         _set_shared_quota(entry, user_id, _identity_text(prepaid, 4),
@@ -4019,7 +4023,7 @@ def fetch_cursor(
         if status_plan == 200:
             plan_data, plan_trailer_status, _plan_trailer_message = parse_grpc_web_frames(plan_body)
             plan_status = plan_trailer_status if plan_trailer_status is not None else _grpc_status_from_headers(plan_headers)
-            if plan_data is not None and plan_status in (None, 0):
+            if plan_data is not None and plan_status == 0:
                 plan = parse_cursor_plan_info(plan_data)
     except (FetchFallback, Exception):
         # Keep the valid measurement with unknown modality when plan lookup fails.

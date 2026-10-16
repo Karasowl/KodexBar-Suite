@@ -2914,6 +2914,29 @@ class QuotasEngineTests(unittest.TestCase):
                 profiles_write.assert_not_called()
                 cache_write.assert_not_called()
 
+    def test_cursor_incomplete_or_conflicting_identity_never_groups(self) -> None:
+        responses = {
+            "GetMe": [(1, 2, b"cursor-account")],
+            "GetSandMarketingIdentity": [(1, 2, b"xai-user")],
+            "GetIndividualUnificationPrepaidPreview": [(1, 0, 1), (4, 2, b"xai-team")],
+        }
+        cases = [
+            ("GetMe", []),
+            ("GetMe", [(1, 2, b"cursor-account"), (7, 0, 42)]),
+            ("GetMe", [(1, 2, b"cursor-account"), (9, 0, 1)]),
+            ("GetSandMarketingIdentity", [(1, 2, b"xai-user"), (2, 0, 3), (3, 2, b"other-user")]),
+            ("GetSandMarketingIdentity", [(2, 0, 2), (3, 2, b"xai-user")]),
+        ]
+        for method, value in cases:
+            with self.subTest(method=method, value=value):
+                current = {**responses, method: value}
+                entry = {"provider": "cursor", "usage": {"isUnified": True, "identity": {},
+                                                        "secondary": {"usedPercent": 23}}}
+                with patch.object(quotas, "_read_identity_message", side_effect=lambda url, headers: current[url.rsplit("/", 1)[-1]]):
+                    quotas.enrich_cursor_identity(entry, {})
+                self.assertNotIn("sharedQuota", entry["usage"])
+                self.assertEqual(entry["usage"]["secondary"]["usedPercent"], 23)
+
     def test_grok_read_only_never_refreshes_or_falls_back(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -3083,7 +3106,7 @@ class QuotasEngineTests(unittest.TestCase):
         start_ms = 1784733973000
         end_ms = start_ms + 31 * 24 * 3600 * 1000
         frame = build_cursor_period_usage_frame(start_ms, end_ms, 12.5, auto_percent=8.0, api_percent=4.5)
-        plan_frame = build_cursor_plan_info_frame("Free", "Free")
+        plan_frame = build_cursor_plan_info_frame("Free", "Free") + build_grpc_web_trailer_frame(0)
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             self._write_cursor_state_db(home)
@@ -3217,6 +3240,7 @@ class QuotasEngineTests(unittest.TestCase):
             home = Path(directory)
             self._write_cursor_state_db(home)
             for broken in [frame(fixture["plan"]) + build_grpc_web_trailer_frame(16),
+                           frame(fixture["plan"]),
                            frame([]), b"\x00\x00\x00\x00\x02\x0a\x01"]:
                 def fake_http(method, url, *args):
                     return 200, {}, frame(fixture["period"]) if url == quotas.CURSOR_USAGE_URL else broken
