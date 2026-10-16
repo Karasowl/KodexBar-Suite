@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.request import ProxyHandler
 import json
 import os
 from pathlib import Path
@@ -207,6 +209,42 @@ class QuotasEngineTests(unittest.TestCase):
         home = patch.object(quotas, "home_directory", return_value=Path(isolated.name))
         home.start()
         self.addCleanup(home.stop)
+
+    def test_http_redirects_never_forward_credentials_to_another_origin(self) -> None:
+        requests = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                requests.append((self.path, self.headers.get("Authorization")))
+                if self.path in ("/cross", "/same"):
+                    self.send_response(302)
+                    host = "localhost" if self.path == "/cross" else "127.0.0.1"
+                    self.send_header("Location", f"http://{host}:{self.server.server_port}/usage")
+                    self.end_headers()
+                else:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"{}")
+
+            def log_message(self, *_args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=lambda: server.serve_forever(poll_interval=0.01), daemon=True)
+        thread.start()
+        try:
+            # Ignore the host's proxy settings for this hermetic loopback test.
+            opener = quotas.build_opener(quotas.SameOriginRedirectHandler(), ProxyHandler({}))
+            with patch.object(quotas, "urlopen", opener.open):
+                url = f"http://127.0.0.1:{server.server_port}"
+                self.assertEqual(quotas.http_request("GET", url + "/cross", {"Authorization": "Bearer test-secret"})[0], 302)
+                self.assertEqual(requests, [("/cross", "Bearer test-secret")])
+                self.assertEqual(quotas.http_request("GET", url + "/same", {"Authorization": "Bearer test-secret"})[0], 200)
+                self.assertEqual(requests[-1], ("/usage", "Bearer test-secret"))
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+            server.server_close()
 
     def test_version_is_the_public_suite_release(self) -> None:
         result = subprocess.run([str(ENGINE), "--version"], text=True, capture_output=True, check=False)

@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 try:
     import fcntl
@@ -1527,6 +1527,22 @@ def read_http_body_limited(stream: Any, max_bytes: int = HTTP_MAX_BODY_BYTES) ->
     return b"".join(chunks)
 
 
+class SameOriginRedirectHandler(HTTPRedirectHandler):
+    """Keep quota credentials and refresh bodies on their original origin."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        def origin(url):
+            parsed = urlparse(url)
+            return parsed.scheme, parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
+
+        if origin(req.full_url) != origin(newurl):
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+urlopen = build_opener(SameOriginRedirectHandler()).open
+
+
 def http_request(
     method: str,
     url: str,
@@ -1555,6 +1571,8 @@ def http_request(
             payload = b""
         except Exception:
             payload = b""
+        finally:
+            error.close()
         return int(error.code), resp_headers, payload
     except FetchFallback:
         raise
