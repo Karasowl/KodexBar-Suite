@@ -189,6 +189,8 @@ The native engine has no browser-cookie credential source to reuse. A web-only a
 
 ## Panel adapters
 
+Waybar and the Linux and Windows trays preserve quota periods and Cursor and Grok account identity. Only verified shared pools are grouped into one measurement, preferring the latest period. Status JSON keeps `percentages.weekly` and adds `periods.weekly` to distinguish weekly, monthly and unknown periods.
+
 `kodexbar-panel` invokes the sibling `kodexbar-quotas` engine first, then the command on `PATH`. It prints the compact quota line used by the suite (`Cx`, `Cl`, `Gk`, `Ag`, `Hm`, and the other returned providers), with session and weekly usage where available. It has a 20-second engine timeout and returns a short error instead of a traceback when quota data is unavailable.
 
 ```bash

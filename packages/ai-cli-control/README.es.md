@@ -204,6 +204,8 @@ El motor nativo no tiene una fuente de cookies de navegador que reutilizar. Una 
 
 ## Adaptadores de panel
 
+Waybar y las bandejas de Linux y Windows conservan la periodicidad de la cuota y la identidad de Cursor y Grok. Agrupan únicamente las cuotas compartidas verificadas y muestran una sola medición, con prioridad para el período más reciente. El JSON de estado conserva `percentages.weekly` y añade `periods.weekly` para distinguir semana, mes y modalidad desconocida.
+
 `kodexbar-panel` invoca primero el motor `kodexbar-quotas` que está a su lado y después el comando disponible en `PATH`. Muestra la línea compacta de cuotas usada por el conjunto (`Cx`, `Cl`, `Gk`, `Ag`, `Hm` y los demás proveedores devueltos), con uso de sesión y semanal cuando está disponible. Tiene un límite total de 20 segundos para el motor y devuelve un error corto en vez de un traceback cuando no hay datos de cuotas.
 
 ```bash
