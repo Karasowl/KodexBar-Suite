@@ -2111,6 +2111,38 @@ assert.match(mainQml, /windowDetail\(windows\[i\]\.data, left !== null\), window
 assert.match(mainQml, /accountLabel: identity\.accountLabel/)
 console.log("X Subscription identity, period and composition checks passed")
 
+const heldGrok = plain(xGrok)
+heldGrok.isCached = true
+assert.equal(context.groupSharedQuotaEntries([heldGrok, xCursor])[0].provider, "cursor",
+    "a live observation wins over cached data in the same period and second")
+const ordinalBlocks = plain(context.composeCompactBlocks([xGrok, xCursor, xOther], {
+    providerOrder: "grok,cursor", quotaSelection: "weekly"
+})).blocks
+assert.deepEqual(ordinalBlocks.map(block => block.ordinal), ["#1", "#2"],
+    "separately built grouped entries match by identity when assigning account ordinals")
+
+const fundedGrok = plain(xGrok)
+fundedGrok.prepaidBalance = { amount: 1250, unit: "cent", currency: "USD" }
+fundedGrok.creditsRemaining = 12.5
+const fundedGroup = plain(context.groupSharedQuotaEntries([xCursor, fundedGrok]))[0]
+assert.equal(fundedGroup.creditsRemaining, 12.5, "choosing Cursor's quota does not hide Grok's observed balance")
+const spentGrok = plain(fundedGrok)
+spentGrok.prepaidBalance.amount = 0
+spentGrok.creditsRemaining = null
+spentGrok.updatedAt = "2026-10-16T17:01:00Z"
+for (const list of [[fundedGroup, spentGrok], [spentGrok, fundedGroup]]) {
+    const result = context.groupSharedQuotaEntries(list)[0]
+    assert.equal(result.prepaidBalance.amount, 0, "a newer known zero supersedes the old balance")
+    assert.equal(result.creditsRemaining, null)
+}
+for (const invalid of [null, { points: NaN }, { points: -1 }, { points: 101 }, { points: "2" },
+                       { productId: 10, points: 0 }]) {
+    assert.equal(context.normalizeUsageSegments([{ productId: 10, points: 28 }, invalid], 28).length, 0,
+        "invalid or duplicate components never become a plausible partial composition")
+}
+assert.equal(context.normalizeUsageSegments(xSegments, null).length, 0, "unknown total has no composition")
+assert.match(mainQml, /prepaidBalance: usage\.prepaidBalance/)
+
 assert.match(mainQml, /Flow \{\s*id: signalSegmentLegend[\s\S]*Layout\.fillWidth: true[\s\S]*model: signalQuotaRow\.legendItems/,
     "the active Signal Console legend wraps on its own line without colliding with the reset timestamp")
 assert.match(mainQml, /text: signalQuotaRow\.rowData\.windowBadge \|\| ""/,

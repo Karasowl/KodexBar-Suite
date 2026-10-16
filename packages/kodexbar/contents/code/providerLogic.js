@@ -655,11 +655,28 @@ var quotaProducts = {
 
 function normalizeUsageSegments(segments, usedPercent) {
     var list = Array.isArray(segments) ? segments : []
+    var strict = arguments.length > 1
+    if (strict && (typeof usedPercent !== "number" || !isFinite(usedPercent)
+            || usedPercent < 0 || usedPercent > 100)) {
+        return []
+    }
+    var seen = {}
     var normalized = []
     for (var i = 0; i < list.length; i++) {
         var item = list[i]
+        if (strict && (!item || typeof item.points !== "number" || !isFinite(item.points)
+                || item.points < 0 || item.points > 100)) {
+            return []
+        }
         if (!item || typeof item !== "object") {
             continue
+        }
+        if (strict && item.productId !== undefined) {
+            var id = item.productId
+            if (typeof id !== "number" || !isFinite(id) || id <= 0 || Math.floor(id) !== id || seen[id]) {
+                return []
+            }
+            seen[id] = true
         }
         var points = Number(item.points)
         if (!isFinite(points) || points <= 0) {
@@ -677,7 +694,7 @@ function normalizeUsageSegments(segments, usedPercent) {
         }
         normalized.push(segment)
     }
-    if (typeof usedPercent === "number") {
+    if (strict) {
         var sum = 0
         for (var j = 0; j < normalized.length; j++) {
             sum += normalized[j].points
@@ -1067,8 +1084,8 @@ function groupSharedQuotaEntries(entries) {
             && Date.parse(previousWindow.resetsAt) === Date.parse(entryWindow.resetsAt)
             && previousWindow.periodType === entryWindow.periodType
         var useEntry = entryStart > previousStart || entryStart === previousStart
-            && (previous.cached === true && entry.cached !== true
-                || (previous.cached === true) === (entry.cached === true) && entryTime > previousTime)
+            && (previous.isCached === true && entry.isCached !== true
+                || (previous.isCached === true) === (entry.isCached === true) && entryTime > previousTime)
         var chosen = useEntry ? entry : previous
         var other = useEntry ? previous : entry
         var combined = {}
@@ -1081,6 +1098,35 @@ function groupSharedQuotaEntries(entries) {
         }]).concat(entry.sharedMembers || [{
             provider: entry.provider, profileId: entry.profileId, profileLabel: entry.profileLabel
         }])
+        // Prepaid money is a separate observation, available from Grok even
+        // when Cursor has the latest included-quota reading. Never add balances.
+        var balanceOwner = null
+        var balanceTime = 0
+        var balanceCached = false
+        var candidates = [previous, entry]
+        for (var b = 0; b < candidates.length; b++) {
+            var candidate = candidates[b]
+            var balance = candidate.prepaidBalance
+            if (!balance || balance.unit !== "cent" || balance.currency !== "USD"
+                    || typeof balance.amount !== "number" || !isFinite(balance.amount)) {
+                continue
+            }
+            var observed = Date.parse(candidate.prepaidBalanceUpdatedAt || candidate.updatedAt) || 0
+            var held = candidate.prepaidBalanceIsCached === true || candidate.isCached === true
+            if (!balanceOwner || balanceCached && !held
+                    || balanceCached === held && observed > balanceTime) {
+                balanceOwner = candidate
+                balanceTime = observed
+                balanceCached = held
+            }
+        }
+        if (balanceOwner) {
+            combined.prepaidBalance = balanceOwner.prepaidBalance
+            combined.prepaidBalanceUpdatedAt = balanceOwner.prepaidBalanceUpdatedAt || balanceOwner.updatedAt
+            combined.prepaidBalanceIsCached = balanceCached
+            combined.creditsRemaining = balanceOwner.prepaidBalance.amount > 0
+                ? balanceOwner.prepaidBalance.amount / 100 : null
+        }
         combined.rows = (chosen.rows || []).map(function(row) {
             if (!samePeriod || row.compactKey !== "weekly" || row.segments && row.segments.length
                     || Math.abs(chosen.secondaryPercentLeft - other.secondaryPercentLeft) > 0.001) {
@@ -1148,7 +1194,8 @@ function composeCompactBlocks(entries, options) {
             if (providerId(orderedEntries[orderedIndex] && orderedEntries[orderedIndex].provider) === id) {
                 providerOrdinal++
             }
-            if (orderedEntries[orderedIndex] === entry) {
+            if (orderedEntries[orderedIndex] === entry
+                    || sharedQuotaKey(entry) && sharedQuotaKey(orderedEntries[orderedIndex]) === sharedQuotaKey(entry)) {
                 break
             }
         }

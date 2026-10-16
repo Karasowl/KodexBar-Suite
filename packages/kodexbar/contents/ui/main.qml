@@ -2108,6 +2108,7 @@ PlasmoidItem {
             identity: identity,
             isUnified: usage.isUnified,
             sharedQuota: usage.sharedQuota || null,
+            prepaidBalance: usage.prepaidBalance || null,
             windowMetadata: { primary: primary, weekly: secondary, tertiary: tertiary },
             profileId: entry.profileId || "",
             profileLabel: entry.profileLabel || "",
