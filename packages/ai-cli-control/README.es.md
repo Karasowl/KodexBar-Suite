@@ -178,7 +178,7 @@ El comando exacto `cost --format json --json-only` conserva el payload completo 
 
 Los perfiles nativos de Claude guardan sus cuotas y tiempos de espera entre consultas en su propio directorio de credenciales. Las fuentes de credenciales explícitas y los perfiles secundarios nunca recurren a la cuenta ambiental de upstream. La renovación de credenciales y los cambios de perfiles usan bloqueos entre procesos en Linux y Windows. Las redirecciones HTTP nativas se limitan al origen inicial para evitar reenviar credenciales a otro servidor.
 
-Las invocaciones de uso con banderas que el motor no implementa, como `--status`, se delegan por completo a `codexbar` upstream.
+Las invocaciones de uso con banderas que el motor no implementa, como `--status`, se delegan por completo a `codexbar` upstream. `--all-accounts` se resuelve de forma nativa para las fuentes nativas de Grok y Cursor. Los demás proveedores y fuentes conservan todos los argumentos al delegar.
 
 El instalador lo coloca en `~/.local/share/ai-cli-control/kodexbar-quotas` y enlaza `~/.local/bin/kodexbar-quotas` solo cuando ese enlace pertenece a este paquete.
 

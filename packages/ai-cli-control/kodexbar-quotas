@@ -6681,12 +6681,14 @@ def parse_usage(arguments: list[str]) -> tuple[str, str | None, bool] | None:
     provider = None
     source = None
     pretty = False
+    all_accounts = False
     index = 0
     while index < len(arguments):
         argument = arguments[index]
         if argument in ("--json", "--json-only", "--all-accounts"):
             # Native reads already enumerate every enabled profile. Accept the
             # explicit flag instead of delegating to an ambient companion account.
+            all_accounts = all_accounts or argument == "--all-accounts"
             index += 1
         elif argument == "--pretty":
             pretty = True
@@ -6701,6 +6703,12 @@ def parse_usage(arguments: list[str]) -> tuple[str, str | None, bool] | None:
             index += 2
         else:
             return None
+    # Only the reviewed native paths implement this flag. Preserve the complete
+    # upstream invocation elsewhere, including provider-specific source choices.
+    native_sources = {"grok": (None, "auto", "web", "grok-web"),
+                      "cursor": (None, "auto", "cursor")}
+    if all_accounts and (provider not in native_sources or source not in native_sources[provider]):
+        return None
     return provider or "enabled", source, pretty
 
 

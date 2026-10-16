@@ -2937,6 +2937,23 @@ class QuotasEngineTests(unittest.TestCase):
                 self.assertNotIn("sharedQuota", entry["usage"])
                 self.assertEqual(entry["usage"]["secondary"]["usedPercent"], 23)
 
+    def test_all_accounts_preserves_delegated_provider_arguments(self) -> None:
+        for provider, source in [("antigravity", None), ("codex", None), ("all", None),
+                                 ("grok", "cli"), ("cursor", "web")]:
+            args = ["usage", "--provider", provider, "--json", "--all-accounts"]
+            if source:
+                args += ["--source", source]
+            with self.subTest(provider=provider, source=source), \
+                 patch.dict(os.environ, {"KODEXBAR_QUOTAS_READ_ONLY": ""}), \
+                 patch.object(quotas, "delegate_whole_call", return_value=0) as delegate, \
+                 patch.object(quotas, "ensure_auto_config") as auto_config, \
+                 patch.object(quotas, "fetch_profiles", return_value=[]) as fetch, \
+                 patch.object(quotas, "print_json"):
+                self.assertEqual(quotas.main(args), 0)
+                delegate.assert_called_once_with(args)
+                auto_config.assert_not_called()
+                fetch.assert_not_called()
+
     def test_grok_read_only_never_refreshes_or_falls_back(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -2953,7 +2970,7 @@ class QuotasEngineTests(unittest.TestCase):
             self.assertEqual((home / ".grok" / "auth.json").read_bytes(), before)
 
     def test_grok_managed_second_profile_preserves_default_and_does_not_login(self) -> None:
-        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"XDG_CONFIG_HOME": ""}):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"XDG_CONFIG_HOME": "", "APPDATA": directory}):
             home = Path(directory)
             self._write_grok_auth(home)
             original = (home / ".grok" / "auth.json").read_bytes()

@@ -163,7 +163,7 @@ The exact `cost --format json --json-only` command keeps the complete upstream p
 
 Native Claude profiles keep their saved quotas and polling cooldowns in their own credential directory. Explicit credential sources and secondary profiles never fall back to the ambient upstream account. Credential refreshes and profile updates use cross-process locks on Linux and Windows. Native HTTP redirects stay on the original origin so credentials are not forwarded to another host.
 
-Usage invocations with flags the engine does not implement, such as `--status`, are delegated wholly to upstream `codexbar`.
+Usage invocations with flags the engine does not implement, such as `--status`, are delegated wholly to upstream `codexbar`. The explicit `--all-accounts` flag stays native for Grok and Cursor native sources. Other providers and source choices keep the complete upstream argument list.
 
 The installer places it at `~/.local/share/ai-cli-control/kodexbar-quotas` and links `~/.local/bin/kodexbar-quotas` only when that link is owned by this package.
 
