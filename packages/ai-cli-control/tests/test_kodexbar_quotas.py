@@ -4852,6 +4852,33 @@ class QuotasEngineTests(unittest.TestCase):
                 remaining = quotas.load_profiles_document(home)
                 self.assertTrue(remaining is None or "codex" not in remaining)
 
+    def test_profile_file_deletion_rejects_traversal_and_symlinked_provider(self) -> None:
+        home = quotas.home_directory()
+        outside = home / "outside"
+        victim = outside / "work"
+        victim.mkdir(parents=True)
+        (victim / "keep.txt").write_text("valuable data")
+        root = quotas.accounts_root_path(home)
+        root.mkdir(parents=True)
+        (root / "codex").symlink_to(outside, target_is_directory=True)
+        for provider in ("codex", "../../../outside"):
+            with self.subTest(provider=provider):
+                profile = quotas.ProviderProfile(provider, "work", None, quotas.CredentialSource("default"), 0, 0)
+                quotas.write_profiles_document({provider: [profile]}, home)
+                before = quotas.profiles_config_path(home).read_bytes()
+                with self.assertRaises(ValueError):
+                    quotas.remove_managed_profile(provider, "work", home, delete_files=True)
+                self.assertEqual((victim / "keep.txt").read_text(), "valuable data")
+                self.assertEqual(quotas.profiles_config_path(home).read_bytes(), before)
+
+    def test_profile_file_deletion_removes_only_requested_managed_account(self) -> None:
+        home = quotas.home_directory()
+        profile = quotas.add_managed_profile("claude", "Work", home)
+        account = profile.credential_source.config_dir
+        (account / ".credentials.json").write_text("test-token")
+        quotas.remove_managed_profile("claude", profile.profile_id, home, delete_files=True)
+        self.assertFalse(account.exists())
+
     def test_profiles_add_cli_creates_profile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)

@@ -6880,6 +6880,14 @@ def remove_managed_profile(
     remaining = [p for p in document[normalized] if p.profile_id != target_id]
     if len(remaining) == len(document[normalized]):
         raise ValueError("That account is not configured.")
+    account_dir = None
+    if delete_files:
+        if normalized not in MANAGED_PROFILE_PROVIDERS or not PROFILE_ID_PATTERN.fullmatch(target_id):
+            raise ValueError("Only managed account folders can be deleted.")
+        account_dir = managed_account_dir(normalized, target_id, home)
+        expected_parent = accounts_root_path(home).resolve() / normalized
+        if account_dir.is_symlink() or account_dir.resolve().parent != expected_parent:
+            raise ValueError("Account folder resolves outside its managed provider directory.")
     # If only principal remains, drop the whole provider group so ambient default returns.
     non_default = [p for p in remaining if p.profile_id != "default"]
     if not non_default:
@@ -6892,10 +6900,8 @@ def remove_managed_profile(
             path.unlink()
     else:
         write_profiles_document(document, home)
-    if delete_files:
-        account_dir = managed_account_dir(normalized, target_id, home)
-        if account_dir.is_dir() and accounts_root_path(home) in account_dir.parents:
-            shutil.rmtree(account_dir, ignore_errors=True)
+    if account_dir is not None and account_dir.is_dir():
+        shutil.rmtree(account_dir)
 
 
 def login_argv_for_profile(
