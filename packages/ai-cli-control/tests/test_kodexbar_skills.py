@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +41,40 @@ class KodexBarSkillsTests(unittest.TestCase):
     def inventory_skill(self, name: str) -> dict:
         inventory = skills.build_inventory(self.home, "codex,claude,gemini")
         return next(item for item in inventory["skills"] if item["name"] == name)
+
+    def test_inventory_reports_symlink_cycles_without_aborting_other_skills(self) -> None:
+        root = self.home / ".codex/skills"
+        write_skill(root / "valid", "valid")
+        (root / "loop").symlink_to("loop", target_is_directory=True)
+        inventory = skills.build_inventory(self.home, "codex")
+        rows = {item["name"]: item for item in inventory["skills"]}
+        self.assertEqual(rows["loop"]["status"], "conflict")
+        self.assertIsNotNone(rows["loop"]["sources"][0]["error"])
+        self.assertIsNotNone(rows["valid"]["canonical"])
+
+    def test_shared_sources_are_hashed_once_per_inventory_and_refreshed_next_time(self) -> None:
+        library = self.home / "library/review"
+        write_skill(library, "review")
+        for provider in (".codex", ".claude", ".gemini"):
+            root = self.home / provider / "skills"
+            root.mkdir()
+            (root / "review").symlink_to(library, target_is_directory=True)
+        with patch.object(skills, "tree_signature", wraps=skills.tree_signature) as signature:
+            first = self.inventory_skill("review")
+            self.assertEqual(signature.call_count, 1)
+            (library / "SKILL.md").write_text("Changed content")
+            second = self.inventory_skill("review")
+            self.assertEqual(signature.call_count, 2)
+        self.assertNotEqual(first["canonical"]["digest"], second["canonical"]["digest"])
+
+    def test_unreadable_directory_cannot_produce_a_valid_signature(self) -> None:
+        def unreadable_walk(_root, *, followlinks, onerror):
+            onerror(PermissionError("unreadable subtree"))
+            return iter(())
+
+        with patch.object(skills.os, "walk", side_effect=unreadable_walk):
+            with self.assertRaises(PermissionError):
+                skills.tree_signature(self.home)
 
     def test_inventory_distinguishes_partial_and_synced_links(self) -> None:
         library = self.home / "library/release"
