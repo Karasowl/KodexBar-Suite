@@ -237,3 +237,19 @@ Copyright 2026 Ismael (Karasowl). Licensed under the [MIT License](LICENSE). Thi
 Grok reads the explicit `config.current_period` type and dates. Deprecated billing dates are a fallback only when `current_period` is absent. A zero percent default requires a valid quota configuration. Product IDs and names remain inside one composition bar, including Cursor, Grok Chat, Grok Bot and Bugbot. The engine exposes `prepaidBalance` in cents and positive `credits.remaining` in USD separately from included usage. Authentication mode does not identify the subscription tier.
 
 Cursor keeps its native usage and plan endpoints. Merged plans expose one weekly `The X Subscription` total in `usage.secondary`, using the included-usage reset rather than the plan renewal date. Confirmed legacy plans retain the monthly Cursor Models and Other Models budgets. If plan lookup fails, the valid measurement remains with `periodType: unknown` and no invented monthly budgets.
+
+### Separate Grok accounts and verified shared quota
+
+`usage.sharedQuota` is emitted only for a unified plan with authenticated xAI user and billing-team proof. Grok uses `AuthManagement/GetUser`. Cursor uses `GetMe`, `GetSandMarketingIdentity` and the available individual `GetIndividualUnificationPrepaidPreview`. Failed or incomplete identity reads preserve quota data without a shared key. IDs are hashed in output. Email, equal percentages and equal reset dates never prove account linkage. Cursor team plans remain separate until their billing scope can be verified.
+
+Grok supports the existing `grok-auth` profile source and managed account creation. Keep the ambient account and prepare a separate account with:
+
+```sh
+kodexbar-quotas profiles add --provider grok --label "The X Subscription"
+kodexbar-quotas profiles login --provider grok --id the-x-subscription
+kodexbar-quotas usage --provider grok --json --all-accounts
+```
+
+The first command only adds a profile and an empty credential directory. The second is an explicit interactive login into that profile's `GROK_HOME`. Choose the unified account there. It does not replace `~/.grok/auth.json`. An existing independent CLI auth file can instead be referenced in `credentialSource.authFile`. See [the two-account example](examples/x-subscription-profiles.json). Merge its provider block into an existing profiles document rather than replacing other accounts.
+
+The native engine has no browser-cookie credential source to reuse. A web-only account therefore requires that separate login. No cookies are copied or written to profile configuration. Merely reading usage never starts a login or opens a browser. For read-only validation, prefix usage commands with `KODEXBAR_QUOTAS_READ_ONLY=1` to suppress Grok refresh, automatic config creation and upstream fallback.

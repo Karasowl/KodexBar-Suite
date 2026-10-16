@@ -3103,6 +3103,8 @@ def parse_grok_billing(message: bytes) -> dict[str, Any]:
             period_source = "deprecated_billing_period"
         if start and end and datetime.fromisoformat(start) >= datetime.fromisoformat(end):
             raise ValueError("Invalid quota period")
+        if not end:
+            raise ValueError("Missing quota reset")
         percent = _protobuf_value(config, 1, 5)
         if percent is None:
             if not start or not end:
@@ -3299,6 +3301,114 @@ def classify_grok_grpc_status(status: int, message: str | None) -> dict[str, Any
     return provider_error("grok", "grok-web", GROK_PERMANENT, "permanent", False)
 
 
+def quota_read_only() -> bool:
+    """Opt-in live diagnostics: no auto config, credential refresh or companion writes."""
+    return os.environ.get("KODEXBAR_QUOTAS_READ_ONLY") == "1"
+
+
+def _read_identity_message(url: str, headers: dict[str, str]) -> list[tuple[int, int, Any]] | None:
+    """Optional authenticated identity read. Failure must not erase valid quota data."""
+    try:
+        status, response_headers, body = http_request("POST", url, headers, b"\x00" * 5, 3)
+        if status != 200:
+            return None
+        data, trailer, _message = parse_grpc_web_frames(body)
+        grpc_status = trailer if trailer is not None else _grpc_status_from_headers(response_headers)
+        # Identity proof needs an affirmative success status, not just HTTP 200.
+        if grpc_status != 0 or data is None:
+            return None
+        return _protobuf_fields(data)
+    except (FetchFallback, ValueError, TypeError, OSError):
+        return None
+
+
+def _identity_text(fields: list[tuple[int, int, Any]], field: int) -> str:
+    text = _protobuf_value(fields, field, 2, b"").decode("utf-8")
+    if len(text) > 256 or any(ord(char) < 32 for char in text):
+        raise ValueError("Invalid identity text")
+    return text.strip()
+
+
+def _identity_hash(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _set_shared_quota(entry: dict[str, Any], user_id: str, team_id: str, evidence: str) -> None:
+    """Only callers with server-verified xAI user AND billing team may set this key."""
+    if not user_id or not team_id or entry["usage"].get("isUnified") is not True:
+        return
+    account = _identity_hash(user_id)
+    team = _identity_hash(team_id)
+    entry["usage"]["sharedQuota"] = {
+        "id": "x-subscription:" + _identity_hash(json.dumps([user_id, team_id, "included"])),
+        "authority": "xai-account-team", "verified": True, "accountId": account,
+        "teamId": team, "pool": "included", "evidence": evidence,
+    }
+    entry["usage"]["identity"].update(
+        accountId="xai:" + account, accountLabel="xAI " + account[:8])
+
+
+def enrich_grok_identity(entry: dict[str, Any], headers: dict[str, str]) -> None:
+    fields = _read_identity_message("https://grok.com/auth_mgmt.AuthManagement/GetUser", headers)
+    if fields is None:
+        return
+    try:
+        user_id = _identity_text(fields, 1)
+        team_id = _identity_text(fields, 44)
+        email = _identity_text(fields, 3)
+        if user_id:
+            entry["usage"]["identity"].update(
+                accountId="xai:" + _identity_hash(user_id),
+                accountLabel="xAI " + _identity_hash(user_id)[:8])
+        if email:
+            entry["usage"]["identity"]["accountEmail"] = email
+        _set_shared_quota(entry, user_id, team_id, "auth_mgmt.AuthManagement/GetUser")
+    except (ValueError, UnicodeDecodeError):
+        return
+
+
+def enrich_cursor_identity(entry: dict[str, Any], headers: dict[str, str]) -> None:
+    """Resolve namespaces through authenticated Cursor services, never email matching.
+
+    The 2026-10 server's marketing identity uses fields 2=3, 3=xAI user ID.
+    The installed client also describes the older field 1 string layout. The team
+    comes from the individual prepaid preview, only when available=true. Team
+    plans and incomplete responses remain ungrouped.
+    """
+    base = "https://api2.cursor.sh/aiserver.v1.DashboardService/"
+    methods = ["GetMe"]
+    if entry["usage"].get("isUnified") is True:
+        methods += ["GetSandMarketingIdentity", "GetIndividualUnificationPrepaidPreview"]
+    with ThreadPoolExecutor(max_workers=len(methods)) as executor:
+        responses = list(executor.map(lambda method: _read_identity_message(base + method, headers), methods))
+    try:
+        me = responses[0]
+        if me is not None:
+            auth_id = _identity_text(me, 1)
+            email = _identity_text(me, 3)
+            if auth_id:
+                entry["usage"]["identity"].update(
+                    accountId="cursor:" + _identity_hash(auth_id),
+                    accountLabel="Cursor " + _identity_hash(auth_id)[:8])
+            if email:
+                entry["usage"]["identity"]["accountEmail"] = email
+            # This proof is for an individual's pool, never a Cursor team budget.
+            if _protobuf_value(me, 7, 0, 0):
+                return
+        if len(responses) != 3 or any(item is None for item in responses):
+            return
+        marketing, prepaid = responses[1:]
+        user_id = _identity_text(marketing, 1)
+        if not user_id and _protobuf_value(marketing, 2, 0) == 3:
+            user_id = _identity_text(marketing, 3)
+        if not _protobuf_value(prepaid, 1, 0, 0):
+            return
+        _set_shared_quota(entry, user_id, _identity_text(prepaid, 4),
+                          "DashboardService/GetSandMarketingIdentity+GetIndividualUnificationPrepaidPreview")
+    except (ValueError, UnicodeDecodeError):
+        return
+
+
 def fetch_grok(
     home: Path | None = None,
     *,
@@ -3312,7 +3422,7 @@ def fetch_grok(
         if error.category == "authentication":
             return provider_error("grok", "grok-web", str(error), "authentication", False)
         raise
-    if grok_access_needs_refresh(auth_entry):
+    if grok_access_needs_refresh(auth_entry) and not quota_read_only():
         try:
             refreshed = refresh_grok_credentials(auth_path, previous_key=key, force=False)
         except FetchFallback as error:
@@ -3371,7 +3481,7 @@ def fetch_grok(
         if last_error is not None:
             raise last_error
 
-    if status == 401:
+    if status == 401 and not quota_read_only():
         try:
             refreshed = refresh_grok_credentials(auth_path, previous_key=key, force=True)
         except FetchFallback as error:
@@ -3390,7 +3500,7 @@ def fetch_grok(
             )
         if status == 401:
             return provider_error("grok", "grok-web", GROK_AUTH_RELOGIN, "authentication", False)
-    if status == 403:
+    if status in (401, 403):
         return provider_error("grok", "grok-web", GROK_AUTH_RELOGIN, "authentication", False)
     if status != 200:
         retryable = status in (408, 425) or status >= 500
@@ -3410,7 +3520,7 @@ def fetch_grok(
     # Trailer status takes precedence when present. Non-zero status is never success,
     # even if a data frame is also present.
     grpc_status = trailer_status if trailer_status is not None else header_status
-    if grpc_status == 16:
+    if grpc_status == 16 and not quota_read_only():
         try:
             refreshed = refresh_grok_credentials(auth_path, previous_key=key, force=True)
         except FetchFallback as error:
@@ -3449,8 +3559,10 @@ def fetch_grok(
     except Exception:
         raise FetchFallback(GROK_INVALID_RESPONSE, "invalid_response", True)
     try:
-        return map_grok_usage(billing["usedPercent"], billing["resetsAt"], auth_entry,
-                              surfaces=billing["surfaces"], billing=billing)
+        entry = map_grok_usage(billing["usedPercent"], billing["resetsAt"], auth_entry,
+                               surfaces=billing["surfaces"], billing=billing)
+        enrich_grok_identity(entry, headers)
+        return entry
     except FetchFallback:
         raise
     except Exception:
@@ -3908,7 +4020,9 @@ def fetch_cursor(
         plan = None
 
     try:
-        return map_cursor_usage(period, plan)
+        entry = map_cursor_usage(period, plan)
+        enrich_cursor_identity(entry, headers)
+        return entry
     except FetchFallback:
         raise
     except Exception:
@@ -6376,7 +6490,7 @@ def fetch_provider(
     """Fetch usage for one provider, optionally under a multi-account profile context."""
     normalized = provider.lower()
     active = profile or synthetic_default_profile(normalized)
-    allow_fallback = active.allows_upstream_fallback
+    allow_fallback = active.allows_upstream_fallback and not quota_read_only()
     cs = active.credential_source
 
     def stamp(entries: list[Any]) -> list[Any]:
@@ -6592,7 +6706,7 @@ def print_json(value: Any, pretty: bool) -> None:
 
 
 
-MANAGED_PROFILE_PROVIDERS = frozenset({"codex", "claude"})
+MANAGED_PROFILE_PROVIDERS = frozenset({"codex", "claude", "grok"})
 
 
 def accounts_root_path(home: Path | None = None) -> Path:
@@ -6716,7 +6830,7 @@ def _add_managed_profile_unlocked(
     normalized = provider.strip().lower()
     if normalized not in MANAGED_PROFILE_PROVIDERS:
         raise ValueError(
-            "Only Codex and Claude support one-click extra accounts right now."
+            "Only Codex, Claude and Grok support managed extra accounts right now."
         )
     friendly = (label or "Personal").strip() or "Personal"
     document = load_profiles_document(home)
@@ -6729,9 +6843,9 @@ def _add_managed_profile_unlocked(
     account_dir = managed_account_dir(normalized, profile_id, home)
     account_dir.mkdir(parents=True, exist_ok=True)
 
-    if normalized == "codex":
+    if normalized in ("codex", "grok"):
         auth_file = account_dir / "auth.json"
-        credential = CredentialSource(kind="codex-auth", auth_file=auth_file)
+        credential = CredentialSource(kind=normalized + "-auth", auth_file=auth_file)
     else:
         credential = CredentialSource(kind="claude-config-dir", config_dir=account_dir)
 
@@ -6834,7 +6948,15 @@ def login_argv_for_profile(
         if not command_on_path("claude"):
             raise ValueError("Claude Code is not installed. Install Claude Code, then try again.")
         return ["claude", "auth", "login"], env_updates, "Complete sign-in in the terminal window, then return to KodexBar and refresh."
-    raise ValueError("Only Codex and Claude support guided sign-in right now.")
+    if normalized == "grok":
+        if profile.credential_source.kind == "grok-auth" and profile.credential_source.auth_file:
+            env_updates["GROK_HOME"] = str(profile.credential_source.auth_file.parent)
+        elif profile.profile_id != "default":
+            raise ValueError("This Grok account has no local sign-in folder.")
+        if not command_on_path("grok"):
+            raise ValueError("Grok CLI is not installed. Install Grok, then try again.")
+        return ["grok", "login"], env_updates, "Sign in to the intended Grok account, then refresh KodexBar."
+    raise ValueError("Only Codex, Claude and Grok support guided sign-in right now.")
 
 
 def open_login_terminal(
@@ -6952,7 +7074,7 @@ def profiles_command(arguments: list[str]) -> int:
             return 2
         provider = options.get("provider")
         if not isinstance(provider, str) or not provider.strip():
-            print("kodexbar-quotas profiles add: --provider codex|claude is required", file=sys.stderr)
+            print("kodexbar-quotas profiles add: --provider codex|claude|grok is required", file=sys.stderr)
             return 2
         label = options.get("label")
         label_text = label.strip() if isinstance(label, str) and label.strip() else None
@@ -7050,7 +7172,8 @@ def main(arguments: list[str]) -> int:
     requested, source, pretty = parsed
     # When config is missing, auto-detect installed CLIs and write ~/.config/codexbar/config.json
     # once (never overwrites an existing file). After a successful write, the normal config path runs.
-    ensure_auto_config()
+    if not quota_read_only():
+        ensure_auto_config()
 
     def emit_provider_usage(provider_ids: list[str]) -> int:
         try:

@@ -2551,6 +2551,8 @@ class QuotasEngineTests(unittest.TestCase):
             self._write_grok_auth(home)
 
             def fake_http(method, url, headers=None, body=None, timeout=None):
+                if url.endswith("/GetUser"):
+                    return 404, {}, b""
                 self.assertEqual(method.upper(), "POST")
                 self.assertEqual(url, quotas.GROK_CREDITS_URL)
                 self.assertEqual(body, quotas.GROK_EMPTY_FRAME)
@@ -2844,6 +2846,83 @@ class QuotasEngineTests(unittest.TestCase):
                          {"productId": 99, "title": "Other surface", "points": 1.0})
         self.assertFalse(quotas._grok_surface_components_valid([(10, 5), (10, 5)]))
 
+    def test_shared_quota_requires_verified_account_and_team(self) -> None:
+        user = "11111111-1111-1111-1111-111111111111"
+        team = "22222222-2222-2222-2222-222222222222"
+        def text(field, value):
+            return {"field": field, "wire": 2, "text": value}
+        responses = {
+            "GetUser": [text(1, user), text(44, team)],
+            "GetMe": [text(1, "cursor-private-account")],
+            "GetSandMarketingIdentity": [{"field": 2, "wire": 0, "value": 3}, text(3, user)],
+            "GetIndividualUnificationPrepaidPreview": [{"field": 1, "wire": 0, "value": 1}, text(4, team)],
+        }
+        def fake_http(method, url, headers, body, timeout):
+            payload = encode_wire_fixture(responses[url.rsplit("/", 1)[-1]])
+            return 200, {}, b"\x00" + len(payload).to_bytes(4, "big") + payload + build_grpc_web_trailer_frame(0)
+        def blank(provider):
+            return {"provider": provider, "usage": {"isUnified": True, "identity": {}}}
+        with patch.object(quotas, "http_request", side_effect=fake_http):
+            grok, cursor = blank("grok"), blank("cursor")
+            quotas.enrich_grok_identity(grok, {})
+            quotas.enrich_cursor_identity(cursor, {})
+            self.assertEqual(grok["usage"]["sharedQuota"]["id"], cursor["usage"]["sharedQuota"]["id"])
+            self.assertEqual(grok["usage"]["identity"]["accountId"], cursor["usage"]["identity"]["accountId"])
+            self.assertNotIn(user, json.dumps(grok))
+            self.assertNotIn(team, json.dumps(cursor))
+            # A different authenticated team must never be deduplicated.
+            responses["GetUser"][1] = text(44, "different-team")
+            other = blank("grok")
+            quotas.enrich_grok_identity(other, {})
+            self.assertNotEqual(other["usage"]["sharedQuota"]["id"], cursor["usage"]["sharedQuota"]["id"])
+            # Incomplete proof keeps identity, but no shared key.
+            responses["GetIndividualUnificationPrepaidPreview"] = []
+            incomplete = blank("cursor")
+            quotas.enrich_cursor_identity(incomplete, {})
+            self.assertNotIn("sharedQuota", incomplete["usage"])
+        with patch.object(quotas, "http_request", return_value=(200, {}, build_grpc_web_trailer_frame(16))):
+            error = blank("grok")
+            quotas.enrich_grok_identity(error, {})
+            self.assertNotIn("sharedQuota", error["usage"])
+
+    def test_grok_read_only_never_refreshes_or_falls_back(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self._write_grok_refresh_auth(home, expires_at="2020-01-01T00:00:00Z")
+            before = (home / ".grok" / "auth.json").read_bytes()
+            with patch.dict(os.environ, {"KODEXBAR_QUOTAS_READ_ONLY": "1"}), \
+                 patch.object(quotas, "refresh_grok_credentials") as refresh, \
+                 patch.object(quotas, "http_request", return_value=(401, {}, b"")), \
+                 patch.object(quotas, "fallback_entry") as fallback:
+                result = quotas.fetch_provider("grok", None, home)
+                self.assertEqual(result[0]["error"]["category"], "authentication")
+                refresh.assert_not_called()
+                fallback.assert_not_called()
+            self.assertEqual((home / ".grok" / "auth.json").read_bytes(), before)
+
+    def test_grok_managed_second_profile_preserves_default_and_does_not_login(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"XDG_CONFIG_HOME": ""}):
+            home = Path(directory)
+            self._write_grok_auth(home)
+            original = (home / ".grok" / "auth.json").read_bytes()
+            with patch.object(quotas.subprocess, "Popen") as launch:
+                added = quotas.add_managed_profile("grok", "The X Subscription", home)
+                launch.assert_not_called()
+            profiles = quotas.resolve_provider_profiles(["grok"], home)
+            self.assertEqual([p.profile_id for p in profiles], ["default", "the-x-subscription"])
+            self.assertEqual(added.credential_source.kind, "grok-auth")
+            self.assertFalse(added.credential_source.auth_file.exists())
+            with patch.object(quotas, "command_on_path", return_value=True):
+                argv, env, _ = quotas.login_argv_for_profile("grok", added.profile_id, home)
+            self.assertEqual(argv, ["grok", "login"])
+            self.assertEqual(env, {"GROK_HOME": str(added.credential_source.auth_file.parent)})
+            with patch.object(quotas, "fallback_entry") as fallback:
+                result = quotas.fetch_provider("grok", None, home, profile=added)
+                self.assertEqual(result[0]["profileId"], added.profile_id)
+                self.assertEqual(result[0]["error"]["category"], "authentication")
+                fallback.assert_not_called()
+            self.assertEqual((home / ".grok" / "auth.json").read_bytes(), original)
+
     def test_grok_missing_key_is_auth_relogin(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -3007,7 +3086,8 @@ class QuotasEngineTests(unittest.TestCase):
         extras = {item["title"]: item["window"]["usedPercent"] for item in entry["usage"]["extraRateWindows"]}
         self.assertEqual(extras, {"Other Models": 4.5})
         self.assertNotIn(TEST_CURSOR_TOKEN, json.dumps(entry))
-        self.assertEqual(urls, [quotas.CURSOR_USAGE_URL, quotas.CURSOR_PLAN_URL])
+        self.assertEqual(urls, [quotas.CURSOR_USAGE_URL, quotas.CURSOR_PLAN_URL,
+                                "https://api2.cursor.sh/aiserver.v1.DashboardService/GetMe"])
 
     def test_cursor_plan_doubles_match_website_pools(self) -> None:
         """Website Cursor Models / Other Models follow PlanUsage doubles, not the 42% included banner."""

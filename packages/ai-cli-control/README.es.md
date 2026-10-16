@@ -252,3 +252,19 @@ Copyright 2026 Ismael (Karasowl). Se publica bajo la [licencia MIT](LICENSE). Lo
 Grok lee el tipo y las fechas de `config.current_period`. Las fechas deprecated se usan solo cuando falta `current_period`. El cero predeterminado exige una configuración de cuota válida. Los ID y nombres de producto se conservan dentro de una sola barra de composición, incluidos Cursor, Grok Chat, Grok Bot y Bugbot. El motor expone `prepaidBalance` en centavos y `credits.remaining` positivo en USD, separado de la cuota incluida. El modo de autenticación no identifica el nivel del plan.
 
 Cursor conserva sus endpoints nativos de uso y plan. Los planes fusionados muestran un solo total semanal de `The X Subscription` en `usage.secondary`, con el reinicio de cuota en vez de la renovación del plan. Los planes legacy confirmados conservan los presupuestos mensuales Cursor Models y Other Models. Si falla la consulta del plan, se conserva la medición válida con `periodType: unknown`, sin inventar presupuestos mensuales.
+
+### Cuentas Grok separadas y cuota compartida verificada
+
+`usage.sharedQuota` solo se emite para un plan unificado con usuario xAI y equipo de facturación verificados por el servidor. Grok usa `AuthManagement/GetUser`. Cursor usa `GetMe`, `GetSandMarketingIdentity` y la vista individual disponible de `GetIndividualUnificationPrepaidPreview`. Si falta la prueba de identidad, se conserva la cuota sin clave compartida. Los ID se publican como hashes. El correo, el porcentaje y el reinicio nunca prueban la vinculación. Los planes de equipo Cursor siguen separados hasta poder verificar su ámbito de facturación.
+
+Grok admite la fuente de perfil existente `grok-auth` y el alta de cuentas administradas. Para conservar la cuenta habitual y preparar otra:
+
+```sh
+kodexbar-quotas profiles add --provider grok --label "The X Subscription"
+kodexbar-quotas profiles login --provider grok --id the-x-subscription
+kodexbar-quotas usage --provider grok --json --all-accounts
+```
+
+El primer comando solo añade el perfil y una carpeta de credenciales vacía. El segundo inicia un login interactivo explícito con el `GROK_HOME` de ese perfil. Selecciona allí la cuenta unificada. No sustituye `~/.grok/auth.json`. Si ya existe un archivo de autenticación independiente de esa cuenta, puede referenciarse mediante `credentialSource.authFile`. El [ejemplo de dos cuentas](examples/x-subscription-profiles.json) muestra la estructura. Su bloque se añade al documento de perfiles existente sin reemplazar las otras cuentas.
+
+El motor nativo no tiene una fuente de cookies de navegador que reutilizar. Una cuenta que solo está autenticada en la web necesita ese login separado. No se copian cookies a la configuración. Consultar el uso nunca inicia login ni abre un navegador. Para validar en solo lectura, anteponer `KODEXBAR_QUOTAS_READ_ONLY=1` al comando evita la renovación de Grok, la creación automática de configuración y el fallback externo.
