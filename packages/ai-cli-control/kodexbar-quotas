@@ -3101,7 +3101,7 @@ def parse_grok_billing(message: bytes) -> dict[str, Any]:
             end = _grok_timestamp(_protobuf_value(config, 5, 2))
             period_type = "unknown"
             period_source = "deprecated_billing_period"
-        if start and end and datetime.fromisoformat(start) >= datetime.fromisoformat(end):
+        if start and end and datetime.fromisoformat(start.replace("Z", "+00:00")) >= datetime.fromisoformat(end.replace("Z", "+00:00")):
             raise ValueError("Invalid quota period")
         if not end:
             raise ValueError("Missing quota reset")
