@@ -4931,9 +4931,8 @@ def _find_incremental_start(path: Path, anchor_fetched_at: float) -> tuple[int, 
                 low = end
             else:
                 high = start
+        # low is zero or the end of a complete record, already a line boundary.
         handle.seek(low)
-        if low > 0:
-            handle.readline(COST_INCREMENTAL_MAX_LINE_BYTES + 1)
         while handle.tell() < size:
             start = handle.tell()
             raw = handle.readline(COST_INCREMENTAL_MAX_LINE_BYTES + 1)

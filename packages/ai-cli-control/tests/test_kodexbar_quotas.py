@@ -246,6 +246,22 @@ class QuotasEngineTests(unittest.TestCase):
             thread.join(timeout=2)
             server.server_close()
 
+    def test_incremental_binary_search_keeps_first_record_after_anchor(self) -> None:
+        path = quotas.home_directory() / "rollout.jsonl"
+        rows = [json.dumps({
+            "timestamp": f"2026-10-16T00:{index // 60:02}:{index % 60:02}Z",
+            "payload": {"type": "token_count"},
+        }).encode() + b"\n" for index in range(300)]
+        path.write_bytes(b"".join(rows))
+        with patch.object(quotas, "COST_INCREMENTAL_MAX_LINE_BYTES", 160):
+            expected = 0
+            for index, row in enumerate(rows):
+                expected += len(row)
+                with self.subTest(anchor=index):
+                    anchor = quotas._incremental_record_timestamp(json.loads(row))
+                    actual, _ = quotas._find_incremental_start(path, anchor)
+                    self.assertEqual(actual, expected)
+
     def test_version_is_the_public_suite_release(self) -> None:
         result = subprocess.run([str(ENGINE), "--version"], text=True, capture_output=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
