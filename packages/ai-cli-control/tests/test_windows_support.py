@@ -6,6 +6,7 @@ import os
 from pathlib import Path, PureWindowsPath
 import stat
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -42,6 +43,42 @@ POSIX_HOME = Path("/opt/devhome")
 
 
 class CostLockTests(unittest.TestCase):
+    def test_credential_lock_serializes_concurrent_writers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "credentials.lock"
+            waiting = threading.Event()
+            entered = threading.Event()
+
+            def competing_writer():
+                waiting.set()
+                with engine._exclusive_file_lock(path):
+                    entered.set()
+
+            with engine._exclusive_file_lock(path):
+                thread = threading.Thread(target=competing_writer, daemon=True)
+                thread.start()
+                self.assertTrue(waiting.wait(1))
+                self.assertFalse(entered.wait(0.1))
+            thread.join(timeout=2)
+            self.assertTrue(entered.is_set())
+
+    def test_concurrent_account_additions_do_not_overwrite_each_other(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            with engine.ThreadPoolExecutor(max_workers=4) as executor:
+                profiles = list(executor.map(lambda _: engine.add_managed_profile("codex", "Work", home), range(8)))
+            self.assertEqual(len({profile.profile_id for profile in profiles}), 8)
+            document = engine.load_profiles_document(home)
+            self.assertEqual(len(document["codex"]), 9)
+
+    def test_duplicate_long_account_labels_keep_valid_profile_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            for _ in range(3):
+                profile = engine.add_managed_profile("codex", "w" * 64, home)
+                self.assertLessEqual(len(profile.profile_id), 64)
+            self.assertEqual(len(engine.load_profiles_document(home)["codex"]), 4)
+
     def test_lock_excludes_second_holder_until_release(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             lock_path = Path(directory) / "cost.lock"

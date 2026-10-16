@@ -1298,24 +1298,25 @@ def claude_oauth_needs_refresh(oauth: dict[str, Any], now: float | None = None) 
 
 @contextmanager
 def _exclusive_file_lock(lock_path: Path):
-    """Hold an exclusive lock for a credential read-refresh-write.
-
-    The lock file sits beside the credential file. On Windows the lock is a
-    no-op; the sibling re-read still avoids burning a rotated refresh token.
-    """
+    """Serialize credential and profile updates across processes on every platform."""
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    handle = os.fdopen(fd, "r+b")
     try:
-        if fcntl is not None:
-            fcntl.flock(fd, fcntl.LOCK_EX)
+        lock = (
+            _acquire_flock(handle, blocking=True)
+            if fcntl is not None
+            else _acquire_msvcrt_lock(handle, blocking=True)
+        )
+    except BaseException:
+        handle.close()
+        raise
+    if lock is None:
+        raise OSError("Timed out waiting for the account lock")
+    try:
         yield
     finally:
-        if fcntl is not None:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-            except OSError:
-                pass
-        os.close(fd)
+        release_cost_lock(lock)
 
 
 def _transient_token_status(status: int) -> str | None:
@@ -6740,9 +6741,12 @@ def _unique_profile_id(existing: set[str], label: str) -> str:
     if base not in existing:
         return base
     index = 2
-    while f"{base}-{index}" in existing:
+    while True:
+        suffix = f"-{index}"
+        candidate = base[:64 - len(suffix)] + suffix
+        if candidate not in existing:
+            return candidate
         index += 1
-    return f"{base}-{index}"
 
 
 def _profile_to_json_object(profile: ProviderProfile) -> dict[str, Any]:
@@ -6824,6 +6828,15 @@ def add_managed_profile(
     label: str | None = None,
     home: Path | None = None,
 ) -> ProviderProfile:
+    with _exclusive_file_lock(profiles_config_path(home).with_suffix(".lock")):
+        return _add_managed_profile_unlocked(provider, label, home)
+
+
+def _add_managed_profile_unlocked(
+    provider: str,
+    label: str | None = None,
+    home: Path | None = None,
+) -> ProviderProfile:
     """Create a user-friendly secondary account profile with managed local paths."""
     normalized = provider.strip().lower()
     if normalized not in MANAGED_PROFILE_PROVIDERS:
@@ -6863,6 +6876,17 @@ def add_managed_profile(
 
 
 def remove_managed_profile(
+    provider: str,
+    profile_id: str,
+    home: Path | None = None,
+    *,
+    delete_files: bool = False,
+) -> None:
+    with _exclusive_file_lock(profiles_config_path(home).with_suffix(".lock")):
+        _remove_managed_profile_unlocked(provider, profile_id, home, delete_files=delete_files)
+
+
+def _remove_managed_profile_unlocked(
     provider: str,
     profile_id: str,
     home: Path | None = None,
