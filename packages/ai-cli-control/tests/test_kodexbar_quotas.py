@@ -369,6 +369,20 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertFalse(entry["error"]["retryable"])
         self.assertEqual(entry["engine"], "kodexbar")
 
+    def test_claude_usage_cooldown_without_saved_usage_stops_polling(self) -> None:
+        for statuses in ((429,), (401, 429)):
+            with self.subTest(statuses=statuses), tempfile.TemporaryDirectory() as directory, patch.object(
+                quotas, "claude_access_token", return_value="old"
+            ), patch.object(quotas, "refresh_claude_credentials", side_effect=["old", "new"]), patch.object(
+                quotas, "http_get", side_effect=[(status, b"{}") for status in statuses]
+            ) as http:
+                home = Path(directory)
+                first = quotas.fetch_claude(home)
+                second = quotas.fetch_claude(home)
+                self.assertEqual(first["error"]["category"], "rate_limit")
+                self.assertEqual(second["error"]["category"], "rate_limit")
+                self.assertEqual(http.call_count, len(statuses))
+
     def test_claude_auth_and_entitlement_errors_are_not_retryable(self) -> None:
         for status, category in ((401, "authentication"), (403, "entitlement")):
             with self.subTest(status=status), patch.object(

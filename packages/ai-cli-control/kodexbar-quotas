@@ -2064,9 +2064,11 @@ def fetch_claude(
     if fresh is not None:
         return fresh
     if claude_usage_poll_cooling(home, config_dir=config_dir):
-        held = claude_usage_from_header_cache(home, allow_stale=True, config_dir=config_dir)
-        if held is not None:
-            return held
+        return claude_rate_limit_or_header_cache(
+            home,
+            "Claude OAuth usage endpoint is rate limited by Anthropic right now. Wait a few minutes, then click Refresh.",
+            config_dir=config_dir,
+        )
     try:
         token = claude_access_token(home, config_dir=config_dir)
     except FetchFallback:
@@ -2104,13 +2106,6 @@ def fetch_claude(
         "User-Agent": "claude-code/2.1.0",
     }
     status, body = http_get(CLAUDE_USAGE_URL, headers)
-    if status == 429:
-        note_claude_usage_poll(home, config_dir=config_dir)
-        return claude_rate_limit_or_header_cache(
-            home,
-            "Claude OAuth usage endpoint is rate limited by Anthropic right now. Wait a few minutes, then click Refresh.",
-            config_dir=config_dir,
-        )
     if status == 401:
         try:
             retried = refresh_claude_credentials(
@@ -2129,6 +2124,13 @@ def fetch_claude(
                 token = retried
         if status == 401:
             return provider_error("claude", "claude", "Claude OAuth rejected the current credentials (HTTP 401) (run: claude)", "authentication")
+    if status == 429:
+        note_claude_usage_poll(home, config_dir=config_dir)
+        return claude_rate_limit_or_header_cache(
+            home,
+            "Claude OAuth usage endpoint is rate limited by Anthropic right now. Wait a few minutes, then click Refresh.",
+            config_dir=config_dir,
+        )
     if status == 403:
         return provider_error("claude", "claude", "Claude OAuth denied access to usage data (HTTP 403)", "entitlement")
     if status != 200:
