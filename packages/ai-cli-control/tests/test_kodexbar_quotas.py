@@ -4716,6 +4716,41 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertIn("error", entries[0])
         upstream.assert_not_called()
 
+    def test_claude_profiles_keep_usage_and_cooldowns_separate(self) -> None:
+        home = quotas.home_directory()
+        secondary = home / "accounts/claude/work"
+        secondary.mkdir(parents=True)
+        principal_payload = {"five_hour": {"utilization": 10}}
+        work_payload = {"five_hour": {"utilization": 70}}
+        quotas.remember_claude_usage(home, principal_payload)
+        with patch.object(quotas, "claude_access_token", return_value="work-token"), patch.object(
+            quotas, "refresh_claude_credentials", return_value="work-token"
+        ), patch.object(quotas, "http_get", return_value=(200, json.dumps(work_payload).encode())) as http:
+            work = quotas.fetch_claude(home, config_dir=secondary)
+            again = quotas.fetch_claude(home, config_dir=secondary)
+        self.assertEqual(http.call_count, 1)
+        self.assertEqual(work["usage"]["primary"]["usedPercent"], 70)
+        self.assertEqual(again["usage"]["primary"]["usedPercent"], 70)
+        self.assertEqual(quotas.fetch_claude(home)["usage"]["primary"]["usedPercent"], 10)
+        quotas.note_claude_usage_poll(home, config_dir=secondary)
+        self.assertTrue(quotas.claude_usage_poll_cooling(home, config_dir=secondary))
+        self.assertFalse(quotas.claude_usage_poll_cooling(home))
+
+    def test_explicit_profiles_never_use_ambient_upstream_sources(self) -> None:
+        for profile_id in ("work", "default"):
+            profile = quotas.ProviderProfile(
+                "codex", profile_id, "Work",
+                quotas.CredentialSource(kind="codex-auth", auth_file=Path("/accounts/work/auth.json")),
+                0, 0,
+            )
+            with self.subTest(profile_id=profile_id), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("ambient account queried")
+            ), patch.object(quotas, "fetch_codex", side_effect=quotas.FetchFallback("offline", "network", True)):
+                for source in ("auto", "cli", "web"):
+                    result = quotas.fetch_provider("codex", source, profile=profile)
+                    self.assertEqual(result[0]["profileId"], profile_id)
+                    self.assertIn("error", result[0])
+
     def test_profiles_validate_and_list_commands(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
