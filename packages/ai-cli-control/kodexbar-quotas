@@ -86,7 +86,7 @@ GROK_TOKEN_URL = "https://auth.x.ai/oauth2/token"
 GROK_TIMEOUT_SECONDS = 15
 GROK_REFRESH_SKEW_SECONDS = 300
 GROK_EMPTY_FRAME = b"\x00\x00\x00\x00\x00"
-# Unix timestamps roughly year 2023–2036 for Grok reset heuristics.
+# Unix timestamps roughly year 2023–2036 for Grok quota timestamps.
 GROK_TS_MIN = 1_700_000_000
 GROK_TS_MAX = 2_100_000_000
 # Unix timestamps roughly year 2001–2100 for Codex reset_at (reject NaN/Inf/outliers).

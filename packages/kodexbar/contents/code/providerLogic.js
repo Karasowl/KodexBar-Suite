@@ -1037,9 +1037,8 @@ function sharedQuotaKey(entry) {
             || (window.periodType !== "weekly" && window.periodType !== "monthly")) {
         return ""
     }
-    // Dates select the observation window only AFTER authoritative identity proof.
+    // The pool identity survives a reset. Older observations must not duplicate it.
     return proof.id + ":" + proof.accountId + ":" + proof.teamId
-        + ":" + window.periodType + ":" + start + ":" + end
 }
 
 function groupSharedQuotaEntries(entries) {
@@ -1060,8 +1059,16 @@ function groupSharedQuotaEntries(entries) {
         // Pick one measurement, never add two observations of the same budget.
         var previousTime = Date.parse(previous.updatedAt) || 0
         var entryTime = Date.parse(entry.updatedAt) || 0
-        var useEntry = previous.cached === true && entry.cached !== true
-            || (previous.cached === true) === (entry.cached === true) && entryTime > previousTime
+        var previousWindow = previous.windowMetadata.weekly
+        var entryWindow = entry.windowMetadata.weekly
+        var previousStart = Date.parse(previousWindow.startsAt)
+        var entryStart = Date.parse(entryWindow.startsAt)
+        var samePeriod = previousStart === entryStart
+            && Date.parse(previousWindow.resetsAt) === Date.parse(entryWindow.resetsAt)
+            && previousWindow.periodType === entryWindow.periodType
+        var useEntry = entryStart > previousStart || entryStart === previousStart
+            && (previous.cached === true && entry.cached !== true
+                || (previous.cached === true) === (entry.cached === true) && entryTime > previousTime)
         var chosen = useEntry ? entry : previous
         var other = useEntry ? previous : entry
         var combined = {}
@@ -1075,7 +1082,7 @@ function groupSharedQuotaEntries(entries) {
             provider: entry.provider, profileId: entry.profileId, profileLabel: entry.profileLabel
         }])
         combined.rows = (chosen.rows || []).map(function(row) {
-            if (row.compactKey !== "weekly" || row.segments && row.segments.length
+            if (!samePeriod || row.compactKey !== "weekly" || row.segments && row.segments.length
                     || Math.abs(chosen.secondaryPercentLeft - other.secondaryPercentLeft) > 0.001) {
                 return row
             }

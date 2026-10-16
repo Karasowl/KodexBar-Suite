@@ -2084,10 +2084,22 @@ for (const field of ["accountId", "teamId", "authority", "pool", "verified"]) {
 }
 const olderWindow = plain(xGrok)
 olderWindow.windowMetadata.weekly.resetsAt = "2026-10-30T15:54:47.025Z"
-assert.equal(context.groupSharedQuotaEntries([xCursor, olderWindow]).length, 2, "different observation periods cannot merge")
+assert.equal(context.groupSharedQuotaEntries([xCursor, olderWindow]).length, 1, "different observation periods still represent one proven pool")
+const nextPeriod = plain(xGrok)
+nextPeriod.windowMetadata.weekly.startsAt = "2026-10-23T15:54:47.025Z"
+nextPeriod.windowMetadata.weekly.resetsAt = "2026-10-30T15:54:47.025Z"
+nextPeriod.updatedAt = "2026-10-23T16:00:00Z"
+nextPeriod.rows[0].segments = []
+const rolled = plain(context.groupSharedQuotaEntries([xCursor, nextPeriod]))
+assert.equal(rolled.length, 1)
+assert.equal(rolled[0].windowMetadata.weekly.startsAt, nextPeriod.windowMetadata.weekly.startsAt)
+assert.equal(rolled[0].rows[0].segments.length, 0, "composition never crosses a quota reset")
+assert.equal(context.sharedQuotaKey(nextPeriod), context.sharedQuotaKey(xGrok), "selection survives rollover")
 const newerCursor = plain(xCursor)
 newerCursor.updatedAt = "2026-10-16T17:01:00Z"
 newerCursor.secondaryPercentLeft = 70
+newerCursor.rows[0].percentLeft = 70
+newerCursor.windowMetadata.weekly.usedPercent = 30
 const changed = plain(context.groupSharedQuotaEntries([xGrok, newerCursor]))[0]
 assert.equal(changed.secondaryPercentLeft, 70)
 assert.equal(changed.rows[0].segments.length, 0, "old product totals never describe a different current total")
