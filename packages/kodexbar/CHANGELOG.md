@@ -4,6 +4,17 @@ All notable fork-specific changes are documented here.
 
 ## Unreleased
 
+## 0.12.19, 2026-10-27
+
+### Added
+
+- A verified shared quota shows once as The X Subscription, with the product breakdown inside a single bar. Long product legends wrap instead of being cut.
+- Period badges follow the real period: W for unified weekly Cursor plans and M for legacy monthly plans.
+
+### Fixed
+
+- Live readings win over cached ones, account numbers stay unique and the Grok prepaid balance stays visible.
+
 ## 0.12.18, 2026-10-01
 
 ### Fixed
