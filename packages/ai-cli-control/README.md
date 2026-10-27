@@ -131,7 +131,7 @@ The `local-ai` monitor is parked under `attic/local/` and is not installed or sh
 
 ## Skill inventory (read-only in the widget)
 
-`kodexbar-skills status` inspects the conventional skill directories for six providers and returns a JSON inventory. It does not crawl the home directory. Status distinguishes links to one shared source, identical independent copies, providers missing a skill, and divergent content. Conflicts appear first. Each skill is bounded to 4096 files or 128 MiB while fingerprinting so refresh work remains contained.
+`kodexbar-skills status` inspects the conventional skill directories for six providers and returns a JSON inventory. It does not crawl the home directory. Status distinguishes links to one shared source, identical independent copies, providers missing a skill, and divergent content. Conflicts appear first. Each skill is bounded to 4096 files or 128 MiB while fingerprinting so refresh work remains contained. A shared source is fingerprinted once per inventory, even when several providers link to it. Unreadable trees and circular links are reported as conflicts.
 
 ```bash
 kodexbar-skills status
@@ -160,6 +160,8 @@ Supported roots are `~/.codex/skills`, `~/.claude/skills`, `~/.grok/skills`, `~/
 Antigravity and any unknown provider still use upstream `codexbar` per provider. Codex and Grok may fall back to that companion only for retryable network or infrastructure failures, never for authentication errors. Provider errors retain their exact cause and structured retry category. Claude HTTP 429 remains a non-retryable provider error so the widget can retain its cached reading.
 
 The exact `cost --format json --json-only` command keeps the complete upstream payload as a 6-hour anchor in `~/.cache/kodexbar-suite/cost.json`. Its 15-minute refresh reads only appended bytes from `~/.codex/sessions/**/*.jsonl` and `~/.claude/projects/**/*.jsonl`, with per-file offsets and aggregates in `cost-incremental.json`. Model rates are fitted from the anchor rather than encoded in this project. Unknown models add tokens without cost. A damaged incremental state or inconsistent result serves the unchanged anchor. When the anchor reaches 6 hours, it returns immediately while one contained low-priority upstream scan replaces it in the background. Other `cost` argument variants remain upstream passthroughs. When upstream is absent, the exact command returns `[]`.
+
+Native Claude profiles keep their saved quotas and polling cooldowns in their own credential directory. Explicit credential sources and secondary profiles never fall back to the ambient upstream account. Credential refreshes and profile updates use cross-process locks on Linux and Windows. Native HTTP redirects stay on the original origin so credentials are not forwarded to another host.
 
 Usage invocations with flags the engine does not implement, such as `--status`, are delegated wholly to upstream `codexbar`.
 
@@ -196,7 +198,7 @@ Enable Pango markup in the plugin when that option is available, then use a 60-s
 
 ## Tray indicator
 
-`kodexbar-tray` is a StatusNotifierItem indicator for KDE Plasma, COSMIC, and GNOME. It obtains its compact label, tooltip, severity, and provider data from `kodexbar-panel --status-json`, so quota thresholds stay defined in one place. Its menu shows provider quotas, lets you refresh immediately, opens the `ai` selector, and exits. It refreshes every 300 seconds by default.
+`kodexbar-tray` is a StatusNotifierItem indicator for KDE Plasma, COSMIC, and GNOME. It obtains its compact label, tooltip, severity, and provider data from `kodexbar-panel --status-json`, so quota thresholds stay defined in one place. Its menu shows provider quotas, lets you refresh immediately, opens the `ai` selector, and exits. It refreshes every 300 seconds by default. Linux quota queries run in a worker so the tray menu remains responsive during a slow refresh.
 
 ```bash
 kodexbar-tray

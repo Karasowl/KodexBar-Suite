@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.request import ProxyHandler
 import json
 import os
 from pathlib import Path
@@ -208,6 +210,58 @@ class QuotasEngineTests(unittest.TestCase):
         home.start()
         self.addCleanup(home.stop)
 
+    def test_http_redirects_never_forward_credentials_to_another_origin(self) -> None:
+        requests = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                requests.append((self.path, self.headers.get("Authorization")))
+                if self.path in ("/cross", "/same"):
+                    self.send_response(302)
+                    host = "localhost" if self.path == "/cross" else "127.0.0.1"
+                    self.send_header("Location", f"http://{host}:{self.server.server_port}/usage")
+                    self.end_headers()
+                else:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"{}")
+
+            def log_message(self, *_args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=lambda: server.serve_forever(poll_interval=0.01), daemon=True)
+        thread.start()
+        try:
+            # Ignore the host's proxy settings for this hermetic loopback test.
+            opener = quotas.build_opener(quotas.SameOriginRedirectHandler(), ProxyHandler({}))
+            with patch.object(quotas, "urlopen", opener.open):
+                url = f"http://127.0.0.1:{server.server_port}"
+                self.assertEqual(quotas.http_request("GET", url + "/cross", {"Authorization": "Bearer test-secret"})[0], 302)
+                self.assertEqual(requests, [("/cross", "Bearer test-secret")])
+                self.assertEqual(quotas.http_request("GET", url + "/same", {"Authorization": "Bearer test-secret"})[0], 200)
+                self.assertEqual(requests[-1], ("/usage", "Bearer test-secret"))
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+            server.server_close()
+
+    def test_incremental_binary_search_keeps_first_record_after_anchor(self) -> None:
+        path = quotas.home_directory() / "rollout.jsonl"
+        rows = [json.dumps({
+            "timestamp": f"2026-10-16T00:{index // 60:02}:{index % 60:02}Z",
+            "payload": {"type": "token_count"},
+        }).encode() + b"\n" for index in range(300)]
+        path.write_bytes(b"".join(rows))
+        with patch.object(quotas, "COST_INCREMENTAL_MAX_LINE_BYTES", 160):
+            expected = 0
+            for index, row in enumerate(rows):
+                expected += len(row)
+                with self.subTest(anchor=index):
+                    anchor = quotas._incremental_record_timestamp(json.loads(row))
+                    actual, _ = quotas._find_incremental_start(path, anchor)
+                    self.assertEqual(actual, expected)
+
     def test_version_is_the_public_suite_release(self) -> None:
         result = subprocess.run([str(ENGINE), "--version"], text=True, capture_output=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -368,6 +422,20 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertEqual(entry["error"]["category"], "rate_limit")
         self.assertFalse(entry["error"]["retryable"])
         self.assertEqual(entry["engine"], "kodexbar")
+
+    def test_claude_usage_cooldown_without_saved_usage_stops_polling(self) -> None:
+        for statuses in ((429,), (401, 429)):
+            with self.subTest(statuses=statuses), tempfile.TemporaryDirectory() as directory, patch.object(
+                quotas, "claude_access_token", return_value="old"
+            ), patch.object(quotas, "refresh_claude_credentials", side_effect=["old", "new"]), patch.object(
+                quotas, "http_get", side_effect=[(status, b"{}") for status in statuses]
+            ) as http:
+                home = Path(directory)
+                first = quotas.fetch_claude(home)
+                second = quotas.fetch_claude(home)
+                self.assertEqual(first["error"]["category"], "rate_limit")
+                self.assertEqual(second["error"]["category"], "rate_limit")
+                self.assertEqual(http.call_count, len(statuses))
 
     def test_claude_auth_and_entitlement_errors_are_not_retryable(self) -> None:
         for status, category in ((401, "authentication"), (403, "entitlement")):
@@ -4716,6 +4784,41 @@ class QuotasEngineTests(unittest.TestCase):
         self.assertIn("error", entries[0])
         upstream.assert_not_called()
 
+    def test_claude_profiles_keep_usage_and_cooldowns_separate(self) -> None:
+        home = quotas.home_directory()
+        secondary = home / "accounts/claude/work"
+        secondary.mkdir(parents=True)
+        principal_payload = {"five_hour": {"utilization": 10}}
+        work_payload = {"five_hour": {"utilization": 70}}
+        quotas.remember_claude_usage(home, principal_payload)
+        with patch.object(quotas, "claude_access_token", return_value="work-token"), patch.object(
+            quotas, "refresh_claude_credentials", return_value="work-token"
+        ), patch.object(quotas, "http_get", return_value=(200, json.dumps(work_payload).encode())) as http:
+            work = quotas.fetch_claude(home, config_dir=secondary)
+            again = quotas.fetch_claude(home, config_dir=secondary)
+        self.assertEqual(http.call_count, 1)
+        self.assertEqual(work["usage"]["primary"]["usedPercent"], 70)
+        self.assertEqual(again["usage"]["primary"]["usedPercent"], 70)
+        self.assertEqual(quotas.fetch_claude(home)["usage"]["primary"]["usedPercent"], 10)
+        quotas.note_claude_usage_poll(home, config_dir=secondary)
+        self.assertTrue(quotas.claude_usage_poll_cooling(home, config_dir=secondary))
+        self.assertFalse(quotas.claude_usage_poll_cooling(home))
+
+    def test_explicit_profiles_never_use_ambient_upstream_sources(self) -> None:
+        for profile_id in ("work", "default"):
+            profile = quotas.ProviderProfile(
+                "codex", profile_id, "Work",
+                quotas.CredentialSource(kind="codex-auth", auth_file=Path("/accounts/work/auth.json")),
+                0, 0,
+            )
+            with self.subTest(profile_id=profile_id), patch.object(
+                quotas, "upstream_entries", side_effect=AssertionError("ambient account queried")
+            ), patch.object(quotas, "fetch_codex", side_effect=quotas.FetchFallback("offline", "network", True)):
+                for source in ("auto", "cli", "web"):
+                    result = quotas.fetch_provider("codex", source, profile=profile)
+                    self.assertEqual(result[0]["profileId"], profile_id)
+                    self.assertIn("error", result[0])
+
     def test_profiles_validate_and_list_commands(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -4764,6 +4867,33 @@ class QuotasEngineTests(unittest.TestCase):
                 quotas.remove_managed_profile("codex", "personal", home)
                 remaining = quotas.load_profiles_document(home)
                 self.assertTrue(remaining is None or "codex" not in remaining)
+
+    def test_profile_file_deletion_rejects_traversal_and_symlinked_provider(self) -> None:
+        home = quotas.home_directory()
+        outside = home / "outside"
+        victim = outside / "work"
+        victim.mkdir(parents=True)
+        (victim / "keep.txt").write_text("valuable data")
+        root = quotas.accounts_root_path(home)
+        root.mkdir(parents=True)
+        (root / "codex").symlink_to(outside, target_is_directory=True)
+        for provider in ("codex", "../../../outside"):
+            with self.subTest(provider=provider):
+                profile = quotas.ProviderProfile(provider, "work", None, quotas.CredentialSource("default"), 0, 0)
+                quotas.write_profiles_document({provider: [profile]}, home)
+                before = quotas.profiles_config_path(home).read_bytes()
+                with self.assertRaises(ValueError):
+                    quotas.remove_managed_profile(provider, "work", home, delete_files=True)
+                self.assertEqual((victim / "keep.txt").read_text(), "valuable data")
+                self.assertEqual(quotas.profiles_config_path(home).read_bytes(), before)
+
+    def test_profile_file_deletion_removes_only_requested_managed_account(self) -> None:
+        home = quotas.home_directory()
+        profile = quotas.add_managed_profile("claude", "Work", home)
+        account = profile.credential_source.config_dir
+        (account / ".credentials.json").write_text("test-token")
+        quotas.remove_managed_profile("claude", profile.profile_id, home, delete_files=True)
+        self.assertFalse(account.exists())
 
     def test_profiles_add_cli_creates_profile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

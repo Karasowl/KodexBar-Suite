@@ -7,7 +7,9 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import tracemalloc
 import unittest
+from unittest.mock import patch
 from contextlib import redirect_stderr, redirect_stdout
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_file_location, spec_from_loader
@@ -22,6 +24,22 @@ UNINSTALL = ROOT / "uninstall.sh"
 
 
 class AiSelectorTests(unittest.TestCase):
+    def test_profiles_command_launches_frozen_engine_directly(self) -> None:
+        loader = SourceFileLoader("ai_accounts_test", str(AI))
+        spec = spec_from_loader(loader.name, loader)
+        module = module_from_spec(spec)
+        sys.modules[loader.name] = module
+        self.addCleanup(sys.modules.pop, loader.name, None)
+        loader.exec_module(module)
+        engine = Path("/bundle/kodexbar-quotas.exe")
+        for frozen in (True, False):
+            with self.subTest(frozen=frozen), patch.object(module.sys, "frozen", frozen, create=True), patch.object(
+                module, "kodexbar_quotas_executable", return_value=engine
+            ), patch.object(module.subprocess, "run") as run:
+                module.run_quotas_profiles(["list", "--json"], "en")
+                expected = [str(engine)] if frozen else [sys.executable, str(engine)]
+                self.assertEqual(run.call_args.args[0], [*expected, "profiles", "list", "--json"])
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -937,6 +955,73 @@ class RecoverEngineTests(unittest.TestCase):
         self.project.mkdir()
         self.write_codex_session("older-session", "2026-07-01T10:00:00Z", "mensaje anterior")
         self.write_codex_session("newer-session", "2026-07-02T10:00:00Z", "mensaje más reciente")
+
+    def test_large_tool_transcripts_are_streamed(self) -> None:
+        path = self.temp / "large.jsonl"
+        with path.open("w") as handle:
+            handle.write(json.dumps({"type": "session_meta", "payload": {"id": "large"}}) + "\n")
+            for _ in range(100):
+                handle.write(json.dumps({"type": "tool_result", "payload": "x" * 100_000}) + "\n")
+            handle.write(json.dumps({"type": "response_item", "payload": {
+                "type": "message", "role": "user", "content": "keep this message",
+            }}) + "\n")
+        for parse in (self.engine.codex_session, self.engine.claude_session):
+            with self.subTest(parser=parse.__name__):
+                tracemalloc.start()
+                try:
+                    session = parse(path)
+                    _, peak = tracemalloc.get_traced_memory()
+                finally:
+                    tracemalloc.stop()
+                self.assertLess(peak, 3_000_000)
+                self.assertIsNotNone(session)
+                if parse == self.engine.codex_session:
+                    self.assertEqual(session["turns"], [("user", "keep this message")])
+
+    def test_sqlite_copy_does_not_buffer_the_entire_database(self) -> None:
+        source = self.temp / "large.db"
+        target = self.temp / "copy"
+        target.mkdir()
+        with source.open("wb") as handle:
+            handle.truncate(10_000_000)
+        tracemalloc.start()
+        try:
+            copied = self.engine.copy_sqlite(source, target)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        self.assertEqual(copied.stat().st_size, source.stat().st_size)
+        self.assertLess(peak, 3_000_000)
+
+    def test_recovery_export_does_not_follow_dangling_symlinks(self) -> None:
+        destination = self.temp / "export.md"
+        victim = self.temp / "unrelated.md"
+        destination.symlink_to(victim)
+        saved = self.engine.save_markdown("conversation", "codex", "test", "project", destination)
+        self.assertFalse(victim.exists())
+        self.assertTrue(destination.is_symlink())
+        self.assertNotEqual(saved, destination)
+        self.assertIn("conversation", saved.read_text())
+        if os.name != "nt":
+            self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
+
+    def test_recovery_export_preserves_a_file_created_after_name_selection(self) -> None:
+        destination = self.temp / "export.md"
+        original_open = os.open
+        raced = False
+
+        def competing_open(path, flags, mode):
+            nonlocal raced
+            if not raced:
+                raced = True
+                destination.write_text("other export")
+            return original_open(path, flags, mode)
+
+        with patch.object(self.engine.os, "open", side_effect=competing_open):
+            saved = self.engine.save_markdown("conversation", "codex", "test", "project", destination)
+        self.assertEqual(destination.read_text(), "other export")
+        self.assertNotEqual(saved, destination)
+        self.assertIn("conversation", saved.read_text())
 
     def write_codex_session(self, session_id: str, timestamp: str, text: str) -> None:
         path = self.home / ".codex/sessions/2026/07" / f"rollout-{session_id}.jsonl"

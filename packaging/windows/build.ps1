@@ -89,8 +89,7 @@ if ($Installer) {
     if ($null -eq $iscc) { throw "iscc not found on PATH. Install Inno Setup and retry." }
     & iscc /DAppVersion=$version (Join-Path $windowsRoot "kodexbar-suite.iss")
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
-    $installerExe = Get-ChildItem (Join-Path $buildRoot "installer") -Filter "KodexBar-Suite-*-windows-setup.exe" |
-        Select-Object -First 1
+    $installerExe = Get-Item (Join-Path $buildRoot "installer\KodexBar-Suite-$version-windows-setup.exe")
     Write-Host "Installer: $($installerExe.FullName)"
 }
 

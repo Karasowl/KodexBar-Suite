@@ -146,7 +146,7 @@ Ejecuta `local-ai opencode-catalog` para imprimir el catálogo actual de llama.c
 
 ## Inventario y sincronización de skills
 
-`kodexbar-skills status` inspecciona los directorios convencionales de seis proveedores y devuelve un inventario JSON. No recorre todo el home. El estado distingue enlaces a una fuente común, copias independientes idénticas, proveedores sin la skill y contenido divergente. Los conflictos aparecen primero. Cada skill se limita a 4096 archivos o 128 MiB durante el fingerprint para mantener acotado el refresco.
+`kodexbar-skills status` inspecciona los directorios convencionales de seis proveedores y devuelve un inventario JSON. No recorre todo el home. El estado distingue enlaces a una fuente común, copias independientes idénticas, proveedores sin la skill y contenido divergente. Los conflictos aparecen primero. Cada skill se limita a 4096 archivos o 128 MiB durante el fingerprint para mantener acotado el refresco. Cada fuente compartida se lee una sola vez por inventario, aunque varios proveedores apunten a ella. Los árboles ilegibles y los enlaces circulares se muestran como conflictos.
 
 ```bash
 kodexbar-skills status
@@ -175,6 +175,8 @@ Las raíces admitidas son `~/.codex/skills`, `~/.claude/skills`, `~/.grok/skills
 Antigravity y cualquier proveedor desconocido siguen usando `codexbar` upstream por proveedor. Codex y Grok solo pueden caer a ese compañero ante fallos de red o infraestructura reintentables, nunca ante errores de autenticación. Los errores conservan su causa exacta y una categoría estructurada de reintento. El HTTP 429 de Claude se conserva como error de proveedor no reintentable para que el widget mantenga la lectura en caché.
 
 El comando exacto `cost --format json --json-only` conserva el payload completo de upstream como ancla de 6 horas en `~/.cache/kodexbar-suite/cost.json`. Su refresco de 15 minutos lee solo los bytes añadidos en `~/.codex/sessions/**/*.jsonl` y `~/.claude/projects/**/*.jsonl`, con offsets y agregados por archivo en `cost-incremental.json`. Las tarifas por modelo se ajustan desde el ancla, no se codifican en este proyecto. Los modelos desconocidos aportan tokens sin costo. Un estado incremental dañado o un resultado inconsistente sirven el ancla sin cambios. Cuando el ancla cumple 6 horas, se devuelve de inmediato mientras un único scan contenido y de baja prioridad la reemplaza en segundo plano. Las demás variantes de argumentos de `cost` se reenvían a upstream. Si upstream no está instalado, el comando exacto devuelve `[]`.
+
+Los perfiles nativos de Claude guardan sus cuotas y tiempos de espera entre consultas en su propio directorio de credenciales. Las fuentes de credenciales explícitas y los perfiles secundarios nunca recurren a la cuenta ambiental de upstream. La renovación de credenciales y los cambios de perfiles usan bloqueos entre procesos en Linux y Windows. Las redirecciones HTTP nativas se limitan al origen inicial para evitar reenviar credenciales a otro servidor.
 
 Las invocaciones de uso con banderas que el motor no implementa, como `--status`, se delegan por completo a `codexbar` upstream.
 

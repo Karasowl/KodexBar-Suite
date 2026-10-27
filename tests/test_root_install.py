@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import os
+import hashlib
+import io
+import tarfile
 from pathlib import Path
 import shutil
 import stat
@@ -222,6 +225,60 @@ class RootInstallerTests(unittest.TestCase):
         logged = log.read_text(encoding="utf-8")
         self.assertIn("-t Plasma/Applet -s org.kde.plasma.kodexbar", logged)
         self.assertIn("-t Plasma/Applet -r org.kde.plasma.kodexbar", logged)
+
+    def test_cli_checksum_matches_selected_architecture(self) -> None:
+        repo = self.temp / "repo"
+        repo.mkdir()
+        shutil.copy2(INSTALL, repo / "install.sh")
+        (repo / "packages").symlink_to(ROOT / "packages", target_is_directory=True)
+        pkgdir = repo / "packaging/aur-codexbar-cli-bin"
+        pkgdir.mkdir(parents=True)
+        sums = {}
+        for arch in ("x86_64", "aarch64"):
+            archive = self.temp / f"{arch}.tar.gz"
+            content = f"#!/bin/sh\necho {arch}\n".encode()
+            with tarfile.open(archive, "w:gz") as handle:
+                member = tarfile.TarInfo("CodexBarCLI")
+                member.size = len(content)
+                handle.addfile(member, io.BytesIO(content))
+            sums[arch] = hashlib.sha256(archive.read_bytes()).hexdigest()
+        (pkgdir / "PKGBUILD").write_text(
+            "pkgver=1.0.0\n" + "".join(
+                f"sha256sums_{arch}=('{digest}')\n" for arch, digest in sums.items()
+            )
+        )
+        for name in ("tar", "gzip", "mktemp", "sha256sum", "awk"):
+            (self.bindir / name).symlink_to(shutil.which(name))
+        (self.bindir / "uname").unlink()
+        (self.bindir / "uname").write_text(
+            '#!/bin/sh\nif [ "$1" = "-s" ]; then echo Linux; else echo "$TEST_ARCH"; fi\n'
+        )
+        (self.bindir / "uname").chmod(0o755)
+        (self.bindir / "curl").write_text(
+            '#!/bin/sh\ncp "$TEST_ARCHIVE" "$3"\n'
+        )
+        (self.bindir / "curl").chmod(0o755)
+        for arch in ("x86_64", "aarch64", "arm64"):
+            with self.subTest(arch=arch):
+                expected = "aarch64" if arch == "arm64" else arch
+                result = self.run_script(repo / "install.sh", extra={
+                    "TEST_ARCH": arch,
+                    "TEST_ARCHIVE": str(self.temp / f"{expected}.tar.gz"),
+                    "TMPDIR": str(self.temp),
+                })
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("Checksum mismatch", result.stderr)
+                installed = self.home / ".local/bin/codexbar"
+                self.assertTrue(installed.exists(), result.stderr + result.stdout)
+                self.assertIn(f"echo {expected}", installed.read_text())
+
+        # A different architecture's archive must still be rejected.
+        result = self.run_script(repo / "install.sh", extra={
+            "TEST_ARCH": "x86_64",
+            "TEST_ARCHIVE": str(self.temp / "aarch64.tar.gz"),
+            "TMPDIR": str(self.temp),
+        })
+        self.assertIn("Checksum mismatch", result.stderr)
 
     def test_rejects_python_older_than_3_10(self) -> None:
         stub = self.bindir / "python3"

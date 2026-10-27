@@ -74,11 +74,11 @@ begin
   if not RegQueryStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', OrigPath) then
     exit;
   AppDir := ExpandConstant('{app}');
-  Remove := ';' + Uppercase(OrigPath) + ';';
-  Pos1 := Pos(';' + Uppercase(AppDir) + ';', Remove);
+  Remove := ';' + OrigPath + ';';
+  Pos1 := Pos(';' + Uppercase(AppDir) + ';', Uppercase(Remove));
   if Pos1 = 0 then
     exit;
-  Delete(Remove, Pos1, Length(AppDir) + 2);
+  Delete(Remove, Pos1, Length(AppDir) + 1);
   OrigPath := Copy(Remove, 2, Length(Remove) - 2);
   RegWriteStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', OrigPath);
 end;

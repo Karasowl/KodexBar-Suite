@@ -1694,6 +1694,17 @@ function extractQmlFunction(source, name) {
     }
     throw new Error(`unclosed function ${name}`)
 }
+const profilesCommandCtx = { ProviderLogic: context, workingCommand: "codexbar" }
+vm.createContext(profilesCommandCtx)
+vm.runInContext(extractQmlFunction(preferencesQml, "shellQuote"), profilesCommandCtx)
+vm.runInContext(extractQmlFunction(preferencesQml, "quotasProfilesCommand"), profilesCommandCtx)
+assert.equal(profilesCommandCtx.quotasProfilesCommand(["list", "--json"]),
+    "'kodexbar-quotas' profiles 'list' '--json'",
+    "legacy codexbar settings must still use the suite engine to manage accounts")
+profilesCommandCtx.workingCommand = "/opt/custom engine"
+assert.equal(profilesCommandCtx.quotasProfilesCommand(["list"]),
+    "'/opt/custom engine' profiles 'list'", "explicit custom engines stay quoted")
+
 const engineResponseCtx = {}
 vm.createContext(engineResponseCtx)
 vm.runInContext(
