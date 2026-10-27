@@ -45,6 +45,16 @@ Este paquete también se mantiene dentro del [monorepo KodexBar Suite](../../REA
 - Corrige el orden invertido de ventanas de Gemini cuando la CLI reporta una ventana primaria más larga que la secundaria.
 - Conserva detalles específicos, reinicios, créditos, estado y resúmenes de costos del popup upstream.
 
+## The X Subscription
+
+Los planes Cursor fusionados muestran una sola cuota semanal llamada `The X Subscription`, con indicador `W` y sin otro presupuesto incluido de Other Models. Cursor legacy confirmado conserva sus dos presupuestos mensuales y el indicador `M`. Si se desconoce la modalidad, se muestra `?`, sin inventar un período mensual. Grok usa el tipo de período de su configuración actual de cuota.
+
+Cursor y Grok se agrupan en una sola entrada únicamente cuando el motor aporta una prueba autenticada de que pertenecen a la misma cuenta xAI, equipo de facturación y cuota incluida. El popup y el panel compacto usan una medición, sin sumar ambas lecturas. El uso por producto forma parte de esa única barra, con ID, nombres y colores estables para Cursor, Grok Build, API, Imagine, Grok Chat, Grok Bot y Bugbot. Al cambiar de período, solo queda visible el más reciente. Dentro del mismo período se prefiere una lectura viva a otra en caché. El saldo prepago de Grok se conserva separado aunque Cursor aporte la medición de cuota, y un cero conocido más reciente sustituye al saldo anterior. Se omite cualquier desglose de otro período o que no coincida con el total elegido.
+
+Sin esa prueba, las entradas permanecen separadas y muestran el identificador de cuenta. Mostrar el correo completo sigue siendo opcional. Los perfiles y sus cachés se mantienen separados aunque la cuota se agrupe en pantalla. Añadir la cuenta unificada como segundo perfil Grok conserva la original. Consulta las [instrucciones de cuentas del motor](../ai-cli-control/README.es.md#cuentas-grok-separadas-y-cuota-compartida-verificada).
+
+La selección compacta por proveedor conserva los ordinales de las cuentas visibles aunque la cuota compartida elija otra fuente. El saldo mantiene su propia fecha y estado de caché, independientes de la medición de cuota.
+
 ## Requisitos
 
 - KDE Plasma 6

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import json
 import os
 from pathlib import Path, PureWindowsPath
 import stat
@@ -103,6 +104,43 @@ class CostLockTests(unittest.TestCase):
 
 
 class WindowsPathTests(unittest.TestCase):
+    def test_windows_tray_loads_shared_subscription_status_contract(self) -> None:
+        loader = importlib.machinery.SourceFileLoader("panel_windows_contract", str(ROOT / "kodexbar-panel"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        panel = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(panel)
+        shared = tray_win.load_shared_tray()
+        self.assertIsNotNone(shared)
+        model = panel.compact_model([{"provider": "cursor", "usage": {
+            "isUnified": True, "planName": "The X Subscription",
+            "identity": {"accountLabel": "xAI test-account"},
+            "secondary": {"usedPercent": 28, "periodType": "weekly"}}}], [])
+        status = shared.parse_panel_output(json.dumps(panel.status_payload(model, 12)))
+        self.assertEqual(status["text"], "Cr W 28%")
+        self.assertIn("The X Subscription [xAI test-account]", shared.provider_menu_label(status["providers"][0]))
+        self.assertIn("Semanal 28%", shared.menu_model(status)[0]["label"])
+
+    def test_managed_grok_profile_keeps_platform_paths_and_isolates_login(self) -> None:
+        for windows in (False, True):
+            with self.subTest(windows=windows), tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                roaming = home / "Roaming with spaces"
+                with mock.patch.object(engine, "IS_WINDOWS", windows), \
+                     mock.patch.dict(os.environ, {"APPDATA": str(roaming), "GROK_HOME": ""}), \
+                     mock.patch.object(engine, "command_on_path", return_value=True), \
+                     mock.patch.object(engine.subprocess, "Popen") as launch:
+                    profile = engine.add_managed_profile("grok", "The X Subscription", home)
+                    config = roaming if windows else home / ".config"
+                    auth_file = config / "kodexbar-suite" / "accounts" / "grok" / "the-x-subscription" / "auth.json"
+                    self.assertEqual(profile.credential_source.auth_file, auth_file)
+                    argv, env, _ = engine.login_argv_for_profile("grok", profile.profile_id, home)
+                    self.assertEqual(argv, ["grok", "login"])
+                    self.assertEqual(env, {"GROK_HOME": str(auth_file.parent)})
+                    self.assertEqual(engine.grok_auth_path(home), home / ".grok" / "auth.json")
+                    self.assertEqual([p.profile_id for p in engine.resolve_provider_profiles(["grok"], home)],
+                                     ["default", "the-x-subscription"])
+                    launch.assert_not_called()
+
     def test_home_directory_prefers_userprofile_on_windows(self) -> None:
         with mock.patch.object(engine, "IS_WINDOWS", True), mock.patch.dict(
             os.environ, {"USERPROFILE": "C:\\WinDev"}, clear=False

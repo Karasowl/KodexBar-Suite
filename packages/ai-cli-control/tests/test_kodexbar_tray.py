@@ -23,6 +23,18 @@ spec.loader.exec_module(tray)
 
 
 class TrayLogicTests(unittest.TestCase):
+    def test_panel_period_metadata_survives_tray_json_parsing(self) -> None:
+        panel_loader = importlib.machinery.SourceFileLoader("panel_tray_contract", str(ROOT / "kodexbar-panel"))
+        panel_spec = importlib.util.spec_from_loader(panel_loader.name, panel_loader)
+        panel = importlib.util.module_from_spec(panel_spec)
+        panel_spec.loader.exec_module(panel)
+        for period, title in [("weekly", "Semanal"), ("monthly", "Mensual"), ("unknown", "Uso incluido")]:
+            with self.subTest(period=period):
+                model = panel.compact_model([{"provider": "cursor", "usage": {
+                    "secondary": {"usedPercent": 28, "periodType": period}}}], [])
+                status = tray.parse_panel_output(json.dumps(panel.status_payload(model, 12)))
+                self.assertIn(title + " 28%", tray.provider_menu_label(status["providers"][0]))
+
     def test_parse_panel_output_and_icon_mapping(self) -> None:
         status = tray.parse_panel_output(json.dumps({
             "text": "Cx S 12%", "tooltip": "Cx (codex): Session 12%", "class": "warning", "providers": [],

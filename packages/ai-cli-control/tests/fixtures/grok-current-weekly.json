@@ -1,0 +1,111 @@
+{
+  "source": "Grok GetGrokCreditsConfig, 2026-10-16",
+  "protobuf": [
+    {
+      "field": 1,
+      "wire": 2,
+      "message": [
+        {
+          "field": 2,
+          "wire": 2,
+          "text": ""
+        },
+        {
+          "field": 3,
+          "wire": 2,
+          "text": ""
+        },
+        {
+          "field": 4,
+          "wire": 2,
+          "message": [
+            {
+              "field": 1,
+              "wire": 0,
+              "value": 1791991573
+            },
+            {
+              "field": 2,
+              "wire": 0,
+              "value": 89456000
+            }
+          ]
+        },
+        {
+          "field": 5,
+          "wire": 2,
+          "message": [
+            {
+              "field": 1,
+              "wire": 0,
+              "value": 1792596373
+            },
+            {
+              "field": 2,
+              "wire": 0,
+              "value": 89456000
+            }
+          ]
+        },
+        {
+          "field": 8,
+          "wire": 2,
+          "message": [
+            {
+              "field": 1,
+              "wire": 0,
+              "value": 2
+            },
+            {
+              "field": 2,
+              "wire": 2,
+              "message": [
+                {
+                  "field": 1,
+                  "wire": 0,
+                  "value": 1791991573
+                },
+                {
+                  "field": 2,
+                  "wire": 0,
+                  "value": 89456000
+                }
+              ]
+            },
+            {
+              "field": 3,
+              "wire": 2,
+              "message": [
+                {
+                  "field": 1,
+                  "wire": 0,
+                  "value": 1792596373
+                },
+                {
+                  "field": 2,
+                  "wire": 0,
+                  "value": 89456000
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "field": 11,
+          "wire": 0,
+          "value": 1
+        },
+        {
+          "field": 12,
+          "wire": 2,
+          "text": ""
+        },
+        {
+          "field": 13,
+          "wire": 0,
+          "value": 1
+        }
+      ]
+    }
+  ]
+}

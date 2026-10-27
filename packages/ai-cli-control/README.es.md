@@ -178,11 +178,35 @@ El comando exacto `cost --format json --json-only` conserva el payload completo 
 
 Los perfiles nativos de Claude guardan sus cuotas y tiempos de espera entre consultas en su propio directorio de credenciales. Las fuentes de credenciales explícitas y los perfiles secundarios nunca recurren a la cuenta ambiental de upstream. La renovación de credenciales y los cambios de perfiles usan bloqueos entre procesos en Linux y Windows. Las redirecciones HTTP nativas se limitan al origen inicial para evitar reenviar credenciales a otro servidor.
 
-Las invocaciones de uso con banderas que el motor no implementa, como `--status`, se delegan por completo a `codexbar` upstream.
+Las invocaciones de uso con banderas que el motor no implementa, como `--status`, se delegan por completo a `codexbar` upstream. `--all-accounts` se resuelve de forma nativa para las fuentes nativas de Grok y Cursor. Los demás proveedores y fuentes conservan todos los argumentos al delegar.
 
 El instalador lo coloca en `~/.local/share/ai-cli-control/kodexbar-quotas` y enlaza `~/.local/bin/kodexbar-quotas` solo cuando ese enlace pertenece a este paquete.
 
+Grok lee el tipo y las fechas de `config.current_period`. Las fechas deprecated se usan solo cuando falta `current_period`. El cero predeterminado exige una configuración de cuota válida. Los ID y nombres de producto se conservan dentro de una sola barra de composición, incluidos Cursor, Grok Chat, Grok Bot y Bugbot. El motor expone `prepaidBalance` en centavos y `credits.remaining` positivo en USD, separado de la cuota incluida. El modo de autenticación no identifica el nivel del plan.
+
+Cursor conserva sus endpoints nativos de uso y plan. Los planes fusionados muestran un solo total semanal de `The X Subscription` en `usage.secondary`, con el reinicio de cuota en vez de la renovación del plan. Los planes legacy confirmados conservan los presupuestos mensuales Cursor Models y Other Models. La modalidad del plan exige un estado gRPC de éxito explícito. Si falla la consulta del plan, se conserva la medición válida con `periodType: unknown`, sin inventar presupuestos mensuales.
+
+### Cuentas Grok separadas y cuota compartida verificada
+
+`usage.sharedQuota` solo se emite para un plan unificado con usuario xAI y equipo de facturación verificados por el servidor. Grok usa `AuthManagement/GetUser`. Cursor usa `GetMe`, `GetSandMarketingIdentity` y la vista individual disponible de `GetIndividualUnificationPrepaidPreview`. Si falta la prueba de identidad, se conserva la cuota sin clave compartida. Los ID se publican como hashes. El correo, el porcentaje y el reinicio nunca prueban la vinculación. Los planes de equipo Cursor siguen separados hasta poder verificar su ámbito de facturación.
+
+Grok admite la fuente de perfil existente `grok-auth` y el alta de cuentas administradas. Para conservar la cuenta habitual y preparar otra:
+
+```sh
+kodexbar-quotas profiles add --provider grok --label "The X Subscription"
+kodexbar-quotas profiles login --provider grok --id the-x-subscription
+kodexbar-quotas usage --provider grok --json --all-accounts
+```
+
+El primer comando solo añade el perfil y una carpeta de credenciales vacía. El segundo inicia un login interactivo explícito con el `GROK_HOME` de ese perfil. Selecciona allí la cuenta unificada. No sustituye `~/.grok/auth.json`. Si ya existe un archivo de autenticación independiente de esa cuenta, puede referenciarse mediante `credentialSource.authFile`. El [ejemplo de dos cuentas](examples/x-subscription-profiles.json) muestra la estructura. Su bloque se añade al documento de perfiles existente sin reemplazar las otras cuentas.
+
+La lectura admite archivos de autenticación con cualquier nombre. El login guiado exige que el archivo del perfil se llame `auth.json`, porque Grok escribe ese nombre dentro de `GROK_HOME`. Si el archivo tiene otro nombre, crea una cuenta administrada para iniciar sesión sin escribir sobre otra credencial.
+
+El motor nativo no tiene una fuente de cookies de navegador que reutilizar. Una cuenta que solo está autenticada en la web necesita ese login separado. No se copian cookies a la configuración. Consultar el uso nunca inicia login ni abre un navegador. La validación de solo lectura solo acepta consultas de uso Grok o Cursor. Anteponer `KODEXBAR_QUOTAS_READ_ONLY=1` al comando evita la renovación de Grok, la creación automática de configuración y el fallback externo.
+
 ## Adaptadores de panel
+
+Waybar y las bandejas de Linux y Windows conservan la periodicidad de la cuota y la identidad de Cursor y Grok. Agrupan únicamente las cuotas compartidas verificadas y muestran una sola medición, con prioridad para el período más reciente. El JSON de estado conserva `percentages.weekly` y añade `periods.weekly` para distinguir semana, mes y modalidad desconocida.
 
 `kodexbar-panel` invoca primero el motor `kodexbar-quotas` que está a su lado y después el comando disponible en `PATH`. Muestra la línea compacta de cuotas usada por el conjunto (`Cx`, `Cl`, `Gk`, `Ag`, `Hm` y los demás proveedores devueltos), con uso de sesión y semanal cuando está disponible. Tiene un límite total de 20 segundos para el motor y devuelve un error corto en vez de un traceback cuando no hay datos de cuotas.
 
