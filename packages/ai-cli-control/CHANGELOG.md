@@ -4,6 +4,31 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.12.19, 2026-10-27
+
+### Added
+
+- Cursor and Grok are read as one weekly quota under The X Subscription. Grok decodes its current period and the full product composition (API, Grok Build, Grok Chat, Imagine, Grok Bot, Cursor and Bugbot). Unified Cursor plans read as a weekly shared quota without the second included budget, and legacy plans keep their two monthly budgets.
+- A shared quota is only grouped when the xAI account and team are verified. Similar emails, equal percentages or equal resets never merge two accounts. Missing configuration or errors never turn into 0%.
+- Isolated Grok profiles, so the local CLI account and the unified account can both be measured.
+- Waybar, XFCE and the trays show the real period of each quota and no longer repeat a shared quota.
+
+### Fixed
+
+- Redirects to another origin no longer carry quota credentials.
+- Removing an account only deletes files inside the managed provider directories.
+- Quota caches and fallback sources are kept per account, so one account can no longer show another account's numbers.
+- Credential and profile updates are serialized across processes. Adding or removing several accounts at the same time no longer loses a profile.
+- The Claude usage cooldown is honored even when there is no cached quota yet.
+- The first incremental cost record after the anchor is kept.
+- Legacy account preferences go through the suite engine.
+- The CLI installer picks the right checksum on ARM64.
+- `ai recover` reads Claude conversations from `CLAUDE_CONFIG_DIR` when it is set.
+- `ai recover` streams long transcripts and database copies with bounded memory, and its exports are created private without overwriting an existing file.
+- Unreadable skills no longer stop `kodexbar-skills`, and shared sources are not hashed twice.
+- The Linux tray refreshes off the GTK event thread, so the menu no longer freezes during a refresh.
+- The Windows installer downloads into an isolated folder, checks the checksum of the installer built for that version, and reports installation failures. Uninstalling keeps the other entries in PATH.
+
 ## 0.12.18, 2026-10-01
 
 ### Fixed
