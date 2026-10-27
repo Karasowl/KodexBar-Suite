@@ -1023,6 +1023,24 @@ class RecoverEngineTests(unittest.TestCase):
         self.assertNotEqual(saved, destination)
         self.assertIn("conversation", saved.read_text())
 
+    def test_claude_sessions_follow_claude_config_dir(self) -> None:
+        config = self.temp / "claude-profile"
+        flattened = str(self.project).replace("/", "-").replace(".", "-")
+        path = config / "projects" / flattened / "profile-session.jsonl"
+        path.parent.mkdir(parents=True)
+        record = {
+            "type": "user", "cwd": str(self.project), "timestamp": "2026-07-03T10:00:00Z",
+            "message": {"role": "user", "content": "mensaje del perfil"},
+        }
+        path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        with patch.object(self.engine, "HOME", self.home), patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(config)}):
+            sessions = self.engine.claude_sessions(self.project)
+        self.assertEqual([session["id"] for session in sessions], ["profile-session"])
+        self.assertEqual(sessions[0]["first"], "mensaje del perfil")
+        with patch.object(self.engine, "HOME", self.home), patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            self.assertEqual(self.engine.claude_sessions(self.project), [])
+
     def write_codex_session(self, session_id: str, timestamp: str, text: str) -> None:
         path = self.home / ".codex/sessions/2026/07" / f"rollout-{session_id}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)

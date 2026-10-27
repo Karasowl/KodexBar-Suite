@@ -602,7 +602,8 @@ def claude_session(path):
 
 
 def claude_sessions(cwd):
-    root = HOME / ".claude" / "projects"
+    config = os.environ.get("CLAUDE_CONFIG_DIR")
+    root = (Path(config).expanduser() if config else HOME / ".claude") / "projects"
     if not root.is_dir():
         return []
     flattened = str(cwd).replace("/", "-").replace(".", "-")
